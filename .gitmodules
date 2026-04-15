@@ -1,0 +1,8 @@
+[submodule "experiments/experiments/gnn-assisted-stv-prediction"]
+	path = experiments/experiments/gnn-assisted-stv-prediction
+	url = git@github.com:Pequanta/Mathematics.ai-atp.git
+	branch = feat/data-preprocessing-pipeline
+[submodule "experiments/gnn-assisted-stv-prediction"]
+	path = experiments/gnn-assisted-stv-prediction
+	url = git@github.com:Pequanta/Mathematics.ai-atp.git
+	branch = feat/data-preprocessing-pipeline
