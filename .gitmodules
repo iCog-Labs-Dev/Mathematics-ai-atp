@@ -1,0 +1,12 @@
+[submodule "experiments/gnn-assisted-stv-prediction"]
+	path = experiments/gnn-assisted-stv-prediction
+	url = git@github.com:Pequanta/Mathematics.ai-atp.git
+	branch = feat/data-preprocessing-pipeline
+[submodule "experiments/lean-dojo-parsing"]
+	path = experiments/lean-dojo-parsing
+	url = https://github.com/Pequanta/Lean-Dataset-Parsing
+	branch = feat/leandojo-parsing
+[submodule "experiments/trello-github-automation"]
+	path = experiments/trello-github-automation
+	url = git@github.com:Pequanta/trell-github-automation.git
+	branch = main
