@@ -13,3 +13,7 @@
 	path = experiments/trello-github-automation
 	url = git@github.com:Pequanta/trell-github-automation.git
 	branch = main
+[submodule "experiments/pettaChainer_pln"]
+	path = experiments/pettaChainer_pln
+	url = https://github.com/123nol/petta_chainer
+	branch = main
