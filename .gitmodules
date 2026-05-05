@@ -17,3 +17,7 @@
 	path = experiments/pettaChainer_pln
 	url = https://github.com/123nol/petta_chainer
 	branch = main
+[submodule "experiments/leandojo-pantograph-experiments"]
+	path = experiments/leandojo-pantograph-experiments
+	url = https://github.com/tsigemariamzewdu/leandojo-pantograph-experiments
+	branch = master
