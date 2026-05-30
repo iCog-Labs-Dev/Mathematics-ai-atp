@@ -1,0 +1,12 @@
+annotated-types
+iniconfig
+packaging        
+pluggy
+pydantic
+pydantic-core
+pygments
+pytest
+typing-extensions
+typing-inspection
+torch
+torch-geometric
