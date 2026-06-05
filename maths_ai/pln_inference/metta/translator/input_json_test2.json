@@ -1,0 +1,87 @@
+[{
+    "name": "curry_from_conjunction_after_constructor",
+    "goal": "∀ (P Q R : Prop), (P ∧ Q → R) → P → Q → R",
+    "tactics": [
+      "intro P Q R h hp hq",
+      "apply h",
+      "constructor"
+    ]
+  },
+  {
+    "name": "negation_to_anything_after_apply_not",
+    "goal": "∀ (P Q : Prop), P → ¬ P → Q",
+    "tactics": [
+      "intro P Q hP hnP",
+      "apply False.elim",
+      "apply hnP"
+    ]
+  },
+  {
+    "name": "double_implication_after_apply_first",
+    "goal": "∀ (P Q R S : Prop), (P → Q) → (Q → R) → (R → S) → P → S",
+    "tactics": [
+      "intro P Q R S hPQ hQR hRS hP",
+      "apply hRS"
+    ]
+  },
+  {
+    "name": "nested_and_or_context_after_cases",
+    "goal": "∀ (P Q R : Prop), (P ∧ Q) ∨ R → (P → Q → R) → R ∨ Q",
+    "tactics": [
+      "intro P Q R h hPQR",
+      "cases h"
+    ]
+  },
+  {
+    "name": "iff_forward_after_apply",
+    "goal": "∀ (P Q : Prop), (P ↔ Q) → P → Q",
+    "tactics": [
+      "intro P Q hIff hP",
+      "apply hIff.mp"
+    ]
+  },
+  {
+    "name": "iff_backward_after_apply",
+    "goal": "∀ (P Q : Prop), (P ↔ Q) → Q → P",
+    "tactics": [
+      "intro P Q hIff hQ",
+      "apply hIff.mpr"
+    ]
+  },
+  {
+    "name": "or_intro_left_after_left",
+    "goal": "∀ (P Q : Prop), P → P ∨ Q",
+    "tactics": [
+      "intro P Q hP",
+      "left"
+    ]
+  },
+  {
+    "name": "or_intro_right_after_right",
+    "goal": "∀ (P Q : Prop), Q → P ∨ Q",
+    "tactics": [
+      "intro P Q hQ",
+      "right"
+    ]
+  },
+  {
+    "name": "contrapositive_like_after_apply",
+    "goal": "∀ (P Q : Prop), (P → Q) → ¬ Q → ¬ P",
+    "tactics": [
+      "intro P Q hPQ hnQ hP",
+      "apply hnQ",
+      "apply hPQ"
+    ]
+  },
+  {
+    "name": "two_goal_constructor_with_implication_context",
+    "goal": "∀ (P Q R : Prop), P → Q → (P → Q → R) → P ∧ R",
+    "tactics": [
+      "intro P Q R hP hQ hPQR",
+      "constructor"
+    ]
+  }
+
+]
+
+

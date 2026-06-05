@@ -1,0 +1,37 @@
+[
+  {
+    "name": "modus_ponens_after_apply",
+    "goal": "∀ (P Q : Prop), P → (P → Q) → Q",
+    "tactics": [
+      "intro P Q hP hPQ",
+      "apply hPQ"
+    ]
+  },
+  {
+    "name": "chain_implication_after_apply_hQR",
+    "goal": "∀ (P Q R : Prop), P → (P → Q) → (Q → R) → R",
+    "tactics": [
+      "intro P Q R hP hPQ hQR",
+      "apply hQR"
+    ]
+  },
+  {
+    "name": "and_commutativity_after_constructor",
+    "goal": "∀ (P Q : Prop), P ∧ Q → Q ∧ P",
+    "tactics": [
+      "intro P Q h",
+      "cases h",
+      "constructor"
+    ]
+  },
+
+  {
+    "name": "or_elimination_after_cases",
+    "goal": "∀ (P Q R : Prop), (P → R) → (Q → R) → P ∨ Q → R",
+    "tactics": [
+      "intro P Q R hPR hQR hOr",
+      "cases hOr"
+    ]
+  }
+  
+]
