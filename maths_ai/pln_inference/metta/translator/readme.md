@@ -1147,7 +1147,499 @@ The recent update adds:
 
 This makes the ranking stage more robust when PeTTaChainer cannot prove any current subgoal.
 
+---
 
+# Dynamic Thompson Sampling Fallback Strategy
+
+In addition to the basic random fallback, the ranking stage now supports a **dynamic Thompson sampling** strategy. Unlike static random scoring, this approach maintains a per-subgoal Beta posterior that **updates dynamically across iterations** based on observed proof outcomes. Each ranking round feeds back into the next, so the sampler continuously learns which subgoals tend to succeed and biases future selections toward them.
+
+## How dynamic Thompson sampling works
+
+Each subgoal maintains a **Beta(alpha, beta) posterior** that evolves over time:
+
+- On **first encounter**, the prior is `Beta(1, 1)` — equivalent to a uniform distribution over `[0, 1]`.
+- When ranking with no STVs found, each subgoal **samples a score** from its current Beta posterior.
+- After the subgoal is attempted, the posterior is **updated dynamically**:
+  - **Success** → increment `alpha` (shifts the distribution toward higher scores)
+  - **Failure** → increment `beta` (shifts the distribution toward lower scores)
+- The updated state is **persisted** (via JSON) and **reloaded** on the next ranking call.
+- Over multiple iterations, the sampler **continuously refines** its estimate of each subgoal's promise, increasingly biasing exploration toward high-success subgoals while still exploring uncertain ones.
+
+## Usage
+
+```bash
+# First iteration — start with fresh state (no prior history)
+python -m translator_modules.cli \
+  --rank-manifest ./generated_metta/generated_manifest.json \
+  --ranking-output ./generated_metta/ranking_results.json \
+  --fallback-strategy thompson
+```
+
+The ranking output will contain:
+
+```json
+{
+  "ranking_method": "thompson_sampling",
+  "ranked_subgoals": [
+    {
+      "test_name": "and_commutativity",
+      "goal_index": 0,
+      "thompson_alpha": 1.0,
+      "thompson_beta": 1.0,
+      "score": 0.7234,
+      "status": "thompson_fallback_no_stv_global",
+      ...
+    }
+  ],
+  "thompson_sampler_state": {
+    "and_commutativity_goal_0": {"alpha": 1.0, "beta": 1.0},
+    "and_commutativity_goal_1": {"alpha": 1.0, "beta": 1.0}
+  }
+}
+```
+
+## Dynamically updating state after each iteration
+
+The key difference from static Thompson sampling is that the Beta posteriors **carry forward and update** across ranking rounds. Between iterations, use the `ThompsonSampler` API to record outcomes and persist the updated state:
+
+```python
+from translator_modules.runner import ThompsonSampler
+import json
+
+# Load the dynamically accumulated state from the previous ranking output
+with open("./generated_metta/ranking_results.json") as f:
+    result = json.load(f)
+ts = ThompsonSampler(state=result["thompson_sampler_state"])
+
+# Record outcomes — this dynamically updates the Beta posteriors
+ts.record_success("and_commutativity_goal_0")   # alpha += 1 → higher future scores
+ts.record_failure("and_commutativity_goal_1")    # beta += 1  → lower future scores
+
+# Persist the updated state for the next iteration
+ts.save_to("./generated_metta/thompson_state.json")
+```
+
+On the next ranking call, pass the updated state so the sampler resumes from where it left off:
+
+```bash
+# Subsequent iterations — load and update the dynamic state
+python -m translator_modules.cli \
+  --rank-manifest ./generated_metta/generated_manifest.json \
+  --ranking-output ./generated_metta/ranking_results.json \
+  --fallback-strategy thompson \
+  --thompson-state-input ./generated_metta/thompson_state.json \
+  --thompson-state-output ./generated_metta/thompson_state.json
+```
+
+Each iteration refines the posteriors further, making the ranking progressively more informed.
+
+## Controlling randomness
+
+```bash
+--random-seed 42    # makes Thompson samples reproducible
+```
+
+## Full CLI flags reference for Thompson sampling
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--fallback-strategy {random,thompson}` | `random` | Fallback strategy when no STV is found |
+| `--thompson-state-input PATH` | None | Load previous Thompson state from JSON |
+| `--thompson-state-output PATH` | None | Save updated Thompson state to JSON (also embedded in ranking output) |
+| `--random-seed INT` | None | Seed for reproducible sampling |
+
+## Important note
+
+Like the random fallback, the dynamic Thompson fallback **only activates when no subgoal log contains any STV**. If even one subgoal has a real PeTTaChainer truth value, the real scores are used instead and the Thompson posteriors are not consulted.
+
+The dynamic nature of this strategy means its value compounds over time — early iterations explore broadly (Beta(1,1) is uniform), while later iterations increasingly exploit what has been learned from prior outcomes.
+
+---
+
+# Testing Guide
+
+This section explains how to verify that every part of the system works correctly — from the import smoke test to the full end-to-end pipeline.
+
+## Quick reference: all test commands
+
+```bash
+# Level 0 — imports (no dependencies)
+cd pln_inference/metta/translator
+python test_imports.py
+
+# Level 1 — runner unit tests (no Pantograph, no petta)
+python -c "
+from translator_modules.runner import *
+# ... see full test script below ...
+"
+
+# Level 2 — simulated end-to-end ranking test (no petta)
+python -c "
+import json, tempfile, os
+from translator_modules.runner import parse_and_rank_logs, ThompsonSampler
+# ... see full test script below ...
+"
+
+# Level 3 — generation test (requires Pantograph + Lean 4)
+python -m translator_modules.cli \
+  --input input_json_test.json \
+  --output /tmp/test_generated \
+  --axioms-path /absolute/path/to/metamath_axioms.metta
+
+# Level 4 — full pipeline (requires Pantograph + petta)
+# Step 1: generate
+python -m translator_modules.cli \
+  --input input_json_test.json \
+  --output /tmp/full_test \
+  --axioms-path /absolute/path/to/metamath_axioms.metta
+# Step 2: run .metta files
+bash /tmp/full_test/run_all_generated.sh
+# Step 3: rank logs (random fallback)
+python -m translator_modules.cli \
+  --rank-manifest /tmp/full_test/generated_manifest.json \
+  --ranking-output /tmp/full_test/ranking_random.json
+# Step 4: rank logs (Thompson fallback)
+python -m translator_modules.cli \
+  --rank-manifest /tmp/full_test/generated_manifest.json \
+  --ranking-output /tmp/full_test/ranking_thompson.json \
+  --fallback-strategy thompson
+```
+
+## Level 0: Import smoke test
+
+This tests that all modules import correctly and basic functions work. It requires **no external dependencies** (no Pantograph, no petta, no Lean).
+
+```bash
+cd pln_inference/metta/translator
+python test_imports.py
+```
+
+Expected output:
+
+```
+Testing imports...
+  constants: OK (34 mappings, 15 type atoms)
+  normalizer: OK
+  renderer: OK
+  parser: OK
+  extractor: OK
+  runner: OK
+  cli: OK (imports only, no Pantograph test)
+
+Testing translator.py facade...
+  facade re-exports: OK
+
+=== ALL IMPORT TESTS PASSED! ===
+```
+
+If it fails, check that all dependencies are installed (`pip install pantograph` for Layer 4-6).
+
+## Level 1: Runner unit tests
+
+These test the ranking, STV parsing, and Thompson sampling in isolation. Requires **no external dependencies**.
+
+```bash
+cd pln_inference/metta/translator
+python -c "
+from translator_modules.runner import (
+    safe_name, shell_quote, extract_stv_scores, score_from_stv,
+    sample_fallback_score, ThompsonSampler,
+)
+
+# --- safe_name ---
+assert safe_name('test-1') == 'test-1'
+assert safe_name('') == 'test'
+assert safe_name('hello world') == 'hello_world'
+print('safe_name: OK')
+
+# --- score_from_stv ---
+assert score_from_stv(0.8, 0.6) == 0.48
+assert score_from_stv(1.0, 1.0) == 1.0
+assert score_from_stv(0.0, 1.0) == 0.0
+print('score_from_stv: OK')
+
+# --- extract_stv_scores ---
+log = 'Result: (: proof1 (Q) (STV 0.85 0.72)) rule-proof'
+stvs = extract_stv_scores(log)
+assert len(stvs) == 1
+assert stvs[0] == (0.85, 0.72), f'Got {stvs[0]}'
+print('extract_stv_scores: OK')
+
+# Multiple STVs
+log2 = '''(: proof1 (Q) (STV 0.5 0.9)) rule-proof
+(: proof2 (Q) (STV 0.8 0.6)) rule-proof'''
+stvs2 = extract_stv_scores(log2)
+assert len(stvs2) == 2
+assert (0.5, 0.9) in stvs2
+assert (0.8, 0.6) in stvs2
+print('extract_stv_scores (multiple): OK')
+
+# --- sample_fallback_score ---
+import random
+rng = random.Random(42)
+for _ in range(100):
+    s = sample_fallback_score(rng, distribution='uniform', low=0.0, high=1.0)
+    assert 0.0 <= s <= 1.0
+s_beta = sample_fallback_score(rng, distribution='beta', alpha=2.0, beta=5.0)
+assert 0.0 <= s_beta <= 1.0
+print('sample_fallback_score: OK')
+
+# --- ThompsonSampler ---
+ts = ThompsonSampler()
+key = 'test_goal_0'
+assert ts.alpha(key) == 1.0
+assert ts.beta(key) == 1.0
+
+# Sample
+rng = random.Random(42)
+scores = [ts.sample(key, rng) for _ in range(1000)]
+assert all(0.0 <= s <= 1.0 for s in scores)
+assert abs(sum(scores)/len(scores) - 0.5) < 0.1  # roughly uniform with Beta(1,1)
+
+# Record success
+ts.record_success(key, reward=5.0)
+assert ts.alpha(key) == 6.0
+assert ts.beta(key) == 1.0
+
+# Record failure
+ts.record_failure(key, penalty=3.0)
+assert ts.beta(key) == 4.0
+
+# After success, samples should be higher on average
+high_scores = [ts.sample(key, rng) for _ in range(1000)]
+assert sum(high_scores)/len(high_scores) > 0.6  # Beta(6,4) mean = 0.6
+print('ThompsonSampler: OK')
+
+# --- ThompsonSampler subgoal_key ---
+item = {'test_name': 'my_test', 'goal_index': 3}
+assert ThompsonSampler.subgoal_key(item) == 'my_test_goal_3'
+item2 = {}
+assert ThompsonSampler.subgoal_key(item2) == 'unknown_goal_0'
+print('ThompsonSampler.subgoal_key: OK')
+
+# --- ThompsonSampler save/load ---
+import tempfile, os, json
+state_dict = {'a_goal_0': {'alpha': 3.0, 'beta': 7.0}}
+ts2 = ThompsonSampler(state=state_dict)
+with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+    path = f.name
+ts2.save_to(path)
+ts3 = ThompsonSampler.load_from(path)
+assert ts3.state_dict == state_dict
+os.unlink(path)
+print('ThompsonSampler save/load: OK')
+
+print()
+print('=== ALL LEVEL 1 TESTS PASSED ===')
+"
+```
+
+## Level 2: Simulated end-to-end ranking test
+
+This creates a mock manifest and log files to test the full `parse_and_rank_logs` pipeline without petta or Pantograph.
+
+```bash
+cd pln_inference/metta/translator
+python -c "
+import json, tempfile, os, shutil
+from translator_modules.runner import parse_and_rank_logs, ThompsonSampler
+
+tmpdir = tempfile.mkdtemp()
+
+# Create mock manifest
+manifest = {
+    'generated_items': [
+        {
+            'test_name': 'test_a',
+            'goal_index': 0,
+            'metta_path': os.path.join(tmpdir, 'nonexistent.metta'),
+            'log_path': os.path.join(tmpdir, 'test_a_goal_0.log'),
+        },
+        {
+            'test_name': 'test_a',
+            'goal_index': 1,
+            'metta_path': os.path.join(tmpdir, 'nonexistent.metta'),
+            'log_path': os.path.join(tmpdir, 'test_a_goal_1.log'),
+        },
+    ]
+}
+manifest_path = os.path.join(tmpdir, 'manifest.json')
+with open(manifest_path, 'w') as f:
+    json.dump(manifest, f)
+
+# Create empty log files (no STVs -> triggers fallback)
+for i in range(2):
+    with open(os.path.join(tmpdir, f'test_a_goal_{i}.log'), 'w') as f:
+        f.write('PeTTaChainer completed. No proofs found.\\n')
+
+# --- Test 1: default random fallback ---
+ranked = parse_and_rank_logs(manifest_path, random_seed=42)
+assert len(ranked) == 2
+assert ranked[0]['status'] == 'random_fallback_no_stv_global'
+assert 0.0 <= ranked[0]['score'] <= 1.0
+print('Test 1 (random fallback): OK')
+
+# --- Test 2: Thompson fallback ---
+ranked2 = parse_and_rank_logs(
+    manifest_path,
+    fallback_strategy='thompson',
+    random_seed=42,
+)
+assert ranked2[0]['status'] == 'thompson_fallback_no_stv_global'
+assert ranked2[0]['thompson_alpha'] == 1.0
+assert ranked2[0]['thompson_beta'] == 1.0
+assert 0.0 <= ranked2[0]['score'] <= 1.0
+print('Test 2 (thompson fallback): OK')
+
+# --- Test 3: Thompson with loaded state ---
+ts = ThompsonSampler()
+key = ThompsonSampler.subgoal_key(manifest['generated_items'][0])
+ts.record_success(key, reward=5.0)  # alpha becomes 6
+
+ranked3 = parse_and_rank_logs(
+    manifest_path,
+    fallback_strategy='thompson',
+    thompson_sampler=ts,
+    random_seed=42,
+)
+assert ranked3[0]['thompson_alpha'] == 6.0
+assert ranked3[1]['thompson_alpha'] == 1.0
+print('Test 3 (thompson with pre-loaded state): OK')
+
+# --- Test 4: ranking with output file ---
+ranking_output = os.path.join(tmpdir, 'ranking.json')
+ranked4 = parse_and_rank_logs(
+    manifest_path,
+    ranking_output=ranking_output,
+    fallback_strategy='thompson',
+    random_seed=7,
+)
+with open(ranking_output) as f:
+    result = json.load(f)
+assert result['ranking_method'] == 'thompson_sampling'
+assert 'thompson_sampler_state' in result
+print('Test 4 (thompson with ranking_output): OK')
+
+# --- Test 5: fallback disabled ---
+ranked5 = parse_and_rank_logs(manifest_path, random_fallback=False)
+assert all(r['score'] == 0.0 for r in ranked5)
+print('Test 5 (fallback disabled): OK')
+
+# --- Test 6: real STVs in logs (no fallback needed) ---
+with open(os.path.join(tmpdir, 'test_a_goal_0.log'), 'w') as f:
+    f.write('(: proof1 (P) (STV 0.9 0.8)) rule-proof\\n')
+    f.write('(: proof2 (P) (STV 0.5 0.5)) rule-proof\\n')
+
+ranked6 = parse_and_rank_logs(manifest_path)
+assert ranked6[0]['status'] == 'ok'
+assert abs(ranked6[0]['score'] - 0.72) < 1e-10  # 0.9 * 0.8
+print('Test 6 (real STVs, no fallback): OK')
+
+# --- Test 7: mixed STVs and missing logs ---
+# One log has STVs, the other is missing
+with open(os.path.join(tmpdir, 'test_a_goal_0.log'), 'w') as f:
+    f.write('(: proof1 (P) (STV 0.9 0.8)) rule-proof\\n')
+manifest['generated_items'][1]['log_path'] = '/dev/null/nonexistent'
+with open(manifest_path, 'w') as f:
+    json.dump(manifest, f)
+
+ranked7 = parse_and_rank_logs(manifest_path)
+assert ranked7[0]['status'] == 'ok'
+assert ranked7[0]['score'] == 0.72
+assert ranked7[1]['status'] == 'missing_log'
+print('Test 7 (mixed STVs and missing logs): OK')
+
+shutil.rmtree(tmpdir)
+print()
+print('=== ALL LEVEL 2 TESTS PASSED ===')
+"
+```
+
+## Level 3: Generation test (requires Lean 4 + Pantograph)
+
+This tests the full generation pipeline: connecting to Lean, applying tactics, extracting subgoals, and writing .metta files.
+
+Prerequisites:
+- Lean 4 installed
+- `pantograph` Python package installed (`pip install pantograph`)
+
+```bash
+cd pln_inference/metta/translator
+
+python -m translator_modules.cli \
+  --input input_json_test.json \
+  --output /tmp/test_generated \
+  --axioms-path "$(pwd)/../axioms/metamath_axioms.metta"
+```
+
+Expected output:
+```
+🚀 Running Test: modus_ponens_after_apply
+Goal 0 Processed:
+✅ Wrote subgoal file: /tmp/test_generated/modus_ponens_after_apply_goal_0.metta
+📝 Expected log path: /tmp/test_generated/modus_ponens_after_apply_goal_0.log
+...
+✅ Wrote runner script to: /tmp/test_generated/run_all_generated.sh
+✅ Wrote manifest to: /tmp/test_generated/generated_manifest.json
+```
+
+Verify the generated files:
+
+```bash
+ls -la /tmp/test_generated/
+# Should see: *.metta files, generated_manifest.json, run_all_generated.sh
+```
+
+Inspect a .metta file:
+
+```bash
+cat /tmp/test_generated/modus_ponens_after_apply_goal_0.metta
+```
+
+You should see the PeTTaChainer imports, hypothesis atoms added via `!(compileadd kb ...)`, and the query `!(query 10 kb (: $prf (P) $tv))`.
+
+## Troubleshooting
+
+### `ModuleNotFoundError: No module named 'pantograph'`
+
+The generation step requires Pantograph, but ranking and testing can still work without it:
+
+```bash
+# Test ranking functions without Pantograph:
+python -c "from translator_modules.runner import parse_and_rank_logs; print('ranking imports OK')"
+```
+
+### `RuntimeError: Error starting Pantograph server`
+
+Make sure Lean 4 is installed and the `lean` command is on your PATH:
+
+```bash
+which lean
+lean --version
+```
+
+### STV regex finds no matches in logs
+
+The `extract_stv_scores` function only searches lines containing `rule-proof`. If your logs contain STVs on other lines, you may get `no_stv_found` even when proofs exist.
+
+Check with:
+
+```bash
+# Search for STVs in a log file
+grep -n 'STV' /path/to/your.log
+# Search for rule-proof
+grep -n 'rule-proof' /path/to/your.log
+```
+
+### All subgoals show `missing_log`
+
+Run the generated shell script first:
+
+```bash
+bash /tmp/test_generated/run_all_generated.sh
+```
+
+---
 
 ## 21. Example with normalized variables enabled
 
