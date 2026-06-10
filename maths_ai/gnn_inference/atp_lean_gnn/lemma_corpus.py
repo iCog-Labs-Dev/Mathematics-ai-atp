@@ -25,7 +25,17 @@ class LemmaRecord:
 
 def load_lemma_corpus(path: str | Path) -> list[LemmaRecord]:
     corpus_path = Path(path)
-    if not corpus_path.exists():
+    if corpus_path.is_dir():
+        candidate_files = (corpus_path / "lemmas.jsonl", corpus_path / "lemmas_sample.jsonl")
+        for candidate in candidate_files:
+            if candidate.exists() and candidate.is_file():
+                corpus_path = candidate
+                break
+        else:
+            raise FileNotFoundError(
+                f"Lemma corpus directory '{corpus_path}' does not contain 'lemmas.jsonl' or 'lemmas_sample.jsonl'."
+            )
+    elif not corpus_path.exists():
         raise FileNotFoundError(f"Lemma corpus not found at '{corpus_path}'.")
 
     records: list[LemmaRecord] = []

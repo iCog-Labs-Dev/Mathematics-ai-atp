@@ -5,7 +5,7 @@ import unittest
 import numpy as np
 import torch
 
-from atp_lean_gnn.premise_pool import build_unified_pools
+from maths_ai.gnn_inference.atp_lean_gnn.premise_pool import build_unified_pools
 
 
 class _FakeLemmaIndex:

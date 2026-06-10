@@ -11,7 +11,7 @@ if __package__ in {None, ""}:
         sys.path.insert(0, repo_root_str)
 
 
-from atp_lean_gnn.preprocess import main
+from maths_ai.gnn_inference.atp_lean_gnn.preprocess import main
 
 
 if __name__ == "__main__":

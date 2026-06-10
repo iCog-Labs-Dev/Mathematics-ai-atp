@@ -2,12 +2,29 @@ from __future__ import annotations
 
 import json
 import unittest
+import tempfile
 from pathlib import Path
 
-from atp_lean_gnn.lemma_corpus import load_lemma_corpus, load_lemma_name_index, write_lemma_corpus, LemmaRecord
+from maths_ai.gnn_inference.atp_lean_gnn.lemma_corpus import load_lemma_corpus, load_lemma_name_index, write_lemma_corpus, LemmaRecord
 
 
 class LemmaCorpusTests(unittest.TestCase):
+    def test_load_lemma_corpus_accepts_directory_path(self) -> None:
+        records = [
+            LemmaRecord(lemma_id=7, name="Foo.bar", statement="x = x", namespace="Foo", module=""),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            corpus_dir = Path(tmpdir)
+            corpus_path = corpus_dir / "lemmas.jsonl"
+            write_lemma_corpus(corpus_path, records)
+
+            loaded = load_lemma_corpus(corpus_dir)
+
+            self.assertEqual(len(loaded), 1)
+            self.assertEqual(loaded[0].lemma_id, 7)
+            self.assertEqual(loaded[0].name, "Foo.bar")
+
     def setUp(self) -> None:
         self.tmp_dir = Path("tests") / "_tmp_lemma_corpus"
         self.tmp_dir.mkdir(parents=True, exist_ok=True)

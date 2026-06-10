@@ -6,12 +6,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from atp_lean_gnn import ParserAuditConfig, build_failure_record, run_parser_audit
-from atp_lean_gnn.audit import main as audit_main
-from atp_lean_gnn.dataset import DatasetRow
-from atp_lean_gnn.graph import proof_state_to_dag
-from atp_lean_gnn.labels import label_example
-from atp_lean_gnn.preparation import PreparationPhaseError, prepare_example
+from maths_ai.gnn_inference.atp_lean_gnn import ParserAuditConfig, build_failure_record, run_parser_audit
+from maths_ai.gnn_inference.atp_lean_gnn.audit import main as audit_main
+from maths_ai.gnn_inference.atp_lean_gnn.dataset import DatasetRow
+from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
+from maths_ai.gnn_inference.atp_lean_gnn.labels import label_example
+from maths_ai.gnn_inference.atp_lean_gnn.preparation import PreparationPhaseError, prepare_example
 
 
 class ParserAuditTests(unittest.TestCase):
@@ -45,19 +45,19 @@ class ParserAuditTests(unittest.TestCase):
     def test_prepare_example_classifies_failures_by_phase(self) -> None:
         row = self._row(state="n : Nat\n|- n = n", theorem="demo", tactic="simp")
 
-        with patch("atp_lean_gnn.preparation.parse_state", side_effect=ValueError("bad state")):
+        with patch("maths_ai.gnn_inference.atp_lean_gnn.preparation.parse_state", side_effect=ValueError("bad state")):
             with self.assertRaises(PreparationPhaseError) as parse_ctx:
                 prepare_example(row)
         self.assertEqual(parse_ctx.exception.phase, "parse_state")
         self.assertEqual(parse_ctx.exception.cause.__class__.__name__, "ValueError")
 
-        with patch("atp_lean_gnn.preparation.proof_state_to_dag", side_effect=RuntimeError("bad dag")):
+        with patch("maths_ai.gnn_inference.atp_lean_gnn.preparation.proof_state_to_dag", side_effect=RuntimeError("bad dag")):
             with self.assertRaises(PreparationPhaseError) as dag_ctx:
                 prepare_example(row)
         self.assertEqual(dag_ctx.exception.phase, "proof_state_to_dag")
         self.assertEqual(dag_ctx.exception.cause.__class__.__name__, "RuntimeError")
 
-        with patch("atp_lean_gnn.preparation.label_example", side_effect=LookupError("bad label")):
+        with patch("maths_ai.gnn_inference.atp_lean_gnn.preparation.label_example", side_effect=LookupError("bad label")):
             with self.assertRaises(PreparationPhaseError) as label_ctx:
                 prepare_example(row)
         self.assertEqual(label_ctx.exception.phase, "label_example")
@@ -73,9 +73,9 @@ class ParserAuditTests(unittest.TestCase):
         self.assertEqual(record["error_type"], "ValueError")
         self.assertEqual(record["failure_category"], "proof_state_to_dag:ValueError")
 
-    @patch("atp_lean_gnn.audit.iter_dataset_rows")
-    @patch("atp_lean_gnn.preparation.label_example")
-    @patch("atp_lean_gnn.preparation.proof_state_to_dag")
+    @patch("maths_ai.gnn_inference.atp_lean_gnn.audit.iter_dataset_rows")
+    @patch("maths_ai.gnn_inference.atp_lean_gnn.preparation.label_example")
+    @patch("maths_ai.gnn_inference.atp_lean_gnn.preparation.proof_state_to_dag")
     def test_run_parser_audit_writes_reports_and_categorized_failures(
         self,
         mock_proof_state_to_dag,
@@ -171,7 +171,7 @@ class ParserAuditTests(unittest.TestCase):
         self.assertIn("Top Failure Categories", markdown)
         self.assertIn("Representative Examples", markdown)
 
-    @patch("atp_lean_gnn.audit.iter_dataset_rows")
+    @patch("maths_ai.gnn_inference.atp_lean_gnn.audit.iter_dataset_rows")
     def test_audit_caps_representative_examples_per_category(self, mock_iter_dataset_rows) -> None:
         def fake_iter_dataset_rows(*, dataset_name: str, split: str, sample_limit: int | None = None):
             rows = [
@@ -198,7 +198,7 @@ class ParserAuditTests(unittest.TestCase):
         examples = manifest["representative_failure_examples"]["parse_state:TypeError"]
         self.assertEqual(len(examples), 2)
 
-    @patch("atp_lean_gnn.audit.iter_dataset_rows")
+    @patch("maths_ai.gnn_inference.atp_lean_gnn.audit.iter_dataset_rows")
     def test_audit_cli_supports_validation_alias_and_sample_limit(self, mock_iter_dataset_rows) -> None:
         def fake_iter_dataset_rows(*, dataset_name: str, split: str, sample_limit: int | None = None):
             rows_by_split = {

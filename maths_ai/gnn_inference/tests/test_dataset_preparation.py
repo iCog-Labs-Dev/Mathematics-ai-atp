@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import torch
 
-from atp_lean_gnn import (
+from maths_ai.gnn_inference.atp_lean_gnn import (
     EMPTY_TACTIC,
     UNKNOWN_TACTIC,
     PreprocessConfig,
@@ -17,11 +17,11 @@ from atp_lean_gnn import (
     normalize_tactic,
     run_preprocessing,
 )
-from atp_lean_gnn.cache import build_json_payload
-from atp_lean_gnn.dataset import DatasetRow, canonicalize_split_name, dataset_split_name
-from atp_lean_gnn.graph import proof_state_to_dag
-from atp_lean_gnn.preprocess import main as preprocess_main
-from atp_lean_gnn.state import parse_state
+from maths_ai.gnn_inference.atp_lean_gnn.cache import build_json_payload
+from maths_ai.gnn_inference.atp_lean_gnn.dataset import DatasetRow, canonicalize_split_name, dataset_split_name
+from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
+from maths_ai.gnn_inference.atp_lean_gnn.preprocess import main as preprocess_main
+from maths_ai.gnn_inference.atp_lean_gnn.state import parse_state
 
 
 class DatasetPreparationTests(unittest.TestCase):
@@ -130,7 +130,7 @@ class DatasetPreparationTests(unittest.TestCase):
         self.assertIn("nodes", payload["graph"])
         self.assertIn("edges", payload["graph"])
 
-    @patch("atp_lean_gnn.preprocess.iter_dataset_rows")
+    @patch("maths_ai.gnn_inference.atp_lean_gnn.preprocess.iter_dataset_rows")
     def test_run_preprocessing_creates_artifacts_and_uses_train_only_vocabs(self, mock_iter_dataset_rows) -> None:
         def fake_iter_dataset_rows(*, dataset_name: str, split: str, sample_limit: int | None = None):
             rows = [
@@ -194,7 +194,7 @@ class DatasetPreparationTests(unittest.TestCase):
         self.assertEqual(train_manifest["success_count"], 2)
         self.assertEqual(summary_json["splits_summary"]["train"]["success_count"], 2)
 
-    @patch("atp_lean_gnn.preprocess.iter_dataset_rows")
+    @patch("maths_ai.gnn_inference.atp_lean_gnn.preprocess.iter_dataset_rows")
     def test_cli_refuses_to_overwrite_without_force(self, mock_iter_dataset_rows) -> None:
         mock_iter_dataset_rows.return_value = iter(())
         self.output_root.mkdir(parents=True, exist_ok=True)
@@ -211,7 +211,7 @@ class DatasetPreparationTests(unittest.TestCase):
         )
         self.assertEqual(exit_code, 1)
 
-    @patch("atp_lean_gnn.preprocess.iter_dataset_rows")
+    @patch("maths_ai.gnn_inference.atp_lean_gnn.preprocess.iter_dataset_rows")
     def test_sample_per_split_limits_processed_rows(self, mock_iter_dataset_rows) -> None:
         def fake_iter_dataset_rows(*, dataset_name: str, split: str, sample_limit: int | None = None):
             rows = [
@@ -244,7 +244,7 @@ class DatasetPreparationTests(unittest.TestCase):
         self.assertTrue((self.output_root / "train" / "json" / "000000000.json").exists())
         self.assertFalse((self.output_root / "train" / "json" / "000000001.json").exists())
 
-    @patch("atp_lean_gnn.dataset._load_hf_split")
+    @patch("maths_ai.gnn_inference.atp_lean_gnn.dataset._load_hf_split")
     def test_stream_split_translates_val_to_validation(self, mock_load_hf_split) -> None:
         mock_load_hf_split.return_value = iter(
             [
@@ -256,7 +256,7 @@ class DatasetPreparationTests(unittest.TestCase):
             ]
         )
 
-        from atp_lean_gnn.dataset import stream_split
+        from maths_ai.gnn_inference.atp_lean_gnn.dataset import stream_split
 
         rows = list(stream_split(split="val", dataset_name="fake/dataset"))
 

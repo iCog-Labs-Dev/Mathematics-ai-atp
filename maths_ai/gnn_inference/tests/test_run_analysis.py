@@ -7,7 +7,7 @@ from pathlib import Path
 
 import torch
 
-from atp_lean_gnn import (
+from maths_ai.gnn_inference.atp_lean_gnn import (
     BaselineConfig,
     DatasetRow,
     GraphSAGEClassifierConfig,
@@ -20,9 +20,9 @@ from atp_lean_gnn import (
     render_run_comparison_markdown,
     train_baseline,
 )
-from atp_lean_gnn.cache import SplitReport, prepare_output_root, write_manifest, write_pyg_artifact, write_vocab
-from atp_lean_gnn.graph import proof_state_to_dag
-from atp_lean_gnn.pyg import build_vocab_from_labels, dag_to_pyg
+from maths_ai.gnn_inference.atp_lean_gnn.cache import SplitReport, prepare_output_root, write_manifest, write_pyg_artifact, write_vocab
+from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
+from maths_ai.gnn_inference.atp_lean_gnn.pyg import build_vocab_from_labels, dag_to_pyg
 
 
 class RunAnalysisTests(unittest.TestCase):

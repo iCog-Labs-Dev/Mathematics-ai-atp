@@ -13,6 +13,7 @@ from torch_geometric.data import Batch
 from .argument_selector import TacticWithArgsClassifier
 from .graph import DAGBuilder, GraphNode, proof_state_to_dag
 from .labels import get_tactic_arity
+from .lemma_corpus import LemmaRecord
 from .lemma_index import LemmaIndex
 from .premise_pool import build_unified_pools
 from .premise_scoring import PremiseScorer
@@ -26,6 +27,75 @@ def _resolve_local_node_name(node: GraphNode, dag: DAGBuilder) -> str:
         name_node = dag.nodes[node.children[0]]
         return name_node.label
     return node.label
+
+
+def _top_tactic_candidates(
+    tactic_probs: torch.Tensor,
+    id_to_tactic: dict[int, str],
+    *,
+    top_k: int,
+) -> list[dict[str, object]]:
+    """Return the top-k tactic candidates sorted by probability."""
+    if top_k <= 0:
+        return []
+
+    top_k = min(int(top_k), int(tactic_probs.size(-1)))
+    if top_k <= 0:
+        return []
+
+    topk = torch.topk(tactic_probs, k=top_k, dim=-1)
+    candidates: list[dict[str, object]] = []
+    for tactic_id, probability in zip(topk.indices.tolist(), topk.values.tolist(), strict=False):
+        candidates.append(
+            {
+                "tactic_id": int(tactic_id),
+                "tactic_name": id_to_tactic.get(int(tactic_id), "<UNK>"),
+                "probability": round(float(probability), 6),
+            }
+        )
+    return candidates
+
+
+class ArgumentPrediction:
+    """Details for a single selected argument."""
+
+    def __init__(
+        self,
+        source: str,
+        candidate_id: int,
+        label: str,
+        score: float,
+    ) -> None:
+        self.source = source
+        self.candidate_id = candidate_id
+        self.label = label
+        self.score = score
+
+    def __repr__(self) -> str:
+        return f"ArgumentPrediction(source={self.source!r}, candidate_id={self.candidate_id}, label={self.label!r}, score={self.score:.4f})"
+
+
+class InferenceResult:
+    """Structured inference result for tactic and argument prediction."""
+
+    def __init__(
+        self,
+        predicted_tactic: str,
+        tactic_name: str,
+        tactic_id: int,
+        tactic_probabilities: list[tuple[str, float]],
+        selected_arguments: list[str],
+        selected_argument_details: list[ArgumentPrediction],
+        *,
+        top_tactic_predictions: list[dict[str, object]] | None = None,
+    ) -> None:
+        self.predicted_tactic = predicted_tactic
+        self.tactic_name = tactic_name
+        self.tactic_id = tactic_id
+        self.tactic_probabilities = tactic_probabilities
+        self.selected_arguments = selected_arguments
+        self.selected_argument_details = selected_argument_details
+        self.top_tactic_predictions = top_tactic_predictions or []
 
 
 class InferencePipeline:
@@ -60,45 +130,41 @@ class InferencePipeline:
     @torch.no_grad()
     def predict_tactic(self, state_str: str) -> str:
         """Predict a full tactic string given a Lean proof state."""
-        # Parse the raw state string into a ProofState
+        return self.predict_tactic_result(state_str).predicted_tactic
+
+    @torch.no_grad()
+    def predict_tactic_result(self, state_str: str, *, top_k: int = 1) -> InferenceResult:
+        """Predict tactics and return detailed inference information for the top-k candidates."""
         state = parse_state(state_str)
         
         # 1. Graph construction
         dag = proof_state_to_dag(state)
         data = dag_to_pyg(dag, self.node_vocab)
         
-        # Find the root State node for graph readout
         try:
             state_idx = next(i for i, n in enumerate(dag.nodes) if n.label == "State")
         except StopIteration:
             state_idx = 0
         data.state_node_index = torch.tensor([state_idx], dtype=torch.long)
         
-        # Build premise mask for local candidates
         premise_mask = build_premise_mask(dag)
         data.premise_mask = torch.tensor(premise_mask, dtype=torch.bool)
         
-        # Move to device and batch
         data = data.to(self.device)
         batch = Batch.from_data_list([data])
 
-        # 2. Encode state and predict tactic
         node_embeddings = self.model.backbone.encode_nodes(batch)
         state_emb = self.model.backbone.readout(node_embeddings, batch)
         
         tactic_logits = self.model.backbone.classifier(state_emb)
-        tactic_id = tactic_logits.argmax(dim=-1).item()
-        tactic_name = self.id_to_tactic.get(tactic_id, "<UNK>")
-        
-        arity = get_tactic_arity(tactic_name)
-        if arity == 0:
-            return tactic_name
-            
-        # 3. Retrieve and Score Premises
-        # Convert integer tactic ID to a tensor for the embedding layer
-        tactic_id_tensor = torch.tensor([tactic_id], dtype=torch.long, device=self.device)
-        tactic_emb = self.model.tactic_embedding(tactic_id_tensor)
-        
+        tactic_probs = torch.softmax(tactic_logits.squeeze(0), dim=-1)
+        top_candidates = _top_tactic_candidates(tactic_probs, self.id_to_tactic, top_k=top_k)
+
+        tactic_distribution = [
+            (item["tactic_name"], float(item["probability"]))
+            for item in top_candidates
+        ]
+
         pools = build_unified_pools(
             state_emb,
             node_embeddings,
@@ -107,32 +173,92 @@ class InferencePipeline:
             lemma_index=self.lemma_index,
             k=self.k,
         )
-        
         pool = pools[0]
-        if not pool.candidate_ids:
-            return tactic_name
-            
-        # Score candidates
-        scores = self.scorer.score(state_emb.squeeze(0), tactic_emb.squeeze(0), pool.candidate_vectors)
-        
-        # Pick top `arity` arguments
-        sorted_indices = scores.argsort(descending=True)
-        top_indices = sorted_indices[:arity].tolist()
-        
-        arguments = []
-        for idx in top_indices:
-            source = pool.candidate_sources[idx]
-            cid = pool.candidate_ids[idx]
-            
-            if source == "local":
-                node = dag.nodes[cid]
-                arg_str = _resolve_local_node_name(node, dag)
-            else:
-                if self.lemma_corpus and cid in self.lemma_corpus:
-                    arg_str = self.lemma_corpus[cid].name
+
+        top_tactic_predictions: list[dict[str, object]] = []
+        for candidate in top_candidates:
+            tactic_id = int(candidate["tactic_id"])
+            tactic_name = str(candidate["tactic_name"])
+            arity = get_tactic_arity(tactic_name)
+
+            if arity == 0:
+                top_tactic_predictions.append(
+                    {
+                        "tactic_id": tactic_id,
+                        "tactic_name": tactic_name,
+                        "probability": float(candidate["probability"]),
+                        "selected_arguments": [],
+                        "selected_argument_details": [],
+                    }
+                )
+                continue
+
+            tactic_id_tensor = torch.tensor([tactic_id], dtype=torch.long, device=self.device)
+            tactic_emb = self.model.tactic_embedding(tactic_id_tensor)
+
+            if not pool.candidate_ids:
+                top_tactic_predictions.append(
+                    {
+                        "tactic_id": tactic_id,
+                        "tactic_name": tactic_name,
+                        "probability": float(candidate["probability"]),
+                        "selected_arguments": [],
+                        "selected_argument_details": [],
+                    }
+                )
+                continue
+
+            scores = self.scorer.score(state_emb.squeeze(0), tactic_emb.squeeze(0), pool.candidate_vectors)
+            sorted_indices = scores.argsort(descending=True)
+            top_indices = sorted_indices[:arity].tolist()
+
+            arguments: list[str] = []
+            selected_argument_details: list[ArgumentPrediction] = []
+            for idx in top_indices:
+                source = pool.candidate_sources[idx]
+                cid = pool.candidate_ids[idx]
+                score_value = float(scores[idx].item())
+
+                if source == "local":
+                    node = dag.nodes[cid]
+                    arg_str = _resolve_local_node_name(node, dag)
                 else:
-                    arg_str = f"<lemma_{cid}>"
-                
-            arguments.append(arg_str)
-            
-        return f"{tactic_name} {' '.join(arguments)}"
+                    if self.lemma_corpus and cid in self.lemma_corpus:
+                        arg_str = self.lemma_corpus[cid].name
+                    else:
+                        arg_str = f"<lemma_{cid}>"
+
+                arguments.append(arg_str)
+                selected_argument_details.append(
+                    ArgumentPrediction(
+                        source=source,
+                        candidate_id=cid,
+                        label=arg_str,
+                        score=score_value,
+                    )
+                )
+
+            top_tactic_predictions.append(
+                {
+                    "tactic_id": tactic_id,
+                    "tactic_name": tactic_name,
+                    "probability": float(candidate["probability"]),
+                    "selected_arguments": arguments,
+                    "selected_argument_details": selected_argument_details,
+                }
+            )
+
+        top1 = top_tactic_predictions[0] if top_tactic_predictions else None
+        predicted_tactic = str(top1["tactic_name"]) if top1 else "<UNK>"
+        if top1 and top1["selected_arguments"]:
+            predicted_tactic = f"{predicted_tactic} {' '.join(str(item) for item in top1['selected_arguments'])}"
+
+        return InferenceResult(
+            predicted_tactic=predicted_tactic,
+            tactic_name=str(top1["tactic_name"]) if top1 else "<UNK>",
+            tactic_id=int(top1["tactic_id"]) if top1 else -1,
+            tactic_probabilities=tactic_distribution,
+            selected_arguments=list(top1["selected_arguments"]) if top1 else [],
+            selected_argument_details=list(top1["selected_argument_details"]) if top1 else [],
+            top_tactic_predictions=top_tactic_predictions,
+        )

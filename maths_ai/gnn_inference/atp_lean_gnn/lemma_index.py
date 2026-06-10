@@ -47,9 +47,16 @@ class LemmaIndex:
     ) -> "LemmaIndex":
         import faiss
 
-        index_path = Path(index_dir) / "faiss.index"
-        vectors_path = Path(index_dir) / "lemma_vectors.npy"
-        ids_path = Path(index_dir) / "lemma_ids.json"
+        input_path = Path(index_dir)
+
+        if input_path.is_file():
+            index_path = input_path
+            vectors_path = input_path.with_name("lemma_vectors.npy")
+            ids_path = input_path.with_name("lemma_ids.json")
+        else:
+            index_path = input_path / "faiss.index"
+            vectors_path = input_path / "lemma_vectors.npy"
+            ids_path = input_path / "lemma_ids.json"
 
         if not index_path.exists():
             raise FileNotFoundError(f"FAISS index not found at '{index_path}'.")
@@ -83,8 +90,25 @@ class LemmaIndex:
             query = _normalize_rows(query)
 
         scores, indices = self.index.search(query, k)
-        lemma_ids = [[self.lemma_ids[int(idx)] for idx in row] for row in indices]
-        lemma_vecs = self.lemma_vectors[indices]
+        
+        num_lemmas = len(self.lemma_ids)
+        lemma_ids = [
+            [self.lemma_ids[int(idx)] if 0 <= int(idx) < num_lemmas else -1 for idx in row]
+            for row in indices
+        ]
+        
+        valid_mask = (indices >= 0) & (indices < num_lemmas)
+        safe_indices = np.where(valid_mask, indices, 0)
+        
+        if num_lemmas > 0:
+            lemma_vecs = self.lemma_vectors[safe_indices]
+            lemma_vecs[~valid_mask] = 0.0
+        else:
+            lemma_vecs = np.zeros(
+                (indices.shape[0], indices.shape[1], self.lemma_vectors.shape[1]),
+                dtype=self.lemma_vectors.dtype
+            )
+            
         return lemma_ids, lemma_vecs, scores
 
     @staticmethod

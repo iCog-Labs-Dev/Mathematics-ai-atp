@@ -19,10 +19,10 @@ if __package__ in {None, ""}:
         sys.path.insert(0, repo_root_str)
 
 
-from atp_lean_gnn.graph import lemma_statement_to_dag
-from atp_lean_gnn.lemma_corpus import load_lemma_corpus
-from atp_lean_gnn.pyg import dag_to_pyg
-from atp_lean_gnn.training import (
+from maths_ai.gnn_inference.atp_lean_gnn.graph import lemma_statement_to_dag
+from maths_ai.gnn_inference.atp_lean_gnn.lemma_corpus import load_lemma_corpus
+from maths_ai.gnn_inference.atp_lean_gnn.pyg import dag_to_pyg
+from maths_ai.gnn_inference.atp_lean_gnn.training import (
     BaselineConfig,
     build_model,
     load_baseline_config,

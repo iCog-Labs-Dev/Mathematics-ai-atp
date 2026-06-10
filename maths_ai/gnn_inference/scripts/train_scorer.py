@@ -9,6 +9,8 @@ Usage::
         --index-path artifacts/lemmas/v1/index/lemma_index.faiss
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import sys
@@ -24,11 +26,12 @@ if __package__ in {None, ""}:
     if repo_root_str not in sys.path:
         sys.path.insert(0, repo_root_str)
 
-from atp_lean_gnn.lemma_index import LemmaIndex
-from atp_lean_gnn.premise_scoring import PremiseScorer, PremiseScorerConfig
-from atp_lean_gnn.premise_training import evaluate_model_with_premises, train_one_epoch_with_premises
-from atp_lean_gnn.reporting import console_print
-from atp_lean_gnn.training import build_dataloaders, load_baseline_config, load_prepared_metadata, build_model
+from maths_ai.gnn_inference.atp_lean_gnn.lemma_index import LemmaIndex
+from maths_ai.gnn_inference.atp_lean_gnn.logger import TrainingLogger
+from maths_ai.gnn_inference.atp_lean_gnn.premise_scoring import PremiseScorer, PremiseScorerConfig
+from maths_ai.gnn_inference.atp_lean_gnn.premise_training import evaluate_model_with_premises, train_one_epoch_with_premises
+from maths_ai.gnn_inference.atp_lean_gnn.reporting import console_print
+from maths_ai.gnn_inference.atp_lean_gnn.training import build_dataloaders, load_pointer_config, load_prepared_metadata
 
 
 def _create_run_dir(run_root: Path) -> Path:
@@ -56,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     use_amp = device.type == "cuda"
     
     # Load configs
-    config = load_baseline_config(Path(args.config))
+    config = load_pointer_config(Path(args.config))
     metadata = load_prepared_metadata(config.prepared_root)
     
     with open(args.premise_config, "r") as f:
@@ -65,6 +68,7 @@ def main(argv: list[str] | None = None) -> int:
 
     run_dir = _create_run_dir(Path(args.run_root))
     console_print(f"Saving run to {run_dir}")
+    logger = TrainingLogger(run_dir)
 
     # Load Lemma Index
     console_print(f"Loading lemma index from {args.index_path}...")
@@ -74,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     datasets, loaders = build_dataloaders(metadata, config)
 
     # Load baseline model and wrap it in TacticWithArgsClassifier
-    from atp_lean_gnn.argument_selector import TacticWithArgsClassifier
+    from maths_ai.gnn_inference.atp_lean_gnn.argument_selector import TacticWithArgsClassifier
     
     model = TacticWithArgsClassifier(
         num_node_labels=len(metadata.node_vocab),
@@ -99,8 +103,12 @@ def main(argv: list[str] | None = None) -> int:
             
     model.load_state_dict(adjusted_state_dict, strict=False)
 
-    with torch.no_grad():
-        model.tactic_embedding.weight.copy_(model.backbone.classifier.weight)
+    has_trained_tactic_embedding = any(
+        k.startswith("tactic_embedding.") for k in adjusted_state_dict
+    )
+    if not has_trained_tactic_embedding:
+        with torch.no_grad():
+            model.tactic_embedding.weight.copy_(model.backbone.classifier.weight)
 
     # Freeze the GNN backbone (keeps embeddings compatible with FAISS index)
     for param in model.backbone.parameters():
@@ -187,6 +195,31 @@ def main(argv: list[str] | None = None) -> int:
                 "val_metrics": val_metrics,
             }, run_dir / "best.pt")
 
+        logger.log_epoch(
+            epoch,
+            {
+                "train_tactic_loss": float(train_metrics["tactic_loss"]),
+                "train_arg_loss": float(train_metrics["arg_loss"]),
+                "train_premise_loss": float(train_metrics["premise_loss"]),
+                "train_combined_loss": float(train_metrics["combined_loss"]),
+                "train_example_count": int(train_metrics["example_count"]),
+                "val_tactic_loss": float(val_metrics["tactic_loss"]),
+                "val_arg_loss": float(val_metrics["arg_loss"]),
+                "val_premise_loss": float(val_metrics["premise_loss"]),
+                "val_combined_loss": float(val_metrics["combined_loss"]),
+                "val_premise_mrr": float(val_metrics["premise_mrr"]),
+                "val_premise_top1_accuracy": float(val_metrics["premise_top1_accuracy"]),
+                "val_premise_top5_accuracy": float(val_metrics["premise_top5_accuracy"]),
+                "val_premise_recall": float(val_metrics["premise_recall"]),
+                "val_known_label_count": int(val_metrics["known_label_count"]),
+                "val_premise_target_present_count": int(val_metrics["premise_target_present_count"]),
+                "val_premise_valid_count": int(val_metrics["premise_valid_count"]),
+                "val_evaluated_count": int(val_metrics["evaluated_count"]),
+                "best_val_mrr": float(best_val_mrr),
+            },
+        )
+
+    console_print(f"Learning curves saved to {logger.jsonl_path} and {logger.csv_path}")
     return 0
 
 

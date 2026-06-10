@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from atp_lean_gnn import DEMO_STATE, build_vocab, dag_to_dict, dag_to_pyg, parse_state, proof_state_to_dag, write_dag_json
+from maths_ai.gnn_inference.atp_lean_gnn import DEMO_STATE, build_vocab, dag_to_dict, dag_to_pyg, parse_state, proof_state_to_dag, write_dag_json
 
 
 class GraphPipelineTests(unittest.TestCase):

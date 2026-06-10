@@ -4,7 +4,7 @@ import unittest
 
 import torch
 
-from atp_lean_gnn import (
+from maths_ai.gnn_inference.atp_lean_gnn import (
     DEMO_STATE,
     TACTIC_ARITY,
     build_premise_mask,
@@ -13,12 +13,12 @@ from atp_lean_gnn import (
     parse_tactic_arguments,
     proof_state_to_dag,
 )
-from atp_lean_gnn.argument_selector import (
+from maths_ai.gnn_inference.atp_lean_gnn.argument_selector import (
     ArgumentSelector,
     TacticWithArgsClassifier,
     compute_combined_loss,
 )
-from atp_lean_gnn.pyg import dag_to_pyg
+from maths_ai.gnn_inference.atp_lean_gnn.pyg import dag_to_pyg
 
 
 class TacticArityRegistryTests(unittest.TestCase):

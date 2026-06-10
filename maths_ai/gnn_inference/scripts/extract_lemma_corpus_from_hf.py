@@ -26,9 +26,9 @@ if __package__ in {None, ""}:
         sys.path.insert(0, repo_root_str)
 
 
-from atp_lean_gnn.dataset import DATASET_NAME, stream_split
-from atp_lean_gnn.lemma_corpus import LemmaRecord, write_lemma_corpus
-from atp_lean_gnn.state import parse_state
+from maths_ai.gnn_inference.atp_lean_gnn.dataset import DATASET_NAME, stream_split
+from maths_ai.gnn_inference.atp_lean_gnn.lemma_corpus import LemmaRecord, write_lemma_corpus
+from maths_ai.gnn_inference.atp_lean_gnn.state import parse_state
 
 
 DEFAULT_OUTPUT_DIR = Path("artifacts") / "lemmas" / "v1" / "corpus"

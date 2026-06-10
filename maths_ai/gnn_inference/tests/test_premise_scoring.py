@@ -7,8 +7,8 @@ import unittest
 import numpy as np
 import torch
 
-from atp_lean_gnn.premise_pool import CandidatePool
-from atp_lean_gnn.premise_scoring import (
+from maths_ai.gnn_inference.atp_lean_gnn.premise_pool import CandidatePool
+from maths_ai.gnn_inference.atp_lean_gnn.premise_scoring import (
     PremiseScorer,
     PremiseScorerConfig,
     compute_premise_ranking_loss,
