@@ -25,7 +25,7 @@ from atp_lean_gnn import (
 from atp_lean_gnn.cache import SplitReport, prepare_output_root, write_manifest, write_pyg_artifact, write_vocab
 from atp_lean_gnn.graph import proof_state_to_dag
 from atp_lean_gnn.pyg import build_vocab_from_labels, dag_to_pyg
-from atp_lean_gnn.training import build_model
+from atp_lean_gnn.training import build_baseline_model
 
 
 class TrainingPipelineTests(unittest.TestCase):
@@ -214,7 +214,7 @@ class TrainingPipelineTests(unittest.TestCase):
         config = self._tiny_config()
         _, loaders = build_dataloaders(metadata, config)
         batch = next(iter(loaders["train"]))
-        model = build_model(metadata, config)
+        model = build_baseline_model(metadata, config)
 
         logits = model(batch)
 

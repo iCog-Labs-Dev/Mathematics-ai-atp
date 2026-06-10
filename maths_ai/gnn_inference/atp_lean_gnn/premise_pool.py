@@ -53,10 +53,14 @@ def build_unified_pools(
 
     pools: list[CandidatePool] = []
     for b in range(batch_size):
-        local_mask = (batch_index == b) & premise_mask
+        graph_mask = batch_index == b
+        graph_node_ids = graph_mask.nonzero(as_tuple=False).view(-1)
+        graph_offset = int(graph_node_ids[0].item()) if graph_node_ids.numel() > 0 else 0
+
+        local_mask = graph_mask & premise_mask
         local_ids = local_mask.nonzero(as_tuple=False).view(-1)
         local_vecs = node_embeddings.index_select(0, local_ids)
-        local_id_list = [int(i) for i in local_ids.tolist()]
+        local_id_list = [int(i - graph_offset) for i in local_ids.tolist()]
 
         lemma_ids = [int(x) for x in lemma_ids_batch[b]]
         lemma_vecs = lemma_vecs_batch[b]
