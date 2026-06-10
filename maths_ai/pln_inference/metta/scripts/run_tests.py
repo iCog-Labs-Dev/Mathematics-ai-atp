@@ -38,7 +38,7 @@ def run_metta_tests():
         # 3. Execute the MeTTa file
         try:
             result = subprocess.run(
-                ['petta', file], 
+                ['../../../../other_tasks/hypron_tut/PeTTa/run.sh', file], 
                 capture_output=True, 
                 text=True,
                 encoding='utf-8' # Ensures Python correctly reads the emoji characters
@@ -48,6 +48,7 @@ def run_metta_tests():
             file_end_time = time.time()
             file_duration = file_end_time - file_start_time
             
+            print(f"result: {result.stdout}")
             # 4. Check for the specific '❌' fail marker in the output
             # We also keep the return code check in case the script crashes completely
             failed = (
