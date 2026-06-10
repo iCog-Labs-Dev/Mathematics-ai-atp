@@ -90,12 +90,8 @@ def extract_stv_scores(log_text: str) -> list[tuple[float, float]]:
 
     proof_scores: list[tuple[float, float]] = []
 
-    for line in log_text.splitlines():
-        if "rule-proof" not in line:
-            continue
-
-        for strength, confidence in stv_pattern.findall(line):
-            proof_scores.append((float(strength), float(confidence)))
+    for strength, confidence in stv_pattern.findall(log_text):
+        proof_scores.append((float(strength), float(confidence)))
 
     return proof_scores
 
@@ -125,9 +121,7 @@ def sample_fallback_score(
       uniform: random value in [low, high]
       beta:    beta(alpha, beta), then scaled to [low, high]
 
-    The default uniform [0, 1] is intentionally simple. For Thompson-sampling-like
-    exploration, beta is often useful because alpha/beta can later be updated
-    from success/failure evidence.
+    The default uniform [0, 1] is intentionally simple.
     """
     if high < low:
         raise ValueError("fallback high must be greater than or equal to fallback low")
@@ -144,17 +138,121 @@ def sample_fallback_score(
     raise ValueError("fallback distribution must be either 'uniform' or 'beta'")
 
 
+class DynamicThompsonSampler:
+    """
+    Per-subgoal Dynamic Thompson sampling state based on Gupta et al. / Kwon.
+
+    Each subgoal maintains a Beta(alpha, beta) posterior. On first
+    encounter, the prior is Beta(1.0, 1.0) (uniform). 
+    
+    To handle non-stationary environments, the parameter `C` bounds the 
+    maximum sum of alpha + beta. If an update pushes the sum above C, 
+    both parameters are scaled down, effectively discounting past observations.
+    """
+
+    def __init__(self, state: dict[str, dict[str, float]] | None = None, C: float = 100.0):
+        self._state: dict[str, dict[str, float]] = state or {}
+        self.C = C
+
+    # -- public helpers ---------------------------------------------------
+
+    @staticmethod
+    def subgoal_key(item: dict) -> str:
+        return f"{item.get('test_name', 'unknown')}_goal_{item.get('goal_index', 0)}"
+
+    @staticmethod
+    def load_from(path: str, C: float = 100.0) -> "DynamicThompsonSampler":
+        """Load Thompson state from a JSON file."""
+        with open(path, "r", encoding="utf-8") as f:
+            return DynamicThompsonSampler(state=json.load(f), C=C)
+
+    def save_to(self, path: str) -> None:
+        """Persist Thompson state to a JSON file."""
+        Path(path).write_text(
+            json.dumps(self._state, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+    # -- per-subgoal access ------------------------------------------------
+
+    def _params(self, key: str) -> dict[str, float]:
+        if key not in self._state:
+            self._state[key] = {"alpha": 1.0, "beta": 1.0}
+        return self._state[key]
+
+    def alpha(self, key: str) -> float:
+        return self._params(key)["alpha"]
+
+    def beta(self, key: str) -> float:
+        return self._params(key)["beta"]
+
+    def sample(self, key: str, rng: random.Random) -> float:
+        p = self._params(key)
+        return rng.betavariate(p["alpha"], p["beta"])
+
+    def record_success(self, key: str, reward: float = 1.0) -> None:
+        p = self._params(key)
+        p["alpha"] += reward
+        self._apply_dts_discount(p)
+
+    def record_failure(self, key: str, penalty: float = 1.0) -> None:
+        p = self._params(key)
+        p["beta"] += penalty
+        self._apply_dts_discount(p)
+
+    def record_observation(self, key: str, reward: float) -> None:
+        """
+        Update the posterior from a bounded proof score.
+
+        A score near 1.0 behaves like success evidence; a score near 0.0
+        behaves like failure evidence. Values outside [0, 1] are clamped so
+        parser quirks cannot destabilize the sampler state.
+        """
+        reward = max(0.0, min(1.0, float(reward)))
+        p = self._params(key)
+        p["alpha"] += reward
+        p["beta"] += 1.0 - reward
+        self._apply_dts_discount(p)
+
+    def _apply_dts_discount(self, p: dict[str, float]) -> None:
+        """
+        The core of Dynamic Thompson Sampling.
+        If the total evidence exceeds C, scale it back down to C.
+        """
+        total = p["alpha"] + p["beta"]
+        if total > self.C:
+            scale_factor = self.C / total
+            p["alpha"] *= scale_factor
+            p["beta"] *= scale_factor
+
+    # -- serialization -----------------------------------------------------
+
+    @property
+    def state_dict(self) -> dict[str, dict[str, float]]:
+        return dict(self._state)
+
+    def __repr__(self) -> str:
+        return f"DynamicThompsonSampler({len(self._state)} subgoals, C={self.C})"
+
+
+ThompsonSampler = DynamicThompsonSampler
+
+
 def parse_and_rank_logs(
     manifest_path: str,
     *,
     ranking_output: str | None = None,
     random_fallback: bool = True,
+    fallback_strategy: str = "random",
     fallback_distribution: str = "uniform",
     fallback_low: float = 0.0,
     fallback_high: float = 1.0,
     fallback_alpha: float = 2.0,
     fallback_beta: float = 2.0,
     random_seed: int | None = None,
+    thompson_sampler: DynamicThompsonSampler | None = None,
+    thompson_c: float = 100.0,
+    thompson_state_output: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Read generated_manifest.json, parse every subgoal log, and rank subgoals.
@@ -162,10 +260,15 @@ def parse_and_rank_logs(
     Normal case:
       score = max(strength * confidence) over all STVs found in that subgoal log.
 
-    Fallback case:
-      if no STV is found in any available subgoal log, assign each available
-      subgoal a random score sampled from the requested distribution. This is
-      useful for exploration when PeTTaChainer cannot prove any current subgoal.
+    Fallback case (when no STV is found in *any* available log):
+      - "random"  (default): assign a score sampled from the configured distribution.
+      - "thompson":          assign a score sampled from each subgoal's
+                             Beta(alpha, beta) posterior (Thompson sampling).
+
+    Thompson-sampling state is carried via *thompson_sampler* (reused across calls)
+    or loaded automatically from the ranking output's ``thompson_sampler_state``
+    block when present.  State is saved to *thompson_state_output* if provided,
+    otherwise embedded in the ranking output JSON.
     """
     with open(manifest_path, "r", encoding="utf-8") as f:
         manifest = json.load(f)
@@ -173,10 +276,18 @@ def parse_and_rank_logs(
     generated_items = manifest.get("generated_items", [])
     ranked: list[dict[str, Any]] = []
 
+ 
+    # Always track state if a sampler is provided or requested
+    ts: DynamicThompsonSampler | None = thompson_sampler
+    if ts is None and (fallback_strategy == "thompson" or thompson_state_output):
+        ts = DynamicThompsonSampler(C=thompson_c)
+    elif ts is not None:
+        ts.C = thompson_c
+
     for item in generated_items:
         log_path = item["log_path"]
 
-        entry = {
+        entry: dict[str, Any] = {
             **item,
             "status": "unknown",
             "truth_values": [],
@@ -187,6 +298,10 @@ def parse_and_rank_logs(
             "random_fallback_score": None,
             "log_excerpt": "",
         }
+
+        if fallback_strategy == "thompson":
+            entry["thompson_alpha"] = 1.0
+            entry["thompson_beta"] = 1.0
 
         if not os.path.exists(log_path):
             entry["status"] = "missing_log"
@@ -212,27 +327,42 @@ def parse_and_rank_logs(
             entry["best_confidence"] = best_confidence
             entry["score"] = score_from_stv(best_strength, best_confidence)
             entry["status"] = "ok"
+
+            # --- dynamic Thompson update: learn from the observed score ---
+            if ts is not None:
+                key = ThompsonSampler.subgoal_key(entry)
+                ts.record_observation(key, entry["score"])
+                entry["thompson_alpha"] = ts.alpha(key)
+                entry["thompson_beta"] = ts.beta(key)
         else:
             lowered = text.lower()
             if "error" in lowered or "failed" in lowered or "exception" in lowered:
                 entry["status"] = "log_error_no_stv"
             else:
                 entry["status"] = "no_stv_found"
+                
+            # CHANGE 2: Record the failure so the sampler learns
+            if ts is not None:
+                key = ThompsonSampler.subgoal_key(entry)
+                ts.record_failure(key, penalty=1.0)
+                entry["thompson_alpha"] = ts.alpha(key)
+                entry["thompson_beta"] = ts.beta(key)
 
         ranked.append(entry)
 
     any_stv_found = any(item.get("truth_values") for item in ranked)
     any_log_available = any(item.get("status") != "missing_log" for item in ranked)
 
-    if random_fallback and ranked and any_log_available and not any_stv_found:
-        rng = random.Random(random_seed)
-
-        for item in ranked:
-            if item.get("status") == "missing_log":
-                continue
-
-            fallback_score = sample_fallback_score(
-                rng,
+    # ------------------------------------------------------------------
+    # Fallback: assign scores when no subgoal log contains an STV
+    # ------------------------------------------------------------------
+    if ranked and any_log_available and not any_stv_found:
+        if fallback_strategy == "thompson":
+            _apply_thompson_fallback(ranked, ts, random_seed)
+        elif random_fallback:
+            _apply_random_fallback(
+                ranked,
+                rng=random.Random(random_seed),
                 distribution=fallback_distribution,
                 low=fallback_low,
                 high=fallback_high,
@@ -240,34 +370,34 @@ def parse_and_rank_logs(
                 beta=fallback_beta,
             )
 
-            item["score"] = fallback_score
-            item["best_strength"] = fallback_score
-            item["best_confidence"] = 1.0
-            item["random_fallback_used"] = True
-            item["random_fallback_score"] = fallback_score
-            item["status"] = "random_fallback_no_stv_global"
-            item["truth_values"] = [
-                {
-                    "strength": fallback_score,
-                    "confidence": 1.0,
-                    "score": fallback_score,
-                    "source": "random_fallback",
-                    "distribution": fallback_distribution,
-                }
-            ]
-
     ranked.sort(key=lambda x: x["score"], reverse=True)
 
-    result = {
+    # --- build result envelope -------------------------------------------
+    if fallback_strategy == "thompson":
+        if ts is None:
+            ts = ThompsonSampler(C=thompson_c)
+        for item in ranked:
+            key = ThompsonSampler.subgoal_key(item)
+            item["thompson_alpha"] = ts.alpha(key)
+            item["thompson_beta"] = ts.beta(key)
+
+    ranking_method: str
+    if any_stv_found:
+        ranking_method = "max_strength_times_confidence"
+    elif fallback_strategy == "thompson":
+        ranking_method = "thompson_sampling"
+    elif random_fallback:
+        ranking_method = "random_fallback_when_no_stv_global"
+    else:
+        ranking_method = "no_fallback_all_zero"
+
+    result: dict[str, Any] = {
         "manifest_path": os.path.abspath(manifest_path),
-        "ranking_method": (
-            "max_strength_times_confidence"
-            if any_stv_found
-            else "random_fallback_when_no_stv_global"
-        ),
+        "ranking_method": ranking_method,
         "random_fallback": {
             "enabled": random_fallback,
-            "used": bool(random_fallback and ranked and any_log_available and not any_stv_found),
+            "strategy": fallback_strategy,
+            "used": bool(ranked and any_log_available and not any_stv_found),
             "distribution": fallback_distribution,
             "low": fallback_low,
             "high": fallback_high,
@@ -278,6 +408,8 @@ def parse_and_rank_logs(
         "ranked_subgoals": ranked,
     }
 
+    if ts is not None:
+        result["thompson_sampler_state"] = ts.state_dict
     if ranking_output:
         out_path = Path(ranking_output).resolve()
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -286,7 +418,87 @@ def parse_and_rank_logs(
             encoding="utf-8",
         )
 
+    if thompson_state_output and ts is not None:
+        ts.save_to(thompson_state_output)
+
     return ranked
+
+
+# ------------------------------------------------------------------
+# Fallback helpers
+# ------------------------------------------------------------------
+
+
+def _apply_random_fallback(
+    ranked: list[dict[str, Any]],
+    rng: random.Random,
+    distribution: str,
+    low: float,
+    high: float,
+    alpha: float,
+    beta: float,
+) -> None:
+    for item in ranked:
+        if item.get("status") == "missing_log":
+            continue
+
+        fallback_score = sample_fallback_score(
+            rng,
+            distribution=distribution,
+            low=low,
+            high=high,
+            alpha=alpha,
+            beta=beta,
+        )
+
+        item["score"] = fallback_score
+        item["best_strength"] = fallback_score
+        item["best_confidence"] = 1.0
+        item["random_fallback_used"] = True
+        item["random_fallback_score"] = fallback_score
+        item["status"] = "random_fallback_no_stv_global"
+        item["truth_values"] = [
+            {
+                "strength": fallback_score,
+                "confidence": 1.0,
+                "score": fallback_score,
+                "source": "random_fallback",
+                "distribution": distribution,
+            }
+        ]
+
+
+def _apply_thompson_fallback(
+    ranked: list[dict[str, Any]],
+    sampler: DynamicThompsonSampler | None,
+    seed: int | None,
+) -> None:
+    if sampler is None:
+        sampler = ThompsonSampler()
+
+    rng = random.Random(seed)
+
+    for item in ranked:
+        if item.get("status") == "missing_log":
+            continue
+
+        key = ThompsonSampler.subgoal_key(item)
+        thompson_score = sampler.sample(key, rng)
+
+        item["score"] = thompson_score
+        item["best_strength"] = thompson_score
+        item["best_confidence"] = 1.0
+        item["random_fallback_used"] = True
+        item["random_fallback_score"] = thompson_score
+        item["status"] = "thompson_fallback_no_stv_global"
+        item["truth_values"] = [
+            {
+                "strength": thompson_score,
+                "confidence": 1.0,
+                "score": thompson_score,
+                "source": "thompson_fallback",
+            }
+        ]
 
 
 def print_ranked_results(ranked: list[dict[str, Any]]) -> None:

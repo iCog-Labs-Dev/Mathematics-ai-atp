@@ -1147,6 +1147,69 @@ The recent update adds:
 
 This makes the ranking stage more robust when PeTTaChainer cannot prove any current subgoal.
 
+```markdown
+# Dynamic Thompson Sampling Fallback Strategy
+
+In addition to the basic random fallback, the ranking stage supports a **dynamic Thompson sampling** strategy. Unlike static random scoring, this approach acts as a continuous background learner. It maintains a per-subgoal Beta posterior that **updates across iterations** based on observed proof outcomes. 
+
+By tracking both successes and failures over time, the sampler continuously refines its estimate of each subgoal's promise. This allows the reasoning engine to balance **exploration** (trying uncertain subgoals) with **exploitation** (favoring historically successful subgoals) when deep logical dead-ends occur.
+
+## How Dynamic Thompson Sampling works
+
+Each subgoal maintains a **Beta(alpha, beta)** posterior that evolves over time:
+
+* **Initialization**: On first encounter, the prior is `Beta(1.0, 1.0)` — equivalent to a uniform distribution over `[0, 1]`.
+* **Continuous Observation**: The sampler observes the outcome of *every* subgoal in the batch, regardless of whether the fallback is actually triggered:
+    * **Success**: If an STV is found, `alpha` increases by the STV score (up to 1.0), shifting the distribution toward higher expected scores.
+    * **Failure**: If a log contains no STV or throws an error, the subgoal is penalized. `beta` increases by 1.0, shifting the distribution toward lower expected scores.
+* **Dynamic Discounting (The "C" Parameter)**: To handle non-stationary environments (e.g., a subgoal failing at depth 1 but succeeding at depth 5), the sampler uses a capacity limit, `C` (default: 100). If the total evidence (`alpha + beta`) exceeds `C`, both parameters are proportionally scaled down. This ensures the sampler "forgets" ancient history and quickly adapts to recent breakthroughs.
+* **Fallback Execution**: When a batch run entirely fails (zero STVs found globally), the fallback triggers. Each subgoal **samples a score** from its current Beta posterior, and the subgoals are ranked based on these sampled probabilities.
+
+## Usage
+
+You can invoke the Thompson fallback using the CLI. The sampler's state is preserved in the JSON output, which should be fed back into the next iteration to compound its learning.
+
+```bash
+# First iteration — start with fresh state (no prior history)
+python -m translator_modules.cli \
+  --rank-manifest ./generated_metta/generated_manifest.json \
+  --ranking-output ./generated_metta/ranking_results.json \
+  --fallback-strategy thompson
+
+```
+
+The ranking output will contain both the individual sampled scores and the global state of the sampler:
+
+```json
+{
+  "ranking_method": "thompson_sampling",
+  "ranked_subgoals": [
+    {
+      "test_name": "and_commutativity",
+      "goal_index": 0,
+      "thompson_alpha": 1.0,
+      "thompson_beta": 2.0, 
+      "score": 0.3234,
+      "status": "thompson_fallback_no_stv_global"
+    }
+  ],
+  "thompson_sampler_state": {
+    "and_commutativity_goal_0": {"alpha": 1.0, "beta": 2.0},
+    "and_commutativity_goal_1": {"alpha": 1.8, "beta": 1.2}
+  }
+}
+
+```
+
+## Important notes
+
+* **Global Trigger**: Like the random fallback, the dynamic Thompson fallback **only assigns fallback scores when no subgoal log contains any STV**. If even one subgoal produces a real PeTTaChainer truth value, the real scores dictate the ranking for that iteration.
+* **Always Learning**: Even if the fallback is *not* triggered (because an STV was found), the sampler still silently updates its `thompson_sampler_state` in the background. This guarantees that if the system hits a dead-end in a future iteration, the sampler has an accurate, up-to-date historical profile to pull from.
+
+
+
+
+
 
 
 ## 21. Example with normalized variables enabled

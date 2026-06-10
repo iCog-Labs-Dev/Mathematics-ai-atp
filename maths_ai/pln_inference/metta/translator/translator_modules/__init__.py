@@ -51,6 +51,7 @@ from .runner import (
     sample_fallback_score,
     score_from_stv,
     shell_quote,
+    ThompsonSampler,
     write_runner_script,
 )
 

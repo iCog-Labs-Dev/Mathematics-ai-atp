@@ -24,6 +24,7 @@ from .runner import (
     parse_and_rank_logs,
     print_ranked_results,
     safe_name,
+    DynamicThompsonSampler,
     write_runner_script,
 )
 
@@ -328,8 +329,33 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help=(
             "Disable random fallback scoring when no STVs are found in any "
-            "available subgoal log."
+            "available subgoal log.  Only relevant when --fallback-strategy=random."
         ),
+    )
+
+    parser.add_argument(
+        "--fallback-strategy",
+        choices=["random", "thompson"],
+        default="random",
+        help=(
+            "Fallback strategy when no subgoal log contains an STV.  "
+            "'random' (default): sample from a configured distribution.  "
+            "'thompson': per-subgoal Thompson sampling with Beta(alpha,beta) posteriors."
+        ),
+    )
+
+    parser.add_argument(
+        "--thompson-state-input",
+        type=str,
+        default=None,
+        help="Path to a JSON file with previous Thompson-sampler state (subgoal_key -> {alpha, beta}).",
+    )
+
+    parser.add_argument(
+        "--thompson-state-output",
+        type=str,
+        default=None,
+        help="Save updated Thompson-sampler state to this path (default: embedded in ranking output).",
     )
 
     parser.add_argument(
@@ -390,16 +416,23 @@ def main() -> None:
     args = parse_args()
 
     if args.rank_manifest:
+        thompson_sampler: ThompsonSampler | None = None
+        if args.fallback_strategy == "thompson" and args.thompson_state_input:
+            thompson_sampler = ThompsonSampler.load_from(args.thompson_state_input)
+
         ranked = parse_and_rank_logs(
             args.rank_manifest,
             ranking_output=args.ranking_output,
             random_fallback=not args.disable_random_fallback,
+            fallback_strategy=args.fallback_strategy,
             fallback_distribution=args.fallback_distribution,
             fallback_low=args.fallback_low,
             fallback_high=args.fallback_high,
             fallback_alpha=args.fallback_alpha,
             fallback_beta=args.fallback_beta,
             random_seed=args.random_seed,
+            thompson_sampler=thompson_sampler,
+            thompson_state_output=args.thompson_state_output,
         )
         print_ranked_results(ranked)
     else:
