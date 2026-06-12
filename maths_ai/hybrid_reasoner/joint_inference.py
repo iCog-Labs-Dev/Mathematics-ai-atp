@@ -1,14 +1,16 @@
 import asyncio
 import argparse
+import random
 import re
 from graphviz import Digraph
 from pathlib import Path
 from typing import Dict, List, Optional
 from pantograph.server import Server, GoalState
 
-from maths_ai.data_models.proof_components import Goal, RankedSubgoal, TacticCandidate
+from maths_ai.data_models.proof_components import Goal, RankedSubgoal, STV, TacticCandidate
 from maths_ai.gnn_inference.inference_engine import GNNModelEngine
 from maths_ai.pln_inference.model import PLNInference
+from maths_ai.pln_inference.metta.translator.translator_modules.runner import DynamicThompsonSampler
 
 from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph, ProofNode, TacticExecutor, TacticOutcome
 from maths_ai.core.config import settings
@@ -145,6 +147,9 @@ class HybridReasoner:
         top_k_subgoals: int = 3,
         max_depth: int = 10,
         max_nodes: int = 500,
+        dts_sampler: Optional[DynamicThompsonSampler] = None,
+        dts_c: float = None,
+        dts_random_seed: Optional[int] = None,
     ) -> None:
         self.gnn_engine = GNNModelEngine(
             config_path=config_path,
@@ -155,6 +160,33 @@ class HybridReasoner:
         )
         self.petta_chainer = PLNInference()
         self.atomic_tactics = {}
+
+        # Always use Thompson sampling as fallback - it's automatic and internal
+        self.pln_fallback_strategy = "thompson"
+        
+        # Use config defaults if not provided
+        if dts_c is None:
+            dts_c = settings.dts_default_c
+        if dts_random_seed is None:
+            dts_random_seed = settings.dts_default_seed
+        
+        self._dts_rng = random.Random(dts_random_seed)
+        
+        # Initialize or use provided DTS sampler
+        if dts_sampler is not None:
+            self.dts_sampler = dts_sampler
+            self.dts_sampler.C = dts_c
+        else:
+            # Try to load existing state from default location
+            if settings.dts_state_file.exists():
+                try:
+                    self.dts_sampler = DynamicThompsonSampler.load_from(str(settings.dts_state_file), C=dts_c)
+                except Exception:
+                    # If loading fails, create fresh sampler
+                    self.dts_sampler = DynamicThompsonSampler(C=dts_c)
+            else:
+                # Create new sampler
+                self.dts_sampler = DynamicThompsonSampler(C=dts_c)
 
         self.executor = executor
         self.server = executor.server
@@ -181,10 +213,29 @@ class HybridReasoner:
         return self.gnn_engine.inference(sub_goal, top_k=self.top_k_tactics)
 
     # PLN side
+    def _make_dts_key(self, parent_goal: str, tactic: TacticCandidate, subgoal: Goal) -> str:
+        """Create a meaningful DTS state key that identifies the subgoal in context.
+        
+        The key includes:
+        - Parent goal expression
+        - Tactic name and arguments (what was applied to get here)
+        - Subgoal expression
+        
+        This makes the DTS state more interpretable and allows tracking
+        which tactics lead to which subgoals.
+        """
+        tactic_str = f"{tactic.tactic_name}({' '.join(tactic.arguments)})" if tactic.arguments else tactic.tactic_name
+        # Truncate long expressions to keep keys manageable
+        max_len = 50
+        parent_trunc = parent_goal[:max_len] + "..." if len(parent_goal) > max_len else parent_goal
+        subgoal_trunc = subgoal.expression[:max_len] + "..." if len(subgoal.expression) > max_len else subgoal.expression
+        return f"{parent_trunc} --[{tactic_str}]--> {subgoal_trunc}"
+
     def rank_subgoals(
         self,
         goal: str,
         sub_goals: List[Goal],
+        tactic: TacticCandidate,
         *,
         gnn_probability: float = 1.0,
     ) -> List[RankedSubgoal]:
@@ -196,6 +247,8 @@ class HybridReasoner:
             sub_goals: candidate subgoals produced by applying one tactic to
                 ``goal``, each carrying its own local hypotheses (the
                 executor's variable context for that subgoal).
+            tactic: the tactic that was applied to produce these subgoals
+                (used for DTS key generation to track tactic->subgoal relationships).
             gnn_probability: that tactic's predicted probability. Folding it
                 in here is what makes ``combined_rank = gnn_prob × STV.score``
                 (objective 2's "the GNN score should be updated [by the PLN
@@ -211,16 +264,34 @@ class HybridReasoner:
         they're true), not a guarantee that the subgoal is actually provable.
         It is the best automatic heuristic available, not ground truth.
         """
-        ranked = [
-            RankedSubgoal(
-                goal=subgoal,
-                stv=self.petta_chainer.evaluate(
-                    subgoal.expression, hypotheses=[goal, *subgoal.hypotheses]
-                ).stv,
-                gnn_probability=gnn_probability,
+        ranked: List[RankedSubgoal] = []
+        for subgoal in sub_goals:
+            result = self.petta_chainer.evaluate(
+                subgoal.expression,
+                hypotheses=[goal, *subgoal.hypotheses],
             )
-            for subgoal in sub_goals
-        ]
+
+            stv = result.stv
+            if (
+                self.pln_fallback_strategy == "thompson"
+                and result.is_fallback
+                and self.dts_sampler is not None
+            ):
+                key = self._make_dts_key(goal, tactic, subgoal)
+                sampled = self.dts_sampler.sample(key, self._dts_rng)
+                stv = STV(strength=sampled, confidence=1.0)
+            elif self.pln_fallback_strategy == "thompson" and self.dts_sampler is not None:
+                key = self._make_dts_key(goal, tactic, subgoal)
+                self.dts_sampler.record_observation(key, reward=stv.score)
+
+            ranked.append(
+                RankedSubgoal(
+                    goal=subgoal,
+                    stv=stv,
+                    gnn_probability=gnn_probability,
+                )
+            )
+
         ranked.sort(key=lambda candidate: candidate.combined_rank, reverse=True)
         return ranked
 
@@ -250,13 +321,17 @@ class HybridReasoner:
         ancestors) is handled inside ``ProofHypergraph.add_edge``.
         """
         graph = ProofHypergraph(Goal(expression=goal, hypotheses=hypotheses or []))
+        loop_count = 0
 
         #Running through the loop untill the theorem is solved or the depth_limit is reached
         while not graph.is_solved() and not graph.is_exhausted() and len(graph.nodes) < self.max_nodes:
             frontier = graph.frontier()
             if not frontier:
                 break
-            await self._expand(graph, frontier[0])
+            loop_count += 1
+            node = frontier[0]
+            print(f"\n=== Loop {loop_count}: expanding node {node.id} (depth {node.depth}) | goal: {node.goal.expression} ===")
+            await self._expand(graph, node)
 
         return graph
 
@@ -291,7 +366,9 @@ class HybridReasoner:
             graph.mark_node_exhausted(node.id, note=f"depth limit ({self.max_depth}) reached")
             return
 
-        candidates = self.predict_next_tactic(node.goal.expression)
+        sanitized = _sanitize_inaccessible_names(node.goal)
+        print(f"  [GNN Input] goal={sanitized.expression}  hyps={sanitized.hypotheses}")
+        candidates = self.predict_next_tactic(sanitized.expression)
         if not candidates:
             graph.mark_node_exhausted(node.id, note="GNN returned no viable tactic")
             return
@@ -303,17 +380,25 @@ class HybridReasoner:
             outcome = await self.executor.apply(self.server, state, tactic)
 
             if not outcome.success:
-                continue  # this tactic doesn't apply here — try the next ranked candidate
+                print(f"  [Tactic FAILED] {tactic.tactic_name} {' '.join(tactic.arguments)} — {outcome.error}")
+                continue
             any_applied = True
+            print(f"  [Tactic APPLIED] {tactic.tactic_name} {' '.join(tactic.arguments)} (prob={tactic.probability:.4f})")
 
             if not outcome.subgoals:
                 # "no-goal": this tactic fully discharges the goal (QED for this branch)
+                print(f"  [Tactic QED] no subgoals — branch closed!")
                 graph.add_edge(node.id, tactic, ranked_subgoals=[])
                 continue
 
+            print(f"  [PLN Ranking] scoring {len(outcome.subgoals)} subgoal(s)...")
             ranked = self.rank_subgoals(
-                node.goal.expression, outcome.subgoals, gnn_probability=tactic.probability
+                node.goal.expression, outcome.subgoals, tactic, gnn_probability=tactic.probability
             )
+            print(f"  [PLN Done] ranked {len(ranked)} subgoal(s)")
+            for i, rs in enumerate(ranked):
+                print(f"    subgoal {i}: {rs.goal.expression} | stv=({rs.stv.strength:.3f}, {rs.stv.confidence:.3f}) | combined_rank={rs.combined_rank:.4f}")
+
             chosen = ranked[: self.top_k_subgoals]
             graph.add_edge(
                 node.id,
@@ -321,10 +406,34 @@ class HybridReasoner:
                 ranked_subgoals=[(candidate.goal, candidate.stv) for candidate in chosen],
             )
 
-        graph.mark_node_exhausted(
-            node.id,
-            note=None if any_applied else "executor rejected every candidate tactic",
-        )
+        if not any_applied:
+            print(f"  [PLN Fallback] evaluating goal: {node.goal.expression}  hyps: {node.goal.hypotheses}")
+            pln_result = self.petta_chainer.evaluate(
+                node.goal.expression,
+                hypotheses=[*node.goal.hypotheses],
+            )
+
+            stv = pln_result.stv
+            pln_fb_key = f"PLN_fb::{node.goal.expression}::{'|'.join(node.goal.hypotheses)}"
+
+            if pln_result.is_fallback and self.dts_sampler is not None:
+                sampled = self.dts_sampler.sample(pln_fb_key, self._dts_rng)
+                stv = STV(strength=sampled, confidence=1.0)
+                print(f"  [PLN Fallback] DTS override: sampled={sampled:.3f} (was random fallback)")
+            elif self.dts_sampler is not None:
+                self.dts_sampler.record_observation(pln_fb_key, reward=stv.score)
+                print(f"  [PLN Fallback] DTS recorded observation: score={stv.score:.3f}")
+
+            print(f"  [PLN Fallback] final STV=({stv.strength:.3f}, {stv.confidence:.3f})  score={stv.score:.3f}  is_fallback={pln_result.is_fallback}")
+            if stv.score >= 0.9:
+                print(f"  [PLN Fallback] high confidence — closing node {node.id} as solved!")
+                graph.add_edge(node.id, TacticCandidate(tactic_name="PLN_fallback", arguments=[], probability=1.0), ranked_subgoals=[])
+                return
+
+        note = None if any_applied else "executor rejected every candidate tactic"
+        if note:
+            print(f"  [Node {node.id} EXHAUSTED] {note}")
+        graph.mark_node_exhausted(node.id, note=note)
 
 
 
@@ -338,9 +447,34 @@ async def main(
     goal_statement: str,
     hypotheses: Optional[List[str]] = None,
     depth_limit: int = 10,
+    dts_state_input: Optional[Path] = None,
+    dts_state_output: Optional[Path] = None,
+    dts_c: float = None,
+    dts_random_seed: Optional[int] = None,
 
 ) -> None:
     server = await Server.create()
+    
+    # Auto-load DTS state from default location if not specified
+    if dts_state_input is None and settings.dts_state_file.exists():
+        dts_state_input = settings.dts_state_file
+    
+    # Auto-set output to default location if not specified
+    if dts_state_output is None:
+        dts_state_output = settings.dts_state_file
+    
+    dts_sampler = None
+    if dts_state_input and dts_state_input.exists():
+        try:
+            # Check if file is non-empty before loading
+            if dts_state_input.stat().st_size > 0:
+                dts_sampler = DynamicThompsonSampler.load_from(
+                    str(dts_state_input), C=dts_c if dts_c else settings.dts_default_c
+                )
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"Warning: Could not load DTS state from {dts_state_input}: {e}")
+            print("Starting with fresh DTS state.")
+            dts_sampler = None
     hybrid_reasoner = HybridReasoner(
         config_path=config_path,
         tactic_model_path=tactic_model_path,
@@ -351,7 +485,10 @@ async def main(
         top_k_tactics=3,
         top_k_subgoals=3,
         max_depth=depth_limit,
-        max_nodes=200,
+        max_nodes=500,
+        dts_sampler=dts_sampler,
+        dts_c=dts_c,
+        dts_random_seed=dts_random_seed,
     )
     print("Goal:")
     print(repr(goal_statement))
@@ -371,6 +508,9 @@ async def main(
     except Exception as e:
         print(f"An error occurred during proof search: {e}")
     finally:
+        if dts_state_output and hybrid_reasoner.dts_sampler is not None:
+            dts_state_output.parent.mkdir(parents=True, exist_ok=True)
+            hybrid_reasoner.dts_sampler.save_to(str(dts_state_output))
         server._close()
 if __name__ == "__main__":
     _argument_selection_run = settings.models_dir / "argument_selection_run_20260606_160115"
@@ -379,9 +519,32 @@ if __name__ == "__main__":
     args_parser = argparse.ArgumentParser()
     args_parser.add_argument("--goal_statement", type=str, default="forall (p q: Prop), Or p q -> Or q p")
     args_parser.add_argument("--hypotheses", type=str, default="")
+    # DTS parameters are optional - if not provided, config defaults are used
+    args_parser.add_argument(
+        "--dts-state-input",
+        type=Path,
+        default=None,
+        help="Optional JSON file to load DTS state from.",
+    )
+    args_parser.add_argument(
+        "--dts-state-output",
+        type=Path,
+        default=None,
+        help="Optional JSON file to persist updated DTS state.",
+    )
+    args_parser.add_argument(
+        "--dts-c",
+        type=float,
+        default=None,
+        help="DTS evidence cap C.",
+    )
+    args_parser.add_argument(
+        "--dts-random-seed",
+        type=int,
+        default=None,
+        help="Optional RNG seed for DTS sampling.",
+    )
     args = args_parser.parse_args()
-
-
 
     asyncio.run(main(
         config_path=_argument_selection_run / "config.json",
@@ -392,4 +555,8 @@ if __name__ == "__main__":
         goal_statement=args.goal_statement,
         hypotheses=args.hypotheses.split(",") if args.hypotheses else None,
         depth_limit=_depth_limit,
+        dts_state_input=args.dts_state_input,
+        dts_state_output=args.dts_state_output,
+        dts_c=args.dts_c,
+        dts_random_seed=args.dts_random_seed,
     ))

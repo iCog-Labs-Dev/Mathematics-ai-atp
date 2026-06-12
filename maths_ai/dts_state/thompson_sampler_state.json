@@ -1,0 +1,34 @@
+{
+  "forall (p q: Prop), Or p q -> Or q p --[intro(p)]--> ∀ (q : Prop), p ∨ q → q ∨ p": {
+    "alpha": 4.0,
+    "beta": 1.0
+  },
+  "∀ (q : Prop), p ∨ q → q ∨ p --[intro(p)]--> p✝ ∨ p → p ∨ p✝": {
+    "alpha": 12.0,
+    "beta": 1.0
+  },
+  "p✝ ∨ p → p ∨ p✝ --[intro(p)]--> p✝ ∨ p_": {
+    "alpha": 12.0,
+    "beta": 1.0
+  },
+  "forall (p q: Prop), p ∨ q → q ∨ p --[intro(p)]--> ∀ (q : Prop), p ∨ q → q ∨ p": {
+    "alpha": 2.0,
+    "beta": 1.0
+  },
+  "forall (p : Prop), p → p --[intro(p)]--> p → p": {
+    "alpha": 2.0,
+    "beta": 1.0
+  },
+  "p → p --[intro(p)]--> p✝": {
+    "alpha": 2.0,
+    "beta": 1.0
+  },
+  "forall (p q : Prop), p ∨ q → q ∨ p --[intro(p)]--> ∀ (q : Prop), p ∨ q → q ∨ p": {
+    "alpha": 8.0,
+    "beta": 1.0
+  },
+  "PLN_fb::p✝ ∨ p_::p_ : Prop|p✝ : Prop|p : p_ ∨ p✝": {
+    "alpha": 2.0,
+    "beta": 1.0
+  }
+}

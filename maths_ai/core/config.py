@@ -21,8 +21,12 @@ CHECKPOINTS_DIR = MODELS_DIR
 LOGS_DIR = ROOT_DIR / "logs"
 TEMP_DIR = ROOT_DIR / "tmp"
 
-CONFIG_DIR = ROOT_DIR / "gnn_inference" /"configs"
+CONFIG_DIR = ROOT_DIR / "gnn_inference" / "configs"
 OUTPUT_DIR = ROOT_DIR / "outputs"
+DTS_STATE_DIR = ROOT_DIR / "dts_state"
+DTS_STATE_FILE = DTS_STATE_DIR / "thompson_sampler_state.json"
+DTS_DEFAULT_C = 100.0
+DTS_DEFAULT_SEED = None
 @dataclass(frozen=True)
 class Settings:
     # app_name: str = "APP_NAME"
@@ -35,5 +39,9 @@ class Settings:
     models_dir: Path = MODELS_DIR
     logs_dir: Path = LOGS_DIR
     proof_depth: int = 20
+    dts_state_dir: Path = DTS_STATE_DIR
+    dts_state_file: Path = DTS_STATE_FILE
+    dts_default_c: float = DTS_DEFAULT_C
+    dts_default_seed: int = DTS_DEFAULT_SEED
 
 settings = Settings()
