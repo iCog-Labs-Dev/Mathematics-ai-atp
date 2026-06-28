@@ -213,8 +213,8 @@ def run_baseline(config: dict[str, Any], resume_run_dir: str | None = None) -> d
     )
 
     baseline_cfg = config["baseline"]
-    prepared_root = Path(config["prepared_root"])
-    run_root = Path(config["run_root"]) / "baseline_gnn"
+    prepared_root = Path(config["prepared_root"]).resolve()
+    run_root = (Path(config["run_root"]) / "baseline_gnn").resolve()
 
     console_print("\n" + "=" * 60)
     console_print("  STAGE 2: TRAIN BASELINE MODEL")
@@ -311,8 +311,8 @@ def run_pointer(config: dict[str, Any], resume_run_dir: str | None = None) -> di
     )
 
     pointer_cfg = config["pointer"]
-    prepared_root = Path(config["prepared_root"])
-    run_root = Path(config["run_root"]) / "pointer_gnn"
+    prepared_root = Path(config["prepared_root"]).resolve()
+    run_root = (Path(config["run_root"]) / "pointer_gnn").resolve()
 
     console_print("\n" + "=" * 60)
     console_print("  STAGE 3: TRAIN POINTER MODEL")
@@ -379,8 +379,8 @@ def run_scorer(config: dict[str, Any]) -> dict[str, Any]:
     """Stage 4: Train premise scorer on top of frozen pointer model."""
     scorer_cfg = config["scorer"]
     pointer_cfg = config["pointer"]
-    prepared_root = Path(config["prepared_root"])
-    run_root = Path(config["run_root"]) / "premise_gnn"
+    prepared_root = Path(config["prepared_root"]).resolve()
+    run_root = (Path(config["run_root"]) / "premise_gnn").resolve()
 
     console_print("\n" + "=" * 60)
     console_print("  STAGE 4: TRAIN PREMISE SCORER")
