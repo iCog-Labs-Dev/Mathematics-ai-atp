@@ -41,7 +41,7 @@ def _resolve_local_node_name(node: GraphNode, dag: DAGBuilder) -> str:
 
 def _extract_fresh_name(goal_expr: str) -> str:
     """Extract a binder name from a ∀/forall goal, or generate 'h' for implications."""
-    match = re.search(r"[∀ forall]+\s*\((\w+)", goal_expr)
+    match = re.search(r"(?:∀|forall)\s*\((\w+)", goal_expr)
     if match:
         return match.group(1)
     return "h"
@@ -230,7 +230,7 @@ class InferencePipeline:
 
             # ── Tactic-aware argument filtering ──────────────────────────
             if tactic_name in _FRESH_NAME_TACTICS:
-                fresh_name = _extract_fresh_name(state.goal.expression)
+                fresh_name = _extract_fresh_name(state.goal)
                 top_tactic_predictions.append(
                     {
                         "tactic_id": tactic_id,
