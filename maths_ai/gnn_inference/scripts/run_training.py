@@ -593,14 +593,14 @@ def _set_nested(d: dict, key: str, value: Any) -> None:
         if part not in d:
             d[part] = {}
         d = d[part]
-    # Try to cast to the right type
+    # Try to cast to the right type (check bool before int since bool is subclass of int)
     existing = d.get(parts[-1])
-    if isinstance(existing, int):
+    if isinstance(existing, bool):
+        d[parts[-1]] = value.lower() in ("true", "1", "yes")
+    elif isinstance(existing, int):
         d[parts[-1]] = int(value)
     elif isinstance(existing, float):
         d[parts[-1]] = float(value)
-    elif isinstance(existing, bool):
-        d[parts[-1]] = value.lower() in ("true", "1", "yes")
     elif existing is None:
         # Try to infer from value
         if value.lower() in ("true", "false"):
