@@ -164,7 +164,7 @@ class NullTacticExecutor:
     """
 
     async def apply(self, server: Server, state: GoalState, tactic: TacticCandidate) -> TacticOutcome:
-        rendered = " ".join([tactic.tactic_name, *tactic.arguments]).strip()
+        rendered = " ".join([tactic.tactic_name, *(arg.rstrip(":") for arg in tactic.arguments)]).strip()
         target = state.goals[0].target if state.goals else "<no goals>"
         return TacticOutcome(
             success=False,
