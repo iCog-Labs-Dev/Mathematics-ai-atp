@@ -151,6 +151,8 @@ class InferencePipeline:
         data.premise_mask = torch.tensor(premise_mask, dtype=torch.bool)
         
         data = data.to(self.device)
+        data.state_node_index = data.state_node_index.to(self.device)
+        data.premise_mask = data.premise_mask.to(self.device)
         batch = Batch.from_data_list([data])
 
         node_embeddings = self.model.backbone.encode_nodes(batch)

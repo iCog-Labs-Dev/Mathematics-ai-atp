@@ -8,7 +8,12 @@ wheels/
 
 # Virtual environments
 .venv
+
+# run dirs
 _support_files/
+artifacts/
+runs/
 
 PeTTa/
 PeTTaChainer/
+
