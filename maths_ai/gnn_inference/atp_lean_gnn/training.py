@@ -27,8 +27,8 @@ from .pyg import NODE_TYPE_TO_ID
 from .reporting import console_print
 
 
-DEFAULT_BASELINE_CONFIG_PATH = Path("configs") / "baseline_graphsage_state_rtx3050.json"
-DEFAULT_POINTER_CONFIG_PATH = Path("configs") / "pointer_graphsage_state_rtx3050.json"
+DEFAULT_BASELINE_CONFIG_PATH = Path("configs") / "baseline_graphsage_state.json"
+DEFAULT_POINTER_CONFIG_PATH = Path("configs") / "pointer_graphsage_state.json"
 REQUIRED_DATA_FIELDS = ("x", "node_type", "edge_index", "y", "split", "row_index", "tactic_name")
 REQUIRED_POINTER_DATA_FIELDS = REQUIRED_DATA_FIELDS + ("premise_mask", "arg_node_indices")
 
