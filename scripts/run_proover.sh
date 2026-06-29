@@ -9,6 +9,13 @@
 
 # Get the directory where this script resides
 
+# Add the current directory to PYTHONPATH so the maths_ai module is found
+export PYTHONPATH="$(pwd)"
+
+# Source elan if available, to provide Lean 4 (lake)
+if [ -f "$HOME/.elan/env" ]; then
+    source "$HOME/.elan/env"
+fi
 
 # Use Python from the uv virtual environment
 PYTHON=".venv/bin/python"

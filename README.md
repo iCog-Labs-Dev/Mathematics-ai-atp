@@ -76,7 +76,7 @@ uv add -r requirements.txt
 3. Test a theorem:
 
 ```bash
-./run_prover.sh --hypotheses "COMMA SEPARATED HYPOTHESESES" --goal_statement "GOAL EXPRESSION"
+./scripts/run_prover.sh --hypotheses "COMMA SEPARATED HYPOTHESESES" --goal_statement "GOAL EXPRESSION"
 ```
 
 Most of the real research logic lives in the packages under `maths_ai/` and the experimental folders under `experiments/`.

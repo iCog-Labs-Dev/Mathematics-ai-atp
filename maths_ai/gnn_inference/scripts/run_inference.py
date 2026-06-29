@@ -74,8 +74,24 @@ def main(argv: list[str] | None = None) -> int:
     model.load_state_dict(adjusted_state_dict, strict=False)
     model = model.to(device)
 
-    # Build scorer (using randomly initialized weights for demo if not loaded)
+    # Build scorer and load trained weights
     scorer = PremiseScorer(hidden_dim=config.model.hidden_dim, mode=args.scorer_mode).to(device)
+    if args.scorer_checkpoint:
+        scorer_ckpt_path = Path(args.scorer_checkpoint)
+        if scorer_ckpt_path.exists():
+            scorer_ckpt = torch.load(scorer_ckpt_path, map_location=device, weights_only=False)
+            # Checkpoints from train_scorer save under 'scorer_state_dict'
+            if "scorer_state_dict" in scorer_ckpt:
+                scorer.load_state_dict(scorer_ckpt["scorer_state_dict"])
+                print(f"Loaded trained scorer weights from {scorer_ckpt_path}")
+            else:
+                # Fallback: the file itself may be a raw state dict
+                scorer.load_state_dict(scorer_ckpt)
+                print(f"Loaded scorer weights (raw state dict) from {scorer_ckpt_path}")
+        else:
+            print(f"WARNING: scorer checkpoint not found at {scorer_ckpt_path} — using random weights.")
+    else:
+        print("WARNING: No --scorer-checkpoint provided. PremiseScorer is using RANDOM weights.")
     
     # Load index if provided
     lemma_index = None
