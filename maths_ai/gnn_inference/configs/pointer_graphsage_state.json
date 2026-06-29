@@ -1,7 +1,7 @@
 {
   "model_type": "pointer",
-  "prepared_root": "artifacts/prepared/v1",
-  "run_root": "runs/pointer_gnn",
+  "prepared_root": "maths_ai/gnn_inference/artifacts/prepared/v1",
+  "run_root": "maths_ai/gnn_inference/runs/pointer_gnn",
   "seed": 42,
   "device": "auto",
   "edge_mode": "bidirectional",

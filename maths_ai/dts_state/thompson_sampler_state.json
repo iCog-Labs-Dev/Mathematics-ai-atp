@@ -30,5 +30,9 @@
   "PLN_fb::p✝ ∨ p_::p_ : Prop|p✝ : Prop|p : p_ ∨ p✝": {
     "alpha": 2.0,
     "beta": 1.0
+  },
+  "∀ (p q: Prop), Or p q -> Or q p --[intro(p)]--> ∀ (q : Prop), p ∨ q → q ∨ p": {
+    "alpha": 1.0,
+    "beta": 1.0
   }
 }

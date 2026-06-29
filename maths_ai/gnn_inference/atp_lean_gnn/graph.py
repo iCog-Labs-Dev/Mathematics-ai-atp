@@ -9,12 +9,34 @@ from .parser import ExprParser
 from .state import ProofState, parse_state
 
 
+BINDER_KIND_UNKNOWN = -1
+BINDER_KIND_NONE = 0      # context variable (not bound in this goal)
+BINDER_KIND_FORALL = 1    # ∀ binder
+BINDER_KIND_EXISTS = 2    # ∃ binder
+BINDER_KIND_LAMBDA = 3    # λ binder
+BINDER_KIND_LET = 4       # let binder
+BINDER_KIND_OTHER = 5     # other binder types
+
+_BINDER_LABEL_TO_KIND: dict[str, int] = {
+    "∀": BINDER_KIND_FORALL,
+    "forall": BINDER_KIND_FORALL,
+    "∃": BINDER_KIND_EXISTS,
+    "exists": BINDER_KIND_EXISTS,
+    "λ": BINDER_KIND_LAMBDA,
+    "fun": BINDER_KIND_LAMBDA,
+    "let": BINDER_KIND_LET,
+}
+
+
 @dataclass(frozen=True)
 class GraphNode:
     id: int
     label: str
     node_type: str
     children: tuple[int, ...] = field(default_factory=tuple)
+    is_bound: int = BINDER_KIND_NONE     # 1 if bound by a quantifier, 0 otherwise
+    binder_depth: int = 0                 # nesting level (0 = context var)
+    binder_kind: int = BINDER_KIND_UNKNOWN  # which binder (∀, ∃, λ, etc.)
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -22,6 +44,9 @@ class GraphNode:
             "label": self.label,
             "node_type": self.node_type,
             "children": list(self.children),
+            "is_bound": self.is_bound,
+            "binder_depth": self.binder_depth,
+            "binder_kind": self.binder_kind,
         }
 
 
@@ -121,6 +146,124 @@ class DAGBuilder:
         child_counts = self.incoming_counts()
         return [node for node in self.nodes if child_counts[node.id] == 0]
 
+    def annotate_binders(self) -> None:
+        """Post-process the DAG to annotate each node with binder information.
+
+        Walks the DAG from root to leaves. When an App node wrapping a binder
+        (∀/∃/λ) is found, the variable being bound gets annotated with
+        ``is_bound=1``, ``binder_depth``, and ``binder_kind``.
+
+        Variables not inside a binder keep ``is_bound=0``.
+
+        DAG structure for ``∀ (q : Prop), body``:
+            App(∀, App(App(q, :), Prop))
+            └─ node 6: App children=(0, 5)
+               ├─ node 0: ∀ (the binder symbol)
+               └─ node 5: App children=(3, 4)
+                  ├─ node 3: App children=(1, 2)
+                  │  ├─ node 1: q (the variable being bound)
+                  │  └─ node 2: :
+                  └─ node 4: Prop
+
+        Note: edges are stored as (child_id, parent_id) pairs.
+        """
+        # Build adjacency: parent → children
+        # Edges are stored as (child_id, parent_id), so we reverse them
+        children_of: dict[int, list[int]] = {}
+        for child_id, parent_id in self.edges:
+            children_of.setdefault(parent_id, []).append(child_id)
+
+        def _walk(node_id: int, depth: int) -> None:
+            node = self.nodes[node_id]
+            kids = children_of.get(node_id, [])
+
+            # Detect App nodes wrapping a binder: App(binder_symbol, body)
+            if node.label == "App" and len(kids) >= 2:
+                first_child = self.nodes[kids[0]]
+                binder_kind = _BINDER_LABEL_TO_KIND.get(first_child.label, BINDER_KIND_UNKNOWN)
+
+                if binder_kind != BINDER_KIND_UNKNOWN:
+                    # This is App(∀/∃/λ, body)
+                    # The variable is in the second child's subtree
+                    # e.g., App(∀, App(App(q, :), Prop))
+                    #   kids[0] = ∀ (binder symbol)
+                    #   kids[1] = App(App(q, :), Prop) (variable + type + body)
+                    # Variable is at depth+1 inside the binder
+                    self._annotate_binder_var(kids[1], depth + 1, binder_kind, children_of)
+                    # Continue into the body (skip the variable subtree entirely)
+                    # The body is the second child, which we just annotated
+                    return
+
+            # Regular node: recurse into children
+            for kid in kids:
+                _walk(kid, depth)
+
+        # Find root nodes (no parents) and start from there
+        # Edges are (child_id, parent_id), so children are the first element
+        has_parent: set[int] = {child for child, _ in self.edges}
+        roots = [n.id for n in self.nodes if n.id not in has_parent]
+
+        for root_id in roots:
+            _walk(root_id, 0)
+
+    def _annotate_binder_var(
+        self, node_id: int, depth: int, binder_kind: int,
+        children_of: dict[int, list[int]]
+    ) -> None:
+        """Annotate the variable node inside a binder (∀/∃/λ).
+
+        For ``∀ (q : Prop)``, the structure is:
+            App(∀, App(App(q, :), Prop))
+            └─ ∀ is the first child of the App node
+               └─ App(App(q, :), Prop) is the second child
+                  └─ App(q, :) is the first child
+                     └─ q is the variable being bound (leaf node)
+
+        We need to find the leaf variable node and annotate it.
+        """
+        node = self.nodes[node_id]
+        kids = children_of.get(node_id, [])
+
+        # If this is a leaf var node (the variable name), annotate it
+        # Exclude ':' and structural labels
+        _EXCLUDE = {":", "App", "Arrow", "∀", "∃", "λ", "let", ","}
+        if (node.node_type == "var" and not kids
+                and node.label not in _EXCLUDE):
+            self.nodes[node_id] = GraphNode(
+                id=node.id,
+                label=node.label,
+                node_type=node.node_type,
+                children=node.children,
+                is_bound=1,
+                binder_depth=depth,
+                binder_kind=binder_kind,
+            )
+            return
+
+        # If this is an App wrapping the variable (e.g., App(q, :)), recurse
+        for kid in kids:
+            kid_node = self.nodes[kid]
+            kid_kids = children_of.get(kid, [])
+            if kid_node.node_type == "var" and kid_node.label not in _EXCLUDE:
+                # This is likely the variable name - check if it's a leaf
+                if not kid_kids:
+                    # Leaf variable - annotate it
+                    self.nodes[kid] = GraphNode(
+                        id=kid_node.id,
+                        label=kid_node.label,
+                        node_type=kid_node.node_type,
+                        children=kid_node.children,
+                        is_bound=1,
+                        binder_depth=depth,
+                        binder_kind=binder_kind,
+                    )
+                else:
+                    # Non-leaf var - recurse to find the actual variable
+                    self._annotate_binder_var(kid, depth, binder_kind, children_of)
+            elif kid_node.label == "App":
+                # App node - recurse to find the variable inside
+                self._annotate_binder_var(kid, depth, binder_kind, children_of)
+
     def stats(self) -> GraphStats:
         return graph_stats(self)
 
@@ -157,6 +300,10 @@ def proof_state_to_dag(state: str | ProofState) -> DAGBuilder:
     goal_node = dag.get_or_create("Goal", (goal_expr_node,))
     root_ids.append(goal_node)
     dag.get_or_create("State", tuple(root_ids))
+
+    # Annotate binder relationships (∀, ∃, λ)
+    dag.annotate_binders()
+
     return dag
 
 

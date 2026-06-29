@@ -31,6 +31,8 @@ class GraphSAGEStateClassifier(nn.Module):
         num_node_labels: int,
         num_tactics: int,
         num_node_types: int = len(NODE_TYPE_TO_ID),
+        num_binder_kinds: int = 6,
+        max_binder_depth: int = 10,
         hidden_dim: int = 128,
         num_layers: int = 4,
         dropout: float = 0.2,
@@ -45,6 +47,12 @@ class GraphSAGEStateClassifier(nn.Module):
         self.node_type_embedding = (
             nn.Embedding(num_node_types, hidden_dim) if use_node_type else None
         )
+
+        # Binder feature embeddings
+        self.is_bound_embedding = nn.Embedding(2, hidden_dim)  # 0/1
+        self.binder_depth_embedding = nn.Embedding(max_binder_depth, hidden_dim)
+        self.binder_kind_embedding = nn.Embedding(num_binder_kinds, hidden_dim)
+
         self.convs = nn.ModuleList(
             SAGEConv(hidden_dim, hidden_dim) for _ in range(num_layers)
         )
@@ -55,6 +63,14 @@ class GraphSAGEStateClassifier(nn.Module):
         x = self.label_embedding(data.x)
         if self.node_type_embedding is not None:
             x = x + self.node_type_embedding(data.node_type)
+
+        # Add binder features if present
+        if hasattr(data, "is_bound"):
+            x = x + self.is_bound_embedding(data.is_bound)
+        if hasattr(data, "binder_depth"):
+            x = x + self.binder_depth_embedding(data.binder_depth)
+        if hasattr(data, "binder_kind"):
+            x = x + self.binder_kind_embedding(data.binder_kind)
 
         for index, conv in enumerate(self.convs):
             x = conv(x, data.edge_index)

@@ -2,7 +2,10 @@ import asyncio
 import argparse
 import random
 import re
-from graphviz import Digraph
+try:
+    from graphviz import Digraph
+except ImportError:
+    Digraph = None
 from pathlib import Path
 from typing import Dict, List, Optional
 from pantograph.server import Server, GoalState
@@ -100,7 +103,7 @@ class PantographExecutor(TacticExecutor):
             On a Lean-side error (the tactic doesn't apply), returns
             ``TacticOutcome(success=False, error=...)``.
         """
-        arguments = " ".join(tactic.arguments)
+        arguments = " ".join(arg.rstrip(":") for arg in tactic.arguments)
         tactic_cmd = " ".join([tactic.tactic_name, arguments]).strip()
 
         try:
@@ -513,8 +516,8 @@ async def main(
             hybrid_reasoner.dts_sampler.save_to(str(dts_state_output))
         server._close()
 if __name__ == "__main__":
-    _argument_selection_run = settings.models_dir / "argument_selection_run_20260606_160115"
-    _premise_selection_run = settings.models_dir / "premise_selection_run_20260607_142722"
+    _argument_selection_run = settings.root_dir / "gnn_inference" / "runs" / "pointer_gnn" / "best_run"
+    _premise_selection_run = settings.root_dir / "gnn_inference" / "runs" / "premise_gnn" / "best_run"
     _depth_limit = settings.proof_depth
     args_parser = argparse.ArgumentParser()
     args_parser.add_argument("--goal_statement", type=str, default="forall (p q: Prop), Or p q -> Or q p")

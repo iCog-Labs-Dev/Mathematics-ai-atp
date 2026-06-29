@@ -45,12 +45,18 @@ def dag_to_pyg(
     Convert a ``DAGBuilder`` to a ``torch_geometric.data.Data`` object.
 
     ``x`` stores label ids and ``node_type`` stores a coarse node-type id.
+    Additional binder features: ``is_bound``, ``binder_depth``, ``binder_kind``.
     """
     import torch
     from torch_geometric.data import Data
 
     x = torch.tensor([vocab.get(node.label, 0) for node in dag.nodes], dtype=torch.long)
     node_type = torch.tensor([NODE_TYPE_TO_ID.get(node.node_type, NODE_TYPE_TO_ID["meta"]) for node in dag.nodes], dtype=torch.long)
+
+    # Binder features (clamp to non-negative for embedding lookups)
+    is_bound = torch.tensor([node.is_bound for node in dag.nodes], dtype=torch.long)
+    binder_depth = torch.clamp(torch.tensor([node.binder_depth for node in dag.nodes], dtype=torch.long), min=0)
+    binder_kind = torch.clamp(torch.tensor([node.binder_kind for node in dag.nodes], dtype=torch.long), min=0)
 
     edge_pairs = list(dag.edges)
     if add_reverse_edges:
@@ -64,7 +70,15 @@ def dag_to_pyg(
     else:
         edge_index = torch.zeros((2, 0), dtype=torch.long)
 
-    return Data(x=x, edge_index=edge_index, node_type=node_type, num_nodes=dag.num_nodes)
+    return Data(
+        x=x,
+        edge_index=edge_index,
+        node_type=node_type,
+        is_bound=is_bound,
+        binder_depth=binder_depth,
+        binder_kind=binder_kind,
+        num_nodes=dag.num_nodes,
+    )
 
 
 # Node types eligible for pointer-based argument selection
