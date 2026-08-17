@@ -3,7 +3,7 @@
 
 !(compileadd kb 
    (: (no_inverse idi) 
-      (Implication 
+ 
          (Premises 
             ($phi)
          ) 
@@ -13,7 +13,7 @@
       ) 
       (STV 1.0 1.0)
    )
-)
+
 !(compileadd kb 
    (: (no_inverse a1ii) 
       (Implication 
@@ -11014,6 +11014,17107 @@
             )
          )
       ) 
+      (STV 1.0 1.0)
+   )
+)
+
+!(compileadd kb 
+   (: (no_inverse mpan9) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylan9) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($theta))) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylan9r) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($theta) ($phi))) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylan9bb) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions (↔ ($chi) ($tau)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($theta))) 
+               (Conclusions (↔ ($psi) ($tau)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylan9bbr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions (↔ ($chi) ($tau)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($theta) ($phi))) 
+               (Conclusions (↔ ($psi) ($tau)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jca) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($psi) ($chi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jcad) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (∧ ($chi) ($theta)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jca2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (∧ ($chi) ($theta)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jca31) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ (∧ ($psi) ($chi)) ($theta)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jca32) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($psi) (∧ ($chi) ($theta))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jcai) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($psi) ($chi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jcab) 
+      (↔ (Implication 
+         (Premises ($phi)) 
+         (Conclusions (∧ ($psi) ($chi)))
+      ) (∧ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($chi))
+      ))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.76) 
+      (↔ (∧ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($chi))
+      )) (Implication 
+         (Premises ($phi)) 
+         (Conclusions (∧ ($psi) ($chi)))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jctil) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            ($chi)
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($chi) ($psi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jctir) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            ($chi)
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($psi) ($chi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jccir) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($psi) ($chi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jccil) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($chi) ($psi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jctl) 
+      (Implication 
+         (Premises 
+            ($psi)
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($psi) ($phi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jctr) 
+      (Implication 
+         (Premises 
+            ($psi)
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($phi) ($psi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jctild) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (∧ ($theta) ($chi)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jctird) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (∧ ($chi) ($theta)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse iba) 
+      (Implication 
+         (Premises ($phi)) 
+         (Conclusions (↔ ($psi) (∧ ($psi) ($phi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ibar) 
+      (Implication 
+         (Premises ($phi)) 
+         (Conclusions (↔ ($psi) (∧ ($phi) ($psi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse biantru) 
+      (Implication 
+         (Premises 
+            ($phi)
+         ) 
+         (Conclusions 
+            (↔ ($psi) (∧ ($psi) ($phi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse biantrur) 
+      (Implication 
+         (Premises 
+            ($phi)
+         ) 
+         (Conclusions 
+            (↔ ($psi) (∧ ($phi) ($psi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse biantrud) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($chi) (∧ ($chi) ($psi))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse biantrurd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($chi) (∧ ($psi) ($chi))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse bianfi) 
+      (Implication 
+         (Premises 
+            (Not ($phi))
+         ) 
+         (Conclusions 
+            (↔ ($phi) (∧ ($psi) ($phi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse bianfd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($psi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) (∧ ($psi) ($chi))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse baib) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) (∧ ($psi) ($chi)))
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions (↔ ($phi) ($chi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse baibr) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) (∧ ($psi) ($chi)))
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions (↔ ($chi) ($phi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse rbaibr) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) (∧ ($psi) ($chi)))
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions (↔ ($psi) ($phi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse rbaib) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) (∧ ($psi) ($chi)))
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions (↔ ($phi) ($psi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse baibd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) (∧ ($chi) ($theta))))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions (↔ ($psi) ($theta)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse rbaibd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) (∧ ($chi) ($theta))))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($theta))) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse bianabs) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) (∧ ($phi) ($chi))))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.44) 
+      (Implication 
+         (Premises (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )) 
+         (Conclusions (↔ (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            ) (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($psi) ($chi)))
+            )))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.42) 
+      (↔ (Implication 
+         (Premises ($phi)) 
+         (Conclusions (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            ))
+      ) (Implication 
+         (Premises ($phi)) 
+         (Conclusions (Implication 
+               (Premises ($psi)) 
+               (Conclusions (∧ ($phi) ($chi)))
+            ))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ancl) 
+      (Implication 
+         (Premises (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )) 
+         (Conclusions (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($phi) ($psi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anclb) 
+      (↔ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises ($phi)) 
+         (Conclusions (∧ ($phi) ($psi)))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ancr) 
+      (Implication 
+         (Premises (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )) 
+         (Conclusions (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($psi) ($phi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ancrb) 
+      (↔ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises ($phi)) 
+         (Conclusions (∧ ($psi) ($phi)))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ancli) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($phi) ($psi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ancri) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($psi) ($phi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ancld) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (∧ ($psi) ($chi)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ancrd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (∧ ($chi) ($psi)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse impac) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions (∧ ($chi) ($psi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anc2l) 
+      (Implication 
+         (Premises (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )) 
+         (Conclusions (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (∧ ($phi) ($chi)))
+                  ))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anc2r) 
+      (Implication 
+         (Premises (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )) 
+         (Conclusions (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (∧ ($chi) ($phi)))
+                  ))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anc2li) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (∧ ($phi) ($chi)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anc2ri) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (∧ ($chi) ($phi)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.71) 
+      (↔ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (↔ ($phi) (∧ ($phi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.71r) 
+      (↔ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (↔ ($phi) (∧ ($psi) ($phi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.71i) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (↔ ($phi) (∧ ($phi) ($psi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.71ri) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (↔ ($phi) (∧ ($psi) ($phi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.71d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) (∧ ($psi) ($chi))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.71rd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) (∧ ($chi) ($psi))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.24) 
+      (↔ ($phi) (∧ ($phi) ($phi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anidm) 
+      (↔ (∧ ($phi) ($phi)) ($phi)) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anidmdbi) 
+      (↔ (Implication 
+         (Premises ($phi)) 
+         (Conclusions (∧ ($psi) ($psi)))
+      ) (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anidms) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($phi))) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse imdistan) 
+      (↔ (Implication 
+         (Premises ($phi)) 
+         (Conclusions (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            ))
+      ) (Implication 
+         (Premises (∧ ($phi) ($psi))) 
+         (Conclusions (∧ ($phi) ($chi)))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse imdistani) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions (∧ ($phi) ($chi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse imdistanri) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($phi))) 
+               (Conclusions (∧ ($chi) ($phi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse imdistand) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (Implication 
+                           (Premises ($chi)) 
+                           (Conclusions ($theta))
+                        ))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($chi))) 
+                     (Conclusions (∧ ($psi) ($theta)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse imdistanda) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($chi))) 
+                     (Conclusions (∧ ($psi) ($theta)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.3) 
+      (↔ (Implication 
+         (Premises (∧ ($phi) ($psi))) 
+         (Conclusions ($chi))
+      ) (Implication 
+         (Premises (∧ ($phi) ($psi))) 
+         (Conclusions (∧ ($phi) ($chi)))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.32) 
+      (↔ (Implication 
+         (Premises ($phi)) 
+         (Conclusions (↔ ($psi) ($chi)))
+      ) (↔ (∧ ($phi) ($psi)) (∧ ($phi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.32i) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (↔ (∧ ($phi) ($psi)) (∧ ($phi) ($chi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.32ri) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (↔ (∧ ($psi) ($phi)) (∧ ($chi) ($phi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse bianim) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) (∧ ($psi) ($chi)))
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions (↔ ($psi) ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (↔ ($phi) (∧ ($theta) ($chi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.32d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (↔ ($chi) ($theta)))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∧ ($psi) ($chi)) (∧ ($psi) ($theta))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.32rd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (↔ ($chi) ($theta)))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∧ ($chi) ($psi)) (∧ ($theta) ($psi))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.32da) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions (↔ ($chi) ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∧ ($psi) ($chi)) (∧ ($psi) ($theta))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylan) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylanb) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+            (Implication 
+               (Premises (∧ ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylanbr) 
+      (Implication 
+         (Premises 
+            (↔ ($psi) ($phi))
+            (Implication 
+               (Premises (∧ ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylanbrc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (↔ ($theta) (∧ ($psi) ($chi)))
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl2anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl2anc2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylancl) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            ($chi)
+            (Implication 
+               (Premises (∧ ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylancr) 
+      (Implication 
+         (Premises 
+            ($psi)
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylancom) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($chi) ($psi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylanblc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            ($chi)
+            (↔ (∧ ($psi) ($chi)) ($theta))
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylanblrc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            ($chi)
+            (↔ ($theta) (∧ ($psi) ($chi)))
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syldan) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylbida) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylan2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($phi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylan2b) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($chi))
+            (Implication 
+               (Premises (∧ ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($phi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylan2br) 
+      (Implication 
+         (Premises 
+            (↔ ($chi) ($phi))
+            (Implication 
+               (Premises (∧ ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($phi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl2an) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($tau)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($tau))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl2anr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($tau)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($tau) ($phi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl2anb) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+            (↔ ($tau) ($chi))
+            (Implication 
+               (Premises (∧ ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($tau))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl2anbr) 
+      (Implication 
+         (Premises 
+            (↔ ($psi) ($phi))
+            (↔ ($chi) ($tau))
+            (Implication 
+               (Premises (∧ ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($tau))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylancb) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+            (↔ ($phi) ($chi))
+            (Implication 
+               (Premises (∧ ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylancbr) 
+      (Implication 
+         (Premises 
+            (↔ ($psi) ($phi))
+            (↔ ($chi) ($phi))
+            (Implication 
+               (Premises (∧ ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syldanl) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syland) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($chi) ($theta))) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($theta))) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylani) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($chi) ($theta))) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($phi) ($theta))) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylan2d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($theta) ($chi))) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($theta) ($psi))) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylan2i) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($chi) ($theta))) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($chi) ($phi))) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl2ani) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($eta)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($chi) ($theta))) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($phi) ($eta))) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl2and) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($theta)) 
+                     (Conclusions ($tau))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($chi) ($tau))) 
+                     (Conclusions ($eta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($theta))) 
+                     (Conclusions ($eta))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anim12d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($theta)) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($theta))) 
+                     (Conclusions (∧ ($chi) ($tau)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anim12d1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($theta))) 
+                     (Conclusions (∧ ($chi) ($tau)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anim1d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($theta))) 
+                     (Conclusions (∧ ($chi) ($theta)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anim2d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($theta) ($psi))) 
+                     (Conclusions (∧ ($theta) ($chi)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anim12i) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions (∧ ($psi) ($theta)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anim12ci) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions (∧ ($theta) ($psi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anim1i) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions (∧ ($psi) ($chi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anim1ci) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions (∧ ($chi) ($psi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anim2i) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($chi) ($phi))) 
+               (Conclusions (∧ ($chi) ($psi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anim12ii) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($theta))) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (∧ ($chi) ($tau)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anim12dan) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($theta)))) 
+               (Conclusions (∧ ($chi) ($tau)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse im2anan9) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions (Implication 
+                     (Premises ($tau)) 
+                     (Conclusions ($eta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($theta))) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($tau))) 
+                     (Conclusions (∧ ($chi) ($eta)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse im2anan9r) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions (Implication 
+                     (Premises ($tau)) 
+                     (Conclusions ($eta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($theta) ($phi))) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($tau))) 
+                     (Conclusions (∧ ($chi) ($eta)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm3.45) 
+      (Implication 
+         (Premises (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )) 
+         (Conclusions (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions (∧ ($psi) ($chi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anbi2i) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+         ) 
+         (Conclusions 
+            (↔ (∧ ($chi) ($phi)) (∧ ($chi) ($psi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anbi1i) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+         ) 
+         (Conclusions 
+            (↔ (∧ ($phi) ($chi)) (∧ ($psi) ($chi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anbi2ci) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+         ) 
+         (Conclusions 
+            (↔ (∧ ($phi) ($chi)) (∧ ($chi) ($psi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anbi1ci) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+         ) 
+         (Conclusions 
+            (↔ (∧ ($chi) ($phi)) (∧ ($psi) ($chi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse bianbi) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) (∧ ($psi) ($chi)))
+            (↔ ($psi) ($theta))
+         ) 
+         (Conclusions 
+            (↔ ($phi) (∧ ($theta) ($chi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anbi12i) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+            (↔ ($chi) ($theta))
+         ) 
+         (Conclusions 
+            (↔ (∧ ($phi) ($chi)) (∧ ($psi) ($theta)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anbi12ci) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+            (↔ ($chi) ($theta))
+         ) 
+         (Conclusions 
+            (↔ (∧ ($phi) ($chi)) (∧ ($theta) ($psi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anbi2d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∧ ($theta) ($psi)) (∧ ($theta) ($chi))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anbi1d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∧ ($psi) ($theta)) (∧ ($chi) ($theta))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anbi12d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($theta) ($tau)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∧ ($psi) ($theta)) (∧ ($chi) ($tau))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anbi1) 
+      (Implication 
+         (Premises (↔ ($phi) ($psi))) 
+         (Conclusions (↔ (∧ ($phi) ($chi)) (∧ ($psi) ($chi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anbi2) 
+      (Implication 
+         (Premises (↔ ($phi) ($psi))) 
+         (Conclusions (↔ (∧ ($chi) ($phi)) (∧ ($chi) ($psi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anbi1cd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∧ ($theta) ($psi)) (∧ ($chi) ($theta))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an2anr) 
+      (↔ (∧ (∧ ($phi) ($psi)) (∧ ($chi) ($theta))) (∧ (∧ ($psi) ($phi)) (∧ ($theta) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.38) 
+      (Implication 
+         (Premises (∧ (↔ ($phi) ($chi)) (↔ ($psi) ($theta)))) 
+         (Conclusions (↔ (∧ ($phi) ($psi)) (∧ ($chi) ($theta))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse bi2anan9) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions (↔ ($tau) ($eta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($theta))) 
+               (Conclusions (↔ (∧ ($psi) ($tau)) (∧ ($chi) ($eta))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse bi2anan9r) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions (↔ ($tau) ($eta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($theta) ($phi))) 
+               (Conclusions (↔ (∧ ($psi) ($tau)) (∧ ($chi) ($eta))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse bi2bian9) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions (↔ ($tau) ($eta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($theta))) 
+               (Conclusions (↔ (↔ ($psi) ($tau)) (↔ ($chi) ($eta))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anbiim) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($theta))
+                  ))
+            )
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions (Implication 
+                     (Premises ($theta)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions (↔ ($chi) ($theta)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse bianass) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) (∧ ($psi) ($chi)))
+         ) 
+         (Conclusions 
+            (↔ (∧ ($eta) ($phi)) (∧ (∧ ($eta) ($psi)) ($chi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse bianassc) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) (∧ ($psi) ($chi)))
+         ) 
+         (Conclusions 
+            (↔ (∧ ($eta) ($phi)) (∧ (∧ ($psi) ($eta)) ($chi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an21) 
+      (↔ (∧ (∧ ($phi) ($psi)) ($chi)) (∧ ($psi) (∧ ($phi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an12) 
+      (↔ (∧ ($phi) (∧ ($psi) ($chi))) (∧ ($psi) (∧ ($phi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an32) 
+      (↔ (∧ (∧ ($phi) ($psi)) ($chi)) (∧ (∧ ($phi) ($chi)) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an13) 
+      (↔ (∧ ($phi) (∧ ($psi) ($chi))) (∧ ($chi) (∧ ($psi) ($phi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an31) 
+      (↔ (∧ (∧ ($phi) ($psi)) ($chi)) (∧ (∧ ($chi) ($psi)) ($phi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an12s) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) (∧ ($phi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ancom2s) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($chi) ($psi)))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an13s) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($chi) (∧ ($psi) ($phi)))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an32s) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($chi)) ($psi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ancom1s) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($phi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an31s) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($chi) ($psi)) ($phi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anass1rs) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($chi)) ($psi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an4) 
+      (↔ (∧ (∧ ($phi) ($psi)) (∧ ($chi) ($theta))) (∧ (∧ ($phi) ($chi)) (∧ ($psi) ($theta)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an42) 
+      (↔ (∧ (∧ ($phi) ($psi)) (∧ ($chi) ($theta))) (∧ (∧ ($phi) ($chi)) (∧ ($theta) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an43) 
+      (↔ (∧ (∧ ($phi) ($psi)) (∧ ($chi) ($theta))) (∧ (∧ ($phi) ($theta)) (∧ ($psi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an3) 
+      (Implication 
+         (Premises (∧ (∧ ($phi) ($psi)) (∧ ($chi) ($theta)))) 
+         (Conclusions (∧ ($phi) ($theta)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an4s) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) (∧ ($chi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($chi)) (∧ ($psi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an42s) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) (∧ ($chi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($chi)) (∧ ($theta) ($psi)))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anabs1) 
+      (↔ (∧ (∧ ($phi) ($psi)) ($phi)) (∧ ($phi) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anabs5) 
+      (↔ (∧ ($phi) (∧ ($phi) ($psi))) (∧ ($phi) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anabs7) 
+      (↔ (∧ ($psi) (∧ ($phi) ($psi))) (∧ ($phi) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anabsan) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($phi)) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anabss1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($phi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anabss4) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($phi)) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anabss5) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($phi) ($psi)))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anabsi5) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($phi) ($psi))) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anabsi6) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($phi))) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anabsi7) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($phi) ($psi))) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anabsi8) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($phi))) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anabss7) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($psi) (∧ ($phi) ($psi)))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anabsan2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($psi)))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anabss3) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anandi) 
+      (↔ (∧ ($phi) (∧ ($psi) ($chi))) (∧ (∧ ($phi) ($psi)) (∧ ($phi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anandir) 
+      (↔ (∧ (∧ ($phi) ($psi)) ($chi)) (∧ (∧ ($phi) ($chi)) (∧ ($psi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anandis) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) (∧ ($phi) ($chi)))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anandirs) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($chi)) (∧ ($psi) ($chi)))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylanl1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylanl2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($phi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylanr1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($psi) (∧ ($chi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) (∧ ($phi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse sylanr2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($psi) (∧ ($chi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) (∧ ($chi) ($phi)))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl6an) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($theta))
+                  ))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl2an2r) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl2an2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises (∧ ($chi) ($phi))) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($chi) ($phi))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpdan) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpancom) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($phi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpidan) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpan) 
+      (Implication 
+         (Premises 
+            ($phi)
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpan2) 
+      (Implication 
+         (Premises 
+            ($psi)
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp2an) 
+      (Implication 
+         (Premises 
+            ($phi)
+            ($psi)
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            ($chi)
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp4an) 
+      (Implication 
+         (Premises 
+            ($phi)
+            ($psi)
+            ($chi)
+            ($theta)
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) (∧ ($chi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            ($tau)
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpan2d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($chi))) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpand) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($chi))) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpani) 
+      (Implication 
+         (Premises 
+            ($psi)
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($chi))) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpan2i) 
+      (Implication 
+         (Premises 
+            ($chi)
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($chi))) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp2ani) 
+      (Implication 
+         (Premises 
+            ($psi)
+            ($chi)
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($chi))) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp2and) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($chi))) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpanl1) 
+      (Implication 
+         (Premises 
+            ($phi)
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpanl2) 
+      (Implication 
+         (Premises 
+            ($psi)
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpanl12) 
+      (Implication 
+         (Premises 
+            ($phi)
+            ($psi)
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpanr1) 
+      (Implication 
+         (Premises 
+            ($psi)
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpanr2) 
+      (Implication 
+         (Premises 
+            ($chi)
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpanr12) 
+      (Implication 
+         (Premises 
+            ($psi)
+            ($chi)
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpanlr1) 
+      (Implication 
+         (Premises 
+            ($psi)
+            (Implication 
+               (Premises (∧ (∧ ($phi) (∧ ($psi) ($chi))) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpbirand) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) (∧ ($chi) ($theta))))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($theta)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpbiran2d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) (∧ ($chi) ($theta))))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpbiran) 
+      (Implication 
+         (Premises 
+            ($psi)
+            (↔ ($phi) (∧ ($psi) ($chi)))
+         ) 
+         (Conclusions 
+            (↔ ($phi) ($chi))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpbiran2) 
+      (Implication 
+         (Premises 
+            ($chi)
+            (↔ ($phi) (∧ ($psi) ($chi)))
+         ) 
+         (Conclusions 
+            (↔ ($phi) ($psi))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpbir2an) 
+      (Implication 
+         (Premises 
+            ($psi)
+            ($chi)
+            (↔ ($phi) (∧ ($psi) ($chi)))
+         ) 
+         (Conclusions 
+            ($phi)
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpbi2and) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∧ ($psi) ($chi)) ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpbir2and) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) (∧ ($chi) ($theta))))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse adantll) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($theta) ($phi)) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse adantlr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($theta)) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse adantrl) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($theta) ($psi)))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse adantrr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($theta)))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse adantlll) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ ($tau) ($phi)) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse adantllr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ ($phi) ($tau)) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse adantlrl) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) (∧ ($tau) ($psi))) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse adantlrr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) (∧ ($psi) ($tau))) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse adantrll) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ (∧ ($tau) ($psi)) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse adantrlr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ (∧ ($psi) ($tau)) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse adantrrl) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) (∧ ($tau) ($chi))))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse adantrrr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) (∧ ($chi) ($tau))))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad2antrr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($chi)) ($theta))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad2antlr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($chi) ($phi)) ($theta))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad2antrl) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($chi) (∧ ($phi) ($theta)))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad2antll) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($chi) (∧ ($theta) ($phi)))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad3antrrr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ ($phi) ($chi)) ($theta)) ($tau))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad3antlr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ ($chi) ($phi)) ($theta)) ($tau))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad4antr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($phi) ($chi)) ($theta)) ($tau)) ($eta))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad4antlr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($chi) ($phi)) ($theta)) ($tau)) ($eta))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad5antr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ (∧ ($phi) ($chi)) ($theta)) ($tau)) ($eta)) ($zeta))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad5antlr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ (∧ ($chi) ($phi)) ($theta)) ($tau)) ($eta)) ($zeta))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad6antr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($chi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad6antlr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ (∧ (∧ ($chi) ($phi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad7antr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($chi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma)) ($rho))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad7antlr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($chi) ($phi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma)) ($rho))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad8antr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($chi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma)) ($rho)) ($mu))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad8antlr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($chi) ($phi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma)) ($rho)) ($mu))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad9antr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($chi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma)) ($rho)) ($mu)) ($lambda))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad9antlr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($chi) ($phi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma)) ($rho)) ($mu)) ($lambda))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad10antr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($chi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma)) ($rho)) ($mu)) ($lambda)) 𝜅)) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad10antlr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($chi) ($phi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma)) ($rho)) ($mu)) ($lambda)) 𝜅)) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad2ant2l) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($theta) ($phi)) (∧ ($tau) ($psi)))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad2ant2r) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($theta)) (∧ ($psi) ($tau)))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad2ant2lr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($theta) ($phi)) (∧ ($psi) ($tau)))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad2ant2rl) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($theta)) (∧ ($tau) ($psi)))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse adantl3r) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($phi) ($eta)) ($psi)) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad4ant13) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ ($phi) ($theta)) ($psi)) ($tau))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad4ant14) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ ($phi) ($theta)) ($tau)) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad4ant23) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ ($theta) ($phi)) ($psi)) ($tau))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad4ant24) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ ($theta) ($phi)) ($tau)) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse adantl4r) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($phi) ($sigma)) ($rho)) ($mu)) ($lambda))) 
+               (Conclusions 𝜅)
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ (∧ ($phi) ($zeta)) ($sigma)) ($rho)) ($mu)) ($lambda))) 
+               (Conclusions 𝜅)
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad5ant13) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($phi) ($theta)) ($psi)) ($tau)) ($eta))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad5ant14) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($phi) ($theta)) ($tau)) ($psi)) ($eta))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad5ant15) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($phi) ($theta)) ($tau)) ($eta)) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad5ant23) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($theta) ($phi)) ($psi)) ($tau)) ($eta))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad5ant24) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($theta) ($phi)) ($tau)) ($psi)) ($eta))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad5ant25) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($theta) ($phi)) ($tau)) ($eta)) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse adantl5r) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ (∧ ($phi) ($zeta)) ($sigma)) ($rho)) ($mu)) ($lambda))) 
+               (Conclusions 𝜅)
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($eta)) ($zeta)) ($sigma)) ($rho)) ($mu)) ($lambda))) 
+               (Conclusions 𝜅)
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse adantl6r) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($eta)) ($zeta)) ($sigma)) ($rho)) ($mu)) ($lambda))) 
+               (Conclusions 𝜅)
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($tau)) ($eta)) ($zeta)) ($sigma)) ($rho)) ($mu)) ($lambda))) 
+               (Conclusions 𝜅)
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm3.33) 
+      (Implication 
+         (Premises (∧ (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            ) (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            ))) 
+         (Conclusions (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm3.34) 
+      (Implication 
+         (Premises (∧ (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            ) (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            ))) 
+         (Conclusions (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpll) 
+      (Implication 
+         (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simplld) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ (∧ ($psi) ($chi)) ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simplr) 
+      (Implication 
+         (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simplrd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ (∧ ($psi) ($chi)) ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simprl) 
+      (Implication 
+         (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simprld) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($psi) (∧ ($chi) ($theta))))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simprr) 
+      (Implication 
+         (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simprrd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($psi) (∧ ($chi) ($theta))))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simplll) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpllr) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simplrl) 
+      (Implication 
+         (Premises (∧ (∧ ($phi) (∧ ($psi) ($chi))) ($theta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simplrr) 
+      (Implication 
+         (Premises (∧ (∧ ($phi) (∧ ($psi) ($chi))) ($theta))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simprll) 
+      (Implication 
+         (Premises (∧ ($phi) (∧ (∧ ($psi) ($chi)) ($theta)))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simprlr) 
+      (Implication 
+         (Premises (∧ ($phi) (∧ (∧ ($psi) ($chi)) ($theta)))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simprrl) 
+      (Implication 
+         (Premises (∧ ($phi) (∧ ($psi) (∧ ($chi) ($theta))))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simprrr) 
+      (Implication 
+         (Premises (∧ ($phi) (∧ ($psi) (∧ ($chi) ($theta))))) 
+         (Conclusions ($theta))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp-4l) 
+      (Implication 
+         (Premises (∧ (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta)) ($tau))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp-4r) 
+      (Implication 
+         (Premises (∧ (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta)) ($tau))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp-5l) 
+      (Implication 
+         (Premises (∧ (∧ (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta)) ($tau)) ($eta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp-5r) 
+      (Implication 
+         (Premises (∧ (∧ (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta)) ($tau)) ($eta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp-6l) 
+      (Implication 
+         (Premises (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta)) ($tau)) ($eta)) ($zeta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp-6r) 
+      (Implication 
+         (Premises (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta)) ($tau)) ($eta)) ($zeta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp-7l) 
+      (Implication 
+         (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp-7r) 
+      (Implication 
+         (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp-8l) 
+      (Implication 
+         (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma)) ($rho))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp-8r) 
+      (Implication 
+         (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma)) ($rho))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp-9l) 
+      (Implication 
+         (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma)) ($rho)) ($mu))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp-9r) 
+      (Implication 
+         (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma)) ($rho)) ($mu))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp-10l) 
+      (Implication 
+         (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma)) ($rho)) ($mu)) ($lambda))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp-10r) 
+      (Implication 
+         (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma)) ($rho)) ($mu)) ($lambda))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp-11l) 
+      (Implication 
+         (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma)) ($rho)) ($mu)) ($lambda)) 𝜅)) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp-11r) 
+      (Implication 
+         (Premises (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta)) ($tau)) ($eta)) ($zeta)) ($sigma)) ($rho)) ($mu)) ($lambda)) 𝜅)) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.01da) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions (Not ($psi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($psi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.18da) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (Not ($psi)))) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse impbida) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.21nd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm3.35) 
+      (Implication 
+         (Premises (∧ ($phi) (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            ))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.74da) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions (↔ ($chi) ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ) (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($theta))
+                  )))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse bitr) 
+      (Implication 
+         (Premises (∧ (↔ ($phi) ($psi)) (↔ ($psi) ($chi)))) 
+         (Conclusions (↔ ($phi) ($chi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse biantr) 
+      (Implication 
+         (Premises (∧ (↔ ($phi) ($psi)) (↔ ($chi) ($psi)))) 
+         (Conclusions (↔ ($phi) ($chi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.14) 
+      (↔ (Implication 
+         (Premises (∧ ($phi) ($psi))) 
+         (Conclusions ($chi))
+      ) (Implication 
+         (Premises (∧ ($phi) (Not ($chi)))) 
+         (Conclusions (Not ($psi)))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm3.37) 
+      (Implication 
+         (Premises (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )) 
+         (Conclusions (Implication 
+               (Premises (∧ ($phi) (Not ($chi)))) 
+               (Conclusions (Not ($psi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anim12) 
+      (Implication 
+         (Premises (∧ (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            ) (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($theta))
+            ))) 
+         (Conclusions (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions (∧ ($psi) ($theta)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm3.4) 
+      (Implication 
+         (Premises (∧ ($phi) ($psi))) 
+         (Conclusions (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse exbiri) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions (↔ ($chi) ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (Implication 
+                           (Premises ($theta)) 
+                           (Conclusions ($chi))
+                        ))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.61ian) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ (Not ($phi)) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.61dan) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) (Not ($psi)))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.61ddan) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($phi) (∧ (Not ($psi)) (Not ($chi))))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.61dda) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (Not ($psi)))) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($phi) (Not ($chi)))) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mtand) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($chi)))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($psi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.65da) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions (Not ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($psi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse condan) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (Not ($psi)))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) (Not ($psi)))) 
+               (Conclusions (Not ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse biadan) 
+      (↔ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (↔ (Implication 
+         (Premises ($psi)) 
+         (Conclusions (↔ ($phi) ($chi)))
+      ) (↔ ($phi) (∧ ($psi) ($chi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse biadani) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (↔ (Implication 
+               (Premises ($psi)) 
+               (Conclusions (↔ ($phi) ($chi)))
+            ) (↔ ($phi) (∧ ($psi) ($chi))))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse biadaniALT) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (↔ (Implication 
+               (Premises ($psi)) 
+               (Conclusions (↔ ($phi) ($chi)))
+            ) (↔ ($phi) (∧ ($psi) ($chi))))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse biadanii) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions (↔ ($phi) ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (↔ ($phi) (∧ ($psi) ($chi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse biadanid) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions (↔ ($psi) ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) (∧ ($chi) ($theta))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.1) 
+      (Implication 
+         (Premises (∧ ($phi) ($psi))) 
+         (Conclusions (↔ ($phi) ($psi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.21) 
+      (Implication 
+         (Premises (∧ (Not ($phi)) (Not ($psi)))) 
+         (Conclusions (↔ ($phi) ($psi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.35) 
+      (Implication 
+         (Premises (∧ (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            ) (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            ))) 
+         (Conclusions (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse abai) 
+      (↔ (∧ ($phi) ($psi)) (∧ ($phi) (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.45im) 
+      (↔ ($phi) (∧ ($phi) (Implication 
+         (Premises ($psi)) 
+         (Conclusions ($phi))
+      ))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse impimprbi) 
+      (↔ (↔ ($phi) ($psi)) (↔ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises ($psi)) 
+         (Conclusions ($phi))
+      ))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nan) 
+      (↔ (Implication 
+         (Premises ($phi)) 
+         (Conclusions (Not (∧ ($psi) ($chi))))
+      ) (Implication 
+         (Premises (∧ ($phi) ($psi))) 
+         (Conclusions (Not ($chi)))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.31) 
+      (Implication 
+         (Premises (∧ ($chi) (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            ))) 
+         (Conclusions (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($psi) ($chi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.31r) 
+      (Implication 
+         (Premises (∧ ($chi) (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            ))) 
+         (Conclusions (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($chi) ($psi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.15) 
+      (↔ (Implication 
+         (Premises (∧ ($phi) ($psi))) 
+         (Conclusions (Not ($chi)))
+      ) (Implication 
+         (Premises (∧ ($psi) ($chi))) 
+         (Conclusions (Not ($phi)))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.36) 
+      (↔ (∧ ($phi) (↔ ($phi) ($psi))) (∧ ($psi) (↔ ($phi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse annotanannot) 
+      (↔ (∧ ($phi) (Not (∧ ($phi) ($psi)))) (∧ ($phi) (Not ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.33) 
+      (↔ (∧ ($phi) (Implication 
+         (Premises ($psi)) 
+         (Conclusions ($chi))
+      )) (∧ ($phi) (Implication 
+         (Premises (∧ ($phi) ($psi))) 
+         (Conclusions ($chi))
+      ))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl12anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($psi) (∧ ($chi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl21anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl22anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi)) (∧ ($theta) ($tau)))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse bibiad) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($theta))) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl1111anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises (∧ (∧ (∧ ($psi) ($chi)) ($theta)) ($tau))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syldbl2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpsyl4anc) 
+      (Implication 
+         (Premises 
+            ($phi)
+            ($psi)
+            ($chi)
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($tau))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.87) 
+      (∧ (∧ (↔ (Implication 
+         (Premises (∧ ($phi) ($psi))) 
+         (Conclusions ($chi))
+      ) (Implication 
+         (Premises ($phi)) 
+         (Conclusions (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            ))
+      )) (↔ (Implication 
+         (Premises ($phi)) 
+         (Conclusions (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            ))
+      ) (Implication 
+         (Premises ($psi)) 
+         (Conclusions (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            ))
+      ))) (↔ (Implication 
+         (Premises ($psi)) 
+         (Conclusions (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            ))
+      ) (Implication 
+         (Premises (∧ ($psi) ($phi))) 
+         (Conclusions ($chi))
+      ))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse bimsc1) 
+      (Implication 
+         (Premises (∧ (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            ) (↔ ($chi) (∧ ($psi) ($phi))))) 
+         (Conclusions (↔ ($chi) ($phi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse a2and) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($rho))) 
+                     (Conclusions (Implication 
+                           (Premises ($tau)) 
+                           (Conclusions ($theta))
+                        ))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($rho))) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (Implication 
+                           (Premises (∧ ($psi) ($chi))) 
+                           (Conclusions ($tau))
+                        )) 
+                     (Conclusions (Implication 
+                           (Premises (∧ ($psi) ($rho))) 
+                           (Conclusions ($theta))
+                        ))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse animpimp2impd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($psi) ($phi))) 
+               (Conclusions (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions (Implication 
+                           (Premises ($theta)) 
+                           (Conclusions ($eta))
+                        ))
+                  ))
+            )
+            (Implication 
+               (Premises (∧ ($psi) (∧ ($phi) ($theta)))) 
+               (Conclusions (Implication 
+                     (Premises ($eta)) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (Implication 
+                           (Premises ($psi)) 
+                           (Conclusions ($chi))
+                        )) 
+                     (Conclusions (Implication 
+                           (Premises ($psi)) 
+                           (Conclusions (Implication 
+                                 (Premises ($theta)) 
+                                 (Conclusions ($tau))
+                              ))
+                        ))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse df-or) 
+      (↔ (∨ ($phi) ($psi)) (Implication 
+         (Premises (Not ($phi))) 
+         (Conclusions ($psi))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.64) 
+      (↔ (Implication 
+         (Premises (Not ($phi))) 
+         (Conclusions ($psi))
+      ) (∨ ($phi) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.66) 
+      (↔ (Implication 
+         (Premises (Not ($phi))) 
+         (Conclusions (Not ($psi)))
+      ) (∨ ($phi) (Not ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.53) 
+      (Implication 
+         (Premises (∨ ($phi) ($psi))) 
+         (Conclusions (Implication 
+               (Premises (Not ($phi))) 
+               (Conclusions ($psi))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.54) 
+      (Implication 
+         (Premises (Implication 
+               (Premises (Not ($phi))) 
+               (Conclusions ($psi))
+            )) 
+         (Conclusions (∨ ($phi) ($psi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse imor) 
+      (↔ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (∨ (Not ($phi)) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse imori) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (∨ (Not ($phi)) ($psi))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse imorri) 
+      (Implication 
+         (Premises 
+            (∨ (Not ($phi)) ($psi))
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.62) 
+      (↔ (Implication 
+         (Premises ($phi)) 
+         (Conclusions (Not ($psi)))
+      ) (∨ (Not ($phi)) (Not ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jaoi) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∨ ($phi) ($chi))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jao1i) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($phi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∨ ($phi) ($psi))) 
+               (Conclusions (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($phi))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jaod) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($theta)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∨ ($psi) ($theta))) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpjaod) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($theta)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($psi) ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ori) 
+      (Implication 
+         (Premises 
+            (∨ ($phi) ($psi))
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (Not ($phi))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orri) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (Not ($phi))) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (∨ ($phi) ($psi))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orrd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (Not ($psi))) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($psi) ($chi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ord) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($psi) ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (Not ($psi))) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orci) 
+      (Implication 
+         (Premises 
+            ($phi)
+         ) 
+         (Conclusions 
+            (∨ ($phi) ($psi))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse olci) 
+      (Implication 
+         (Premises 
+            ($phi)
+         ) 
+         (Conclusions 
+            (∨ ($psi) ($phi))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orc) 
+      (Implication 
+         (Premises ($phi)) 
+         (Conclusions (∨ ($phi) ($psi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse olc) 
+      (Implication 
+         (Premises ($phi)) 
+         (Conclusions (∨ ($psi) ($phi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm1.4) 
+      (Implication 
+         (Premises (∨ ($phi) ($psi))) 
+         (Conclusions (∨ ($psi) ($phi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orcom) 
+      (↔ (∨ ($phi) ($psi)) (∨ ($psi) ($phi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orcomd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($psi) ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($chi) ($psi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orcoms) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∨ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∨ ($psi) ($phi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orcd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($psi) ($chi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse olcd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($chi) ($psi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orcs) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∨ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse olcs) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∨ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse olcnd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orcnd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($psi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mtord) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($chi)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($theta)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (∨ ($chi) ($theta)))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($psi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm3.2ni) 
+      (Implication 
+         (Premises 
+            (Not ($phi))
+            (Not ($psi))
+         ) 
+         (Conclusions 
+            (Not (∨ ($phi) ($psi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.45) 
+      (Implication 
+         (Premises (Not (∨ ($phi) ($psi)))) 
+         (Conclusions (Not ($phi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.46) 
+      (Implication 
+         (Premises (Not (∨ ($phi) ($psi)))) 
+         (Conclusions (Not ($psi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.47) 
+      (Implication 
+         (Premises (Not (∨ ($phi) ($psi)))) 
+         (Conclusions (∨ (Not ($phi)) ($psi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.48) 
+      (Implication 
+         (Premises (Not (∨ ($phi) ($psi)))) 
+         (Conclusions (∨ ($phi) (Not ($psi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.49) 
+      (Implication 
+         (Premises (Not (∨ ($phi) ($psi)))) 
+         (Conclusions (∨ (Not ($phi)) (Not ($psi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse norbi) 
+      (Implication 
+         (Premises (Not (∨ ($phi) ($psi)))) 
+         (Conclusions (↔ ($phi) ($psi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nbior) 
+      (Implication 
+         (Premises (Not (↔ ($phi) ($psi)))) 
+         (Conclusions (∨ ($phi) ($psi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orel1) 
+      (Implication 
+         (Premises (Not ($phi))) 
+         (Conclusions (Implication 
+               (Premises (∨ ($phi) ($psi))) 
+               (Conclusions ($psi))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.25) 
+      (∨ ($phi) (Implication 
+         (Premises (∨ ($phi) ($psi))) 
+         (Conclusions ($psi))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orel2) 
+      (Implication 
+         (Premises (Not ($phi))) 
+         (Conclusions (Implication 
+               (Premises (∨ ($psi) ($phi))) 
+               (Conclusions ($psi))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.67-2) 
+      (Implication 
+         (Premises (Implication 
+               (Premises (∨ ($phi) ($chi))) 
+               (Conclusions ($psi))
+            )) 
+         (Conclusions (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.67) 
+      (Implication 
+         (Premises (Implication 
+               (Premises (∨ ($phi) ($psi))) 
+               (Conclusions ($psi))
+            )) 
+         (Conclusions (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse curryax) 
+      (∨ ($phi) (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse exmid) 
+      (∨ ($phi) (Not ($phi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse exmidd) 
+      (Implication 
+         (Premises ($phi)) 
+         (Conclusions (∨ ($psi) (Not ($psi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.1) 
+      (∨ (Not ($phi)) ($phi)) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.13) 
+      (∨ ($phi) (Not (Not (Not ($phi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.621) 
+      (Implication 
+         (Premises (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )) 
+         (Conclusions (Implication 
+               (Premises (∨ ($phi) ($psi))) 
+               (Conclusions ($psi))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.62) 
+      (Implication 
+         (Premises (∨ ($phi) ($psi))) 
+         (Conclusions (Implication 
+               (Premises (Implication 
+                     (Premises ($phi)) 
+                     (Conclusions ($psi))
+                  )) 
+               (Conclusions ($psi))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.68) 
+      (Implication 
+         (Premises (Implication 
+               (Premises (Implication 
+                     (Premises ($phi)) 
+                     (Conclusions ($psi))
+                  )) 
+               (Conclusions ($psi))
+            )) 
+         (Conclusions (∨ ($phi) ($psi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse dfor2) 
+      (↔ (∨ ($phi) ($psi)) (Implication 
+         (Premises (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )) 
+         (Conclusions ($psi))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.07) 
+      (Implication 
+         (Premises ($phi)) 
+         (Conclusions (∨ ($phi) ($phi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm1.2) 
+      (Implication 
+         (Premises (∨ ($phi) ($phi))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse oridm) 
+      (↔ (∨ ($phi) ($phi)) ($phi)) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.25) 
+      (↔ ($phi) (∨ ($phi) ($phi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.4) 
+      (Implication 
+         (Premises (∨ ($phi) (∨ ($phi) ($psi)))) 
+         (Conclusions (∨ ($phi) ($psi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.41) 
+      (Implication 
+         (Premises (∨ ($psi) (∨ ($phi) ($psi)))) 
+         (Conclusions (∨ ($phi) ($psi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orim12i) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∨ ($phi) ($chi))) 
+               (Conclusions (∨ ($psi) ($theta)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orim1i) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∨ ($phi) ($chi))) 
+               (Conclusions (∨ ($psi) ($chi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orim2i) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∨ ($chi) ($phi))) 
+               (Conclusions (∨ ($chi) ($psi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orim12dALT) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($theta)) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∨ ($psi) ($theta))) 
+                     (Conclusions (∨ ($chi) ($tau)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orbi2i) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+         ) 
+         (Conclusions 
+            (↔ (∨ ($chi) ($phi)) (∨ ($chi) ($psi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orbi1i) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+         ) 
+         (Conclusions 
+            (↔ (∨ ($phi) ($chi)) (∨ ($psi) ($chi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orbi12i) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+            (↔ ($chi) ($theta))
+         ) 
+         (Conclusions 
+            (↔ (∨ ($phi) ($chi)) (∨ ($psi) ($theta)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orbi2d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∨ ($theta) ($psi)) (∨ ($theta) ($chi))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orbi1d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∨ ($psi) ($theta)) (∨ ($chi) ($theta))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orbi1) 
+      (Implication 
+         (Premises (↔ ($phi) ($psi))) 
+         (Conclusions (↔ (∨ ($phi) ($chi)) (∨ ($psi) ($chi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orbi12d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($theta) ($tau)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∨ ($psi) ($theta)) (∨ ($chi) ($tau))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm1.5) 
+      (Implication 
+         (Premises (∨ ($phi) (∨ ($psi) ($chi)))) 
+         (Conclusions (∨ ($psi) (∨ ($phi) ($chi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse or12) 
+      (↔ (∨ ($phi) (∨ ($psi) ($chi))) (∨ ($psi) (∨ ($phi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orass) 
+      (↔ (∨ (∨ ($phi) ($psi)) ($chi)) (∨ ($phi) (∨ ($psi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.31) 
+      (Implication 
+         (Premises (∨ ($phi) (∨ ($psi) ($chi)))) 
+         (Conclusions (∨ (∨ ($phi) ($psi)) ($chi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.32) 
+      (Implication 
+         (Premises (∨ (∨ ($phi) ($psi)) ($chi))) 
+         (Conclusions (∨ ($phi) (∨ ($psi) ($chi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.3) 
+      (Implication 
+         (Premises (∨ ($phi) (∨ ($psi) ($chi)))) 
+         (Conclusions (∨ ($phi) (∨ ($chi) ($psi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse or32) 
+      (↔ (∨ (∨ ($phi) ($psi)) ($chi)) (∨ (∨ ($phi) ($chi)) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse or4) 
+      (↔ (∨ (∨ ($phi) ($psi)) (∨ ($chi) ($theta))) (∨ (∨ ($phi) ($chi)) (∨ ($psi) ($theta)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse or42) 
+      (↔ (∨ (∨ ($phi) ($psi)) (∨ ($chi) ($theta))) (∨ (∨ ($phi) ($chi)) (∨ ($theta) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orordi) 
+      (↔ (∨ ($phi) (∨ ($psi) ($chi))) (∨ (∨ ($phi) ($psi)) (∨ ($phi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orordir) 
+      (↔ (∨ (∨ ($phi) ($psi)) ($chi)) (∨ (∨ ($phi) ($chi)) (∨ ($psi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orimdi) 
+      (↔ (∨ ($phi) (Implication 
+         (Premises ($psi)) 
+         (Conclusions ($chi))
+      )) (Implication 
+         (Premises (∨ ($phi) ($psi))) 
+         (Conclusions (∨ ($phi) ($chi)))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.76) 
+      (Implication 
+         (Premises (∨ ($phi) (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            ))) 
+         (Conclusions (Implication 
+               (Premises (∨ ($phi) ($psi))) 
+               (Conclusions (∨ ($phi) ($chi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.85) 
+      (Implication 
+         (Premises (Implication 
+               (Premises (∨ ($phi) ($psi))) 
+               (Conclusions (∨ ($phi) ($chi)))
+            )) 
+         (Conclusions (∨ ($phi) (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            )))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.75) 
+      (Implication 
+         (Premises (∨ ($phi) ($psi))) 
+         (Conclusions (Implication 
+               (Premises (∨ ($phi) (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))) 
+               (Conclusions (∨ ($phi) ($chi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.78) 
+      (↔ (∨ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($chi))
+      )) (Implication 
+         (Premises ($phi)) 
+         (Conclusions (∨ ($psi) ($chi)))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse biort) 
+      (Implication 
+         (Premises ($phi)) 
+         (Conclusions (↔ ($phi) (∨ ($phi) ($psi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse biorf) 
+      (Implication 
+         (Premises (Not ($phi))) 
+         (Conclusions (↔ ($psi) (∨ ($phi) ($psi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse biortn) 
+      (Implication 
+         (Premises ($phi)) 
+         (Conclusions (↔ ($psi) (∨ (Not ($phi)) ($psi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse biorfi) 
+      (Implication 
+         (Premises 
+            (Not ($phi))
+         ) 
+         (Conclusions 
+            (↔ ($psi) (∨ ($phi) ($psi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse biorfri) 
+      (Implication 
+         (Premises 
+            (Not ($phi))
+         ) 
+         (Conclusions 
+            (↔ ($psi) (∨ ($psi) ($phi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse biorfriOLD) 
+      (Implication 
+         (Premises 
+            (Not ($phi))
+         ) 
+         (Conclusions 
+            (↔ ($psi) (∨ ($psi) ($phi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.26) 
+      (∨ (Not ($phi)) (Implication 
+         (Premises (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )) 
+         (Conclusions ($psi))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.63) 
+      (Implication 
+         (Premises (∨ ($phi) ($psi))) 
+         (Conclusions (Implication 
+               (Premises (∨ (Not ($phi)) ($psi))) 
+               (Conclusions ($psi))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.64) 
+      (Implication 
+         (Premises (∨ ($phi) ($psi))) 
+         (Conclusions (Implication 
+               (Premises (∨ ($phi) (Not ($psi)))) 
+               (Conclusions ($phi))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.42) 
+      (Implication 
+         (Premises (∨ (Not ($phi)) (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            ))) 
+         (Conclusions (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.11g) 
+      (∨ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises (Not ($phi))) 
+         (Conclusions ($chi))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.11) 
+      (∨ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises (Not ($phi))) 
+         (Conclusions ($psi))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.12) 
+      (∨ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises ($phi)) 
+         (Conclusions (Not ($psi)))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.14) 
+      (∨ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises ($psi)) 
+         (Conclusions ($chi))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.13) 
+      (∨ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises ($psi)) 
+         (Conclusions ($phi))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.55) 
+      (∨ (↔ (∨ ($phi) ($psi)) ($phi)) (↔ (∨ ($phi) ($psi)) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.72) 
+      (↔ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (↔ ($psi) (∨ ($phi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse imimorb) 
+      (↔ (Implication 
+         (Premises (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            )) 
+         (Conclusions (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            ))
+      ) (Implication 
+         (Premises ($phi)) 
+         (Conclusions (∨ ($psi) ($chi)))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse oibabs) 
+      (↔ (Implication 
+         (Premises (∨ ($phi) ($psi))) 
+         (Conclusions (↔ ($phi) ($psi)))
+      ) (↔ ($phi) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orbidi) 
+      (↔ (∨ ($phi) (↔ ($psi) ($chi))) (↔ (∨ ($phi) ($psi)) (∨ ($phi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.7) 
+      (↔ (↔ (∨ ($phi) ($chi)) (∨ ($psi) ($chi))) (∨ ($chi) (↔ ($phi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jaao) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions (Implication 
+                     (Premises ($tau)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($theta))) 
+               (Conclusions (Implication 
+                     (Premises (∨ ($psi) ($tau))) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jaoa) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions (Implication 
+                     (Premises ($tau)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∨ ($phi) ($theta))) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($tau))) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jaoian) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($theta) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∨ ($phi) ($theta)) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jaodan) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($theta))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∨ ($psi) ($theta)))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpjaodan) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($theta))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($psi) ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm3.44) 
+      (Implication 
+         (Premises (∧ (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($phi))
+            ) (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($phi))
+            ))) 
+         (Conclusions (Implication 
+               (Premises (∨ ($psi) ($chi))) 
+               (Conclusions ($phi))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jao) 
+      (Implication 
+         (Premises (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )) 
+         (Conclusions (Implication 
+               (Premises (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($psi))
+                  )) 
+               (Conclusions (Implication 
+                     (Premises (∨ ($phi) ($chi))) 
+                     (Conclusions ($psi))
+                  ))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jaob) 
+      (↔ (Implication 
+         (Premises (∨ ($phi) ($chi))) 
+         (Conclusions ($psi))
+      ) (∧ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises ($chi)) 
+         (Conclusions ($psi))
+      ))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.77) 
+      (↔ (∧ (Implication 
+         (Premises ($psi)) 
+         (Conclusions ($phi))
+      ) (Implication 
+         (Premises ($chi)) 
+         (Conclusions ($phi))
+      )) (Implication 
+         (Premises (∨ ($psi) ($chi))) 
+         (Conclusions ($phi))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm3.48) 
+      (Implication 
+         (Premises (∧ (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            ) (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($theta))
+            ))) 
+         (Conclusions (Implication 
+               (Premises (∨ ($phi) ($chi))) 
+               (Conclusions (∨ ($psi) ($theta)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orim12d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($theta)) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∨ ($psi) ($theta))) 
+                     (Conclusions (∨ ($chi) ($tau)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orim1d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∨ ($psi) ($theta))) 
+                     (Conclusions (∨ ($chi) ($theta)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orim2d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∨ ($theta) ($psi))) 
+                     (Conclusions (∨ ($theta) ($chi)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orim2) 
+      (Implication 
+         (Premises (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            )) 
+         (Conclusions (Implication 
+               (Premises (∨ ($phi) ($psi))) 
+               (Conclusions (∨ ($phi) ($chi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.38) 
+      (Implication 
+         (Premises (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            )) 
+         (Conclusions (Implication 
+               (Premises (∨ ($psi) ($phi))) 
+               (Conclusions (∨ ($chi) ($phi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.36) 
+      (Implication 
+         (Premises (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            )) 
+         (Conclusions (Implication 
+               (Premises (∨ ($phi) ($psi))) 
+               (Conclusions (∨ ($chi) ($phi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.37) 
+      (Implication 
+         (Premises (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            )) 
+         (Conclusions (Implication 
+               (Premises (∨ ($psi) ($phi))) 
+               (Conclusions (∨ ($phi) ($chi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.81) 
+      (Implication 
+         (Premises (Implication 
+               (Premises ($psi)) 
+               (Conclusions (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($theta))
+                  ))
+            )) 
+         (Conclusions (Implication 
+               (Premises (∨ ($phi) ($psi))) 
+               (Conclusions (Implication 
+                     (Premises (∨ ($phi) ($chi))) 
+                     (Conclusions (∨ ($phi) ($theta)))
+                  ))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.8) 
+      (Implication 
+         (Premises (∨ ($phi) ($psi))) 
+         (Conclusions (Implication 
+               (Premises (∨ (Not ($psi)) ($chi))) 
+               (Conclusions (∨ ($phi) ($chi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.73) 
+      (Implication 
+         (Premises (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )) 
+         (Conclusions (Implication 
+               (Premises (∨ (∨ ($phi) ($psi)) ($chi))) 
+               (Conclusions (∨ ($psi) ($chi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.74) 
+      (Implication 
+         (Premises (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($phi))
+            )) 
+         (Conclusions (Implication 
+               (Premises (∨ (∨ ($phi) ($psi)) ($chi))) 
+               (Conclusions (∨ ($phi) ($chi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm2.82) 
+      (Implication 
+         (Premises (∨ (∨ ($phi) ($psi)) ($chi))) 
+         (Conclusions (Implication 
+               (Premises (∨ (∨ ($phi) (Not ($chi))) ($theta))) 
+               (Conclusions (∨ (∨ ($phi) ($psi)) ($theta)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.39) 
+      (Implication 
+         (Premises (∧ (↔ ($phi) ($chi)) (↔ ($psi) ($theta)))) 
+         (Conclusions (↔ (∨ ($phi) ($psi)) (∨ ($chi) ($theta))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse animorl) 
+      (Implication 
+         (Premises (∧ ($phi) ($psi))) 
+         (Conclusions (∨ ($phi) ($chi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse animorr) 
+      (Implication 
+         (Premises (∧ ($phi) ($psi))) 
+         (Conclusions (∨ ($chi) ($psi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse animorlr) 
+      (Implication 
+         (Premises (∧ ($phi) ($psi))) 
+         (Conclusions (∨ ($chi) ($phi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse animorrl) 
+      (Implication 
+         (Premises (∧ ($phi) ($psi))) 
+         (Conclusions (∨ ($psi) ($chi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ianor) 
+      (↔ (Not (∧ ($phi) ($psi))) (∨ (Not ($phi)) (Not ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anor) 
+      (↔ (∧ ($phi) ($psi)) (Not (∨ (Not ($phi)) (Not ($psi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ioran) 
+      (↔ (Not (∨ ($phi) ($psi))) (∧ (Not ($phi)) (Not ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.52) 
+      (↔ (∧ ($phi) (Not ($psi))) (Not (∨ (Not ($phi)) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.53) 
+      (↔ (Not (∧ ($phi) (Not ($psi)))) (∨ (Not ($phi)) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.54) 
+      (↔ (∧ (Not ($phi)) ($psi)) (Not (∨ ($phi) (Not ($psi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.55) 
+      (↔ (Not (∧ (Not ($phi)) ($psi))) (∨ ($phi) (Not ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.56) 
+      (↔ (∧ (Not ($phi)) (Not ($psi))) (Not (∨ ($phi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse oran) 
+      (↔ (∨ ($phi) ($psi)) (Not (∧ (Not ($phi)) (Not ($psi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.57) 
+      (↔ (Not (∧ (Not ($phi)) (Not ($psi)))) (∨ ($phi) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm3.1) 
+      (Implication 
+         (Premises (∧ ($phi) ($psi))) 
+         (Conclusions (Not (∨ (Not ($phi)) (Not ($psi)))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm3.11) 
+      (Implication 
+         (Premises (Not (∨ (Not ($phi)) (Not ($psi))))) 
+         (Conclusions (∧ ($phi) ($psi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm3.12) 
+      (∨ (∨ (Not ($phi)) (Not ($psi))) (∧ ($phi) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm3.13) 
+      (Implication 
+         (Premises (Not (∧ ($phi) ($psi)))) 
+         (Conclusions (∨ (Not ($phi)) (Not ($psi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm3.14) 
+      (Implication 
+         (Premises (∨ (Not ($phi)) (Not ($psi)))) 
+         (Conclusions (Not (∧ ($phi) ($psi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.44) 
+      (↔ ($phi) (∨ ($phi) (∧ ($phi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.45) 
+      (↔ ($phi) (∧ ($phi) (∨ ($phi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orabs) 
+      (↔ ($phi) (∧ (∨ ($phi) ($psi)) ($phi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse oranabs) 
+      (↔ (∧ (∨ ($phi) (Not ($psi))) ($psi)) (∧ ($phi) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.61) 
+      (↔ (∧ (∨ ($phi) ($psi)) (Not ($psi))) (∧ ($phi) (Not ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.6) 
+      (↔ (Implication 
+         (Premises (∧ ($phi) (Not ($psi)))) 
+         (Conclusions ($chi))
+      ) (Implication 
+         (Premises ($phi)) 
+         (Conclusions (∨ ($psi) ($chi)))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orcanai) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($psi) ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (Not ($psi)))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.79) 
+      (↔ (∨ (Implication 
+         (Premises ($psi)) 
+         (Conclusions ($phi))
+      ) (Implication 
+         (Premises ($chi)) 
+         (Conclusions ($phi))
+      )) (Implication 
+         (Premises (∧ ($psi) ($chi))) 
+         (Conclusions ($phi))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.53) 
+      (↔ (Implication 
+         (Premises (∨ (∨ ($phi) ($psi)) ($chi))) 
+         (Conclusions ($theta))
+      ) (∧ (∧ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($theta))
+      ) (Implication 
+         (Premises ($psi)) 
+         (Conclusions ($theta))
+      )) (Implication 
+         (Premises ($chi)) 
+         (Conclusions ($theta))
+      ))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ordi) 
+      (↔ (∨ ($phi) (∧ ($psi) ($chi))) (∧ (∨ ($phi) ($psi)) (∨ ($phi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ordir) 
+      (↔ (∨ (∧ ($phi) ($psi)) ($chi)) (∧ (∨ ($phi) ($chi)) (∨ ($psi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse andi) 
+      (↔ (∧ ($phi) (∨ ($psi) ($chi))) (∨ (∧ ($phi) ($psi)) (∧ ($phi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse andir) 
+      (↔ (∧ (∨ ($phi) ($psi)) ($chi)) (∨ (∧ ($phi) ($chi)) (∧ ($psi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse orddi) 
+      (↔ (∨ (∧ ($phi) ($psi)) (∧ ($chi) ($theta))) (∧ (∧ (∨ ($phi) ($chi)) (∨ ($phi) ($theta))) (∧ (∨ ($psi) ($chi)) (∨ ($psi) ($theta))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anddi) 
+      (↔ (∧ (∨ ($phi) ($psi)) (∨ ($chi) ($theta))) (∨ (∨ (∧ ($phi) ($chi)) (∧ ($phi) ($theta))) (∨ (∧ ($psi) ($chi)) (∧ ($psi) ($theta))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.17) 
+      (↔ (∧ (∨ ($phi) ($psi)) (Not (∧ ($phi) ($psi)))) (↔ ($phi) (Not ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.15) 
+      (∨ (↔ ($phi) ($psi)) (↔ ($phi) (Not ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.16) 
+      (Not (∧ (↔ ($phi) ($psi)) (↔ ($phi) (Not ($psi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse xor) 
+      (↔ (Not (↔ ($phi) ($psi))) (∨ (∧ ($phi) (Not ($psi))) (∧ ($psi) (Not ($phi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nbi2) 
+      (↔ (Not (↔ ($phi) ($psi))) (∧ (∨ ($phi) ($psi)) (Not (∧ ($phi) ($psi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse xordi) 
+      (↔ (∧ ($phi) (Not (↔ ($psi) ($chi)))) (Not (↔ (∧ ($phi) ($psi)) (∧ ($phi) ($chi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.54) 
+      (∨ (↔ (∧ ($phi) ($psi)) ($phi)) (↔ (∧ ($phi) ($psi)) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.62) 
+      (↔ (∨ (∧ ($phi) ($psi)) (Not ($psi))) (∨ ($phi) (Not ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.63) 
+      (↔ (∨ ($phi) ($psi)) (∨ ($phi) (∧ (Not ($phi)) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse niabn) 
+      (Implication 
+         (Premises 
+            ($phi)
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (Not ($psi))) 
+               (Conclusions (↔ (∧ ($chi) ($psi)) (Not ($phi))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ninba) 
+      (Implication 
+         (Premises 
+            ($phi)
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (Not ($psi))) 
+               (Conclusions (↔ (Not ($phi)) (∧ ($chi) ($psi))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.43) 
+      (↔ ($phi) (∧ (∨ ($phi) ($psi)) (∨ ($phi) (Not ($psi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.82) 
+      (↔ (∧ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises ($phi)) 
+         (Conclusions (Not ($psi)))
+      )) (Not ($phi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.83) 
+      (↔ (∧ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises (Not ($phi))) 
+         (Conclusions ($psi))
+      )) ($psi)) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pclem6) 
+      (Implication 
+         (Premises (↔ ($phi) (∧ ($psi) (Not ($phi))))) 
+         (Conclusions (Not ($psi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse bigolden) 
+      (↔ (↔ (∧ ($phi) ($psi)) ($phi)) (↔ ($psi) (∨ ($phi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.71) 
+      (Implication 
+         (Premises (Implication 
+               (Premises ($psi)) 
+               (Conclusions (Not ($chi)))
+            )) 
+         (Conclusions (↔ (∧ (∨ ($phi) ($psi)) ($chi)) (∧ ($phi) ($chi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.75) 
+      (Implication 
+         (Premises (∧ (Implication 
+               (Premises ($chi)) 
+               (Conclusions (Not ($psi)))
+            ) (↔ ($phi) (∨ ($psi) ($chi))))) 
+         (Conclusions (↔ (∧ ($phi) (Not ($psi))) ($chi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ecase2d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not (∧ ($psi) ($chi))))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not (∧ ($psi) ($theta))))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($tau) (∨ ($chi) ($theta))))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ecase3) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (Not (∨ ($phi) ($psi)))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            ($chi)
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ecase) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (Not ($phi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (Not ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            ($chi)
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ecase3d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($theta))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($theta))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (Not (∨ ($psi) ($chi)))) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ecased) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (Not ($psi))) 
+                     (Conclusions ($theta))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (Not ($chi))) 
+                     (Conclusions ($theta))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($chi))) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ecase3ad) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($theta))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($theta))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ (Not ($psi)) (Not ($chi)))) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ccase) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises (∧ ($chi) ($psi))) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($theta))) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises (∧ ($chi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∨ ($phi) ($chi)) (∨ ($psi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ccased) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($chi))) 
+                     (Conclusions ($eta))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($theta) ($chi))) 
+                     (Conclusions ($eta))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($tau))) 
+                     (Conclusions ($eta))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($theta) ($tau))) 
+                     (Conclusions ($eta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ (∨ ($psi) ($theta)) (∨ ($chi) ($tau)))) 
+                     (Conclusions ($eta))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ccase2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∨ ($phi) ($chi)) (∨ ($psi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 4cases) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) (Not ($psi)))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ (Not ($phi)) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ (Not ($phi)) (Not ($psi)))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            ($chi)
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 4casesdan) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) (Not ($chi))))) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($phi) (∧ (Not ($psi)) ($chi)))) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($phi) (∧ (Not ($psi)) (Not ($chi))))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse cases) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises (Not ($phi))) 
+               (Conclusions (↔ ($psi) ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (↔ ($psi) (∨ (∧ ($phi) ($chi)) (∧ (Not ($phi)) ($theta))))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse dedlem0a) 
+      (Implication 
+         (Premises ($phi)) 
+         (Conclusions (↔ ($psi) (Implication 
+               (Premises (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($phi))
+                  )) 
+               (Conclusions (∧ ($psi) ($phi)))
+            )))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse dedlem0b) 
+      (Implication 
+         (Premises (Not ($phi))) 
+         (Conclusions (↔ ($psi) (Implication 
+               (Premises (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($phi))
+                  )) 
+               (Conclusions (∧ ($chi) ($phi)))
+            )))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse dedlema) 
+      (Implication 
+         (Premises ($phi)) 
+         (Conclusions (↔ ($psi) (∨ (∧ ($psi) ($phi)) (∧ ($chi) (Not ($phi))))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse dedlemb) 
+      (Implication 
+         (Premises (Not ($phi))) 
+         (Conclusions (↔ ($chi) (∨ (∧ ($psi) ($phi)) (∧ ($chi) (Not ($phi))))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse cases2) 
+      (↔ (∨ (∧ ($phi) ($psi)) (∧ (Not ($phi)) ($chi))) (∧ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises (Not ($phi))) 
+         (Conclusions ($chi))
+      ))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse cases2ALT) 
+      (↔ (∨ (∧ ($phi) ($psi)) (∧ (Not ($phi)) ($chi))) (∧ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises (Not ($phi))) 
+         (Conclusions ($chi))
+      ))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse dfbi3) 
+      (↔ (↔ ($phi) ($psi)) (∨ (∧ ($phi) ($psi)) (∧ (Not ($phi)) (Not ($psi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm5.24) 
+      (↔ (Not (∨ (∧ ($phi) ($psi)) (∧ (Not ($phi)) (Not ($psi))))) (∨ (∧ ($phi) (Not ($psi))) (∧ ($psi) (Not ($phi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 4exmid) 
+      (∨ (∨ (∧ ($phi) ($psi)) (∧ (Not ($phi)) (Not ($psi)))) (∨ (∧ ($phi) (Not ($psi))) (∧ ($psi) (Not ($phi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse consensus) 
+      (↔ (∨ (∨ (∧ ($phi) ($psi)) (∧ (Not ($phi)) ($chi))) (∧ ($psi) ($chi))) (∨ (∧ ($phi) ($psi)) (∧ (Not ($phi)) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm4.42) 
+      (↔ ($phi) (∨ (∧ ($phi) ($psi)) (∧ ($phi) (Not ($psi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse prlem1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($eta) ($chi)))
+            )
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions (Not ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (Implication 
+                           (Premises (∨ (∧ ($psi) ($chi)) (∧ ($theta) ($tau)))) 
+                           (Conclusions ($eta))
+                        ))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse prlem2) 
+      (↔ (∨ (∧ ($phi) ($psi)) (∧ ($chi) ($theta))) (∧ (∨ ($phi) ($chi)) (∨ (∧ ($phi) ($psi)) (∧ ($chi) ($theta))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse oplem1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($theta) ($tau)))
+            )
+            (↔ ($psi) ($theta))
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions (↔ ($theta) ($tau)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse dn1) 
+      (↔ (Not (∨ (Not (∨ (Not (∨ ($phi) ($psi))) ($chi))) (Not (∨ ($phi) (Not (∨ (Not ($chi)) (Not (∨ ($chi) ($theta))))))))) ($chi)) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse bianir) 
+      (Implication 
+         (Premises (∧ ($phi) (↔ ($psi) ($phi)))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jaoi2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∨ ($phi) (∧ (Not ($phi)) ($chi)))) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∨ ($phi) ($chi))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse jaoi3) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises (∧ (Not ($phi)) ($chi))) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∨ ($phi) ($chi))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ornld) 
+      (Implication 
+         (Premises ($phi)) 
+         (Conclusions (Implication 
+               (Premises (∧ (Implication 
+                     (Premises ($phi)) 
+                     (Conclusions (∨ ($theta) ($tau)))
+                  ) (Not ($theta)))) 
+               (Conclusions ($tau))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse df-ifp) 
+      (↔ (?: ($phi) ($psi) ($chi)) (∨ (∧ ($phi) ($psi)) (∧ (Not ($phi)) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse dfifp2) 
+      (↔ (?: ($phi) ($psi) ($chi)) (∧ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises (Not ($phi))) 
+         (Conclusions ($chi))
+      ))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse dfifp3) 
+      (↔ (?: ($phi) ($psi) ($chi)) (∧ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (∨ ($phi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse dfifp4) 
+      (↔ (?: ($phi) ($psi) ($chi)) (∧ (∨ (Not ($phi)) ($psi)) (∨ ($phi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse dfifp5) 
+      (↔ (?: ($phi) ($psi) ($chi)) (∧ (∨ (Not ($phi)) ($psi)) (Implication 
+         (Premises (Not ($phi))) 
+         (Conclusions ($chi))
+      ))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse dfifp6) 
+      (↔ (?: ($phi) ($psi) ($chi)) (∨ (∧ ($phi) ($psi)) (Not (Implication 
+         (Premises ($chi)) 
+         (Conclusions ($phi))
+      )))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse dfifp7) 
+      (↔ (?: ($phi) ($psi) ($chi)) (Implication 
+         (Premises (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($phi))
+            )) 
+         (Conclusions (∧ ($phi) ($psi)))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ifpdfbi) 
+      (↔ (↔ ($phi) ($psi)) (?: ($phi) ($psi) (Not ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anifp) 
+      (Implication 
+         (Premises (∧ ($psi) ($chi))) 
+         (Conclusions (?: ($phi) ($psi) ($chi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ifpor) 
+      (Implication 
+         (Premises (?: ($phi) ($psi) ($chi))) 
+         (Conclusions (∨ ($psi) ($chi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ifpn) 
+      (↔ (?: ($phi) ($psi) ($chi)) (?: (Not ($phi)) ($chi) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ifptru) 
+      (Implication 
+         (Premises ($phi)) 
+         (Conclusions (↔ (?: ($phi) ($psi) ($chi)) ($psi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ifpfal) 
+      (Implication 
+         (Premises (Not ($phi))) 
+         (Conclusions (↔ (?: ($phi) ($psi) ($chi)) ($chi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ifpid) 
+      (↔ (?: ($phi) ($psi) ($psi)) ($psi)) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse casesifp) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises (Not ($phi))) 
+               (Conclusions (↔ ($psi) ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (↔ ($psi) (?: ($phi) ($chi) ($theta)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ifpbi123d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($tau)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($chi) ($eta)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($theta) ($zeta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (?: ($psi) ($chi) ($theta)) (?: ($tau) ($eta) ($zeta))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ifpbi23d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($chi) ($eta)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($theta) ($zeta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (?: ($psi) ($chi) ($theta)) (?: ($psi) ($eta) ($zeta))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ifpimpda) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) (Not ($psi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (?: ($psi) ($chi) ($theta)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 1fpid3) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (?: ($phi) ($psi) ($chi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse elimh) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (↔ (?: ($chi) ($phi) ($psi)) ($phi))) 
+               (Conclusions (↔ ($tau) ($chi)))
+            )
+            (Implication 
+               (Premises (↔ (?: ($chi) ($phi) ($psi)) ($psi))) 
+               (Conclusions (↔ ($tau) ($theta)))
+            )
+            ($theta)
+         ) 
+         (Conclusions 
+            ($tau)
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse dedt) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (↔ (?: ($chi) ($phi) ($psi)) ($phi))) 
+               (Conclusions (↔ ($tau) ($theta)))
+            )
+            ($tau)
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse con3ALT) 
+      (Implication 
+         (Premises (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )) 
+         (Conclusions (Implication 
+               (Premises (Not ($psi))) 
+               (Conclusions (Not ($phi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse df-3or) 
+      (↔ (∨ ($phi) ($psi) ($chi)) (∨ (∨ ($phi) ($psi)) ($chi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse df-3an) 
+      (↔ (∧ ($phi) ($psi) ($chi)) (∧ (∧ ($phi) ($psi)) ($chi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3orass) 
+      (↔ (∨ ($phi) ($psi) ($chi)) (∨ ($phi) (∨ ($psi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3orel1) 
+      (Implication 
+         (Premises (Not ($phi))) 
+         (Conclusions (Implication 
+               (Premises (∨ ($phi) ($psi) ($chi))) 
+               (Conclusions (∨ ($psi) ($chi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3orrot) 
+      (↔ (∨ ($phi) ($psi) ($chi)) (∨ ($psi) ($chi) ($phi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3orcoma) 
+      (↔ (∨ ($phi) ($psi) ($chi)) (∨ ($psi) ($phi) ($chi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3orcomb) 
+      (↔ (∨ ($phi) ($psi) ($chi)) (∨ ($phi) ($chi) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anass) 
+      (↔ (∧ ($phi) ($psi) ($chi)) (∧ ($phi) (∧ ($psi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anan12) 
+      (↔ (∧ ($phi) ($psi) ($chi)) (∧ ($psi) (∧ ($phi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anan32) 
+      (↔ (∧ ($phi) ($psi) ($chi)) (∧ (∧ ($phi) ($chi)) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3ancoma) 
+      (↔ (∧ ($phi) ($psi) ($chi)) (∧ ($psi) ($phi) ($chi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3ancomb) 
+      (↔ (∧ ($phi) ($psi) ($chi)) (∧ ($phi) ($chi) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anrot) 
+      (↔ (∧ ($phi) ($psi) ($chi)) (∧ ($psi) ($chi) ($phi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anrev) 
+      (↔ (∧ ($phi) ($psi) ($chi)) (∧ ($chi) ($psi) ($phi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anandi3) 
+      (↔ (∧ ($phi) ($psi) ($chi)) (∧ (∧ ($phi) ($psi)) (∧ ($phi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anandi3r) 
+      (↔ (∧ ($phi) ($psi) ($chi)) (∧ (∧ ($phi) ($psi)) (∧ ($chi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anidm) 
+      (↔ (∧ ($phi) ($phi) ($phi)) ($phi)) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3an4anass) 
+      (↔ (∧ (∧ ($phi) ($psi) ($chi)) ($theta)) (∧ (∧ ($phi) ($psi)) (∧ ($chi) ($theta)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3ioran) 
+      (↔ (Not (∨ ($phi) ($psi) ($chi))) (∧ (Not ($phi)) (Not ($psi)) (Not ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3ianor) 
+      (↔ (Not (∧ ($phi) ($psi) ($chi))) (∨ (Not ($phi)) (Not ($psi)) (Not ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anor) 
+      (↔ (∧ ($phi) ($psi) ($chi)) (Not (∨ (Not ($phi)) (Not ($psi)) (Not ($chi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3oran) 
+      (↔ (∨ ($phi) ($psi) ($chi)) (Not (∧ (Not ($phi)) (Not ($psi)) (Not ($chi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3impa) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3imp) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (Implication 
+                           (Premises ($chi)) 
+                           (Conclusions ($theta))
+                        ))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3imp31) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (Implication 
+                           (Premises ($chi)) 
+                           (Conclusions ($theta))
+                        ))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($chi) ($psi) ($phi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3imp231) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (Implication 
+                           (Premises ($chi)) 
+                           (Conclusions ($theta))
+                        ))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($chi) ($phi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3imp21) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (Implication 
+                           (Premises ($chi)) 
+                           (Conclusions ($theta))
+                        ))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3impb) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse bi23imp13) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($theta))
+                  )))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3impib) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($chi))) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3impia) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3expa) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3exp) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (Implication 
+                           (Premises ($chi)) 
+                           (Conclusions ($theta))
+                        ))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3expb) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3expia) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3expib) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($chi))) 
+                     (Conclusions ($theta))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3com12) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3com13) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($chi) ($psi) ($phi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3comr) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($chi) ($phi) ($psi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3com23) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi) ($psi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3coml) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($chi) ($phi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3jca) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($psi) ($chi) ($theta)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3jcad) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($theta))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (∧ ($chi) ($theta) ($tau)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3adant1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($theta) ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3adant2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($theta) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3adant3) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($theta))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3ad2ant1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($theta))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3ad2ant2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($phi) ($theta))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3ad2ant3) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($theta) ($phi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp1) 
+      (Implication 
+         (Premises (∧ ($phi) ($psi) ($chi))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp2) 
+      (Implication 
+         (Premises (∧ ($phi) ($psi) ($chi))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp3) 
+      (Implication 
+         (Premises (∧ ($phi) ($psi) ($chi))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp1i) 
+      (Implication 
+         (Premises 
+            (∧ ($phi) ($psi) ($chi))
+         ) 
+         (Conclusions 
+            ($phi)
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp2i) 
+      (Implication 
+         (Premises 
+            (∧ ($phi) ($psi) ($chi))
+         ) 
+         (Conclusions 
+            ($psi)
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp3i) 
+      (Implication 
+         (Premises 
+            (∧ ($phi) ($psi) ($chi))
+         ) 
+         (Conclusions 
+            ($chi)
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp1d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($psi) ($chi) ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp2d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($psi) ($chi) ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp3d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∧ ($psi) ($chi) ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp1bi) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) (∧ ($psi) ($chi) ($theta)))
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp2bi) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) (∧ ($psi) ($chi) ($theta)))
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp3bi) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) (∧ ($psi) ($chi) ($theta)))
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3simpa) 
+      (Implication 
+         (Premises (∧ ($phi) ($psi) ($chi))) 
+         (Conclusions (∧ ($phi) ($psi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3simpb) 
+      (Implication 
+         (Premises (∧ ($phi) ($psi) ($chi))) 
+         (Conclusions (∧ ($phi) ($chi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3simpc) 
+      (Implication 
+         (Premises (∧ ($phi) ($psi) ($chi))) 
+         (Conclusions (∧ ($psi) ($chi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anim123i) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($tau)) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi) ($tau))) 
+               (Conclusions (∧ ($psi) ($theta) ($eta)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anim1i) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi) ($theta))) 
+               (Conclusions (∧ ($psi) ($chi) ($theta)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anim2i) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($chi) ($phi) ($theta))) 
+               (Conclusions (∧ ($chi) ($psi) ($theta)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anim3i) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($chi) ($theta) ($phi))) 
+               (Conclusions (∧ ($chi) ($theta) ($psi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anbi123i) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+            (↔ ($chi) ($theta))
+            (↔ ($tau) ($eta))
+         ) 
+         (Conclusions 
+            (↔ (∧ ($phi) ($chi) ($tau)) (∧ ($psi) ($theta) ($eta)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3orbi123i) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+            (↔ ($chi) ($theta))
+            (↔ ($tau) ($eta))
+         ) 
+         (Conclusions 
+            (↔ (∨ ($phi) ($chi) ($tau)) (∨ ($psi) ($theta) ($eta)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anbi1i) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+         ) 
+         (Conclusions 
+            (↔ (∧ ($phi) ($chi) ($theta)) (∧ ($psi) ($chi) ($theta)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anbi2i) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+         ) 
+         (Conclusions 
+            (↔ (∧ ($chi) ($phi) ($theta)) (∧ ($chi) ($psi) ($theta)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anbi3i) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+         ) 
+         (Conclusions 
+            (↔ (∧ ($chi) ($theta) ($phi)) (∧ ($chi) ($theta) ($psi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3an) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($tau)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($theta) ($eta))) 
+               (Conclusions ($zeta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi) ($tau))) 
+               (Conclusions ($zeta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3anb) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+            (↔ ($chi) ($theta))
+            (↔ ($tau) ($eta))
+            (Implication 
+               (Premises (∧ ($psi) ($theta) ($eta))) 
+               (Conclusions ($zeta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi) ($tau))) 
+               (Conclusions ($zeta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3anbr) 
+      (Implication 
+         (Premises 
+            (↔ ($psi) ($phi))
+            (↔ ($theta) ($chi))
+            (↔ ($eta) ($tau))
+            (Implication 
+               (Premises (∧ ($psi) ($theta) ($eta))) 
+               (Conclusions ($zeta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi) ($tau))) 
+               (Conclusions ($zeta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3an1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($chi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3an2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($chi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($phi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3an3) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($chi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($chi) ($phi))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3an132) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises (∧ ($chi) ($theta))) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($tau))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi) ($theta))) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3adantl1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($tau) ($phi) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3adantl2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($tau) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3adantl3) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi) ($tau)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3adantr1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($tau) ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3adantr2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($tau) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3adantr3) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi) ($tau)))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad4ant123) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($tau))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad4ant124) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ ($phi) ($psi)) ($tau)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad4ant134) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ ($phi) ($tau)) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad4ant234) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ ($tau) ($phi)) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3adant1l) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($tau) ($phi)) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3adant1r) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($tau)) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3adant2l) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($tau) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3adant2r) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($tau)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3adant3l) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) (∧ ($tau) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3adant3r) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) (∧ ($chi) ($tau)))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3adant3r1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($tau) ($psi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3adant3r2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($tau) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3adant3r3) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi) ($tau)))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3ad2antl1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi) ($tau)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3ad2antl2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($phi) ($tau)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3ad2antl3) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($tau) ($phi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3ad2antr1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($chi) ($psi) ($tau)))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3ad2antr2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi) ($tau)))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3ad2antr3) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($tau) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpl1) 
+      (Implication 
+         (Premises (∧ (∧ ($phi) ($psi) ($chi)) ($theta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpl2) 
+      (Implication 
+         (Premises (∧ (∧ ($phi) ($psi) ($chi)) ($theta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpl3) 
+      (Implication 
+         (Premises (∧ (∧ ($phi) ($psi) ($chi)) ($theta))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpr1) 
+      (Implication 
+         (Premises (∧ ($phi) (∧ ($psi) ($chi) ($theta)))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpr2) 
+      (Implication 
+         (Premises (∧ ($phi) (∧ ($psi) ($chi) ($theta)))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpr3) 
+      (Implication 
+         (Premises (∧ ($phi) (∧ ($psi) ($chi) ($theta)))) 
+         (Conclusions ($theta))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp1l) 
+      (Implication 
+         (Premises (∧ (∧ ($phi) ($psi)) ($chi) ($theta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp1r) 
+      (Implication 
+         (Premises (∧ (∧ ($phi) ($psi)) ($chi) ($theta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp2l) 
+      (Implication 
+         (Premises (∧ ($phi) (∧ ($psi) ($chi)) ($theta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp2r) 
+      (Implication 
+         (Premises (∧ ($phi) (∧ ($psi) ($chi)) ($theta))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp3l) 
+      (Implication 
+         (Premises (∧ ($phi) ($psi) (∧ ($chi) ($theta)))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp3r) 
+      (Implication 
+         (Premises (∧ ($phi) ($psi) (∧ ($chi) ($theta)))) 
+         (Conclusions ($theta))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp11) 
+      (Implication 
+         (Premises (∧ (∧ ($phi) ($psi) ($chi)) ($theta) ($tau))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp12) 
+      (Implication 
+         (Premises (∧ (∧ ($phi) ($psi) ($chi)) ($theta) ($tau))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp13) 
+      (Implication 
+         (Premises (∧ (∧ ($phi) ($psi) ($chi)) ($theta) ($tau))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp21) 
+      (Implication 
+         (Premises (∧ ($phi) (∧ ($psi) ($chi) ($theta)) ($tau))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp22) 
+      (Implication 
+         (Premises (∧ ($phi) (∧ ($psi) ($chi) ($theta)) ($tau))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp23) 
+      (Implication 
+         (Premises (∧ ($phi) (∧ ($psi) ($chi) ($theta)) ($tau))) 
+         (Conclusions ($theta))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp31) 
+      (Implication 
+         (Premises (∧ ($phi) ($psi) (∧ ($chi) ($theta) ($tau)))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp32) 
+      (Implication 
+         (Premises (∧ ($phi) ($psi) (∧ ($chi) ($theta) ($tau)))) 
+         (Conclusions ($theta))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp33) 
+      (Implication 
+         (Premises (∧ ($phi) ($psi) (∧ ($chi) ($theta) ($tau)))) 
+         (Conclusions ($tau))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpll1) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi) ($chi)) ($theta)) ($tau))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpll2) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi) ($chi)) ($theta)) ($tau))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpll3) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi) ($chi)) ($theta)) ($tau))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simplr1) 
+      (Implication 
+         (Premises (∧ (∧ ($theta) (∧ ($phi) ($psi) ($chi))) ($tau))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simplr2) 
+      (Implication 
+         (Premises (∧ (∧ ($theta) (∧ ($phi) ($psi) ($chi))) ($tau))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simplr3) 
+      (Implication 
+         (Premises (∧ (∧ ($theta) (∧ ($phi) ($psi) ($chi))) ($tau))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simprl1) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ (∧ ($phi) ($psi) ($chi)) ($theta)))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simprl2) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ (∧ ($phi) ($psi) ($chi)) ($theta)))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simprl3) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ (∧ ($phi) ($psi) ($chi)) ($theta)))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simprr1) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ ($theta) (∧ ($phi) ($psi) ($chi))))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simprr2) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ ($theta) (∧ ($phi) ($psi) ($chi))))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simprr3) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ ($theta) (∧ ($phi) ($psi) ($chi))))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpl1l) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi)) ($chi) ($theta)) ($tau))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpl1r) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi)) ($chi) ($theta)) ($tau))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpl2l) 
+      (Implication 
+         (Premises (∧ (∧ ($chi) (∧ ($phi) ($psi)) ($theta)) ($tau))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpl2r) 
+      (Implication 
+         (Premises (∧ (∧ ($chi) (∧ ($phi) ($psi)) ($theta)) ($tau))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpl3l) 
+      (Implication 
+         (Premises (∧ (∧ ($chi) ($theta) (∧ ($phi) ($psi))) ($tau))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpl3r) 
+      (Implication 
+         (Premises (∧ (∧ ($chi) ($theta) (∧ ($phi) ($psi))) ($tau))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpr1l) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ (∧ ($phi) ($psi)) ($chi) ($theta)))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpr1r) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ (∧ ($phi) ($psi)) ($chi) ($theta)))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpr2l) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ ($chi) (∧ ($phi) ($psi)) ($theta)))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpr2r) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ ($chi) (∧ ($phi) ($psi)) ($theta)))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpr3l) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ ($chi) ($theta) (∧ ($phi) ($psi))))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpr3r) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ ($chi) ($theta) (∧ ($phi) ($psi))))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp1ll) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta) ($tau))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp1lr) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta) ($tau))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp1rl) 
+      (Implication 
+         (Premises (∧ (∧ ($chi) (∧ ($phi) ($psi))) ($theta) ($tau))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp1rr) 
+      (Implication 
+         (Premises (∧ (∧ ($chi) (∧ ($phi) ($psi))) ($theta) ($tau))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp2ll) 
+      (Implication 
+         (Premises (∧ ($theta) (∧ (∧ ($phi) ($psi)) ($chi)) ($tau))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp2lr) 
+      (Implication 
+         (Premises (∧ ($theta) (∧ (∧ ($phi) ($psi)) ($chi)) ($tau))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp2rl) 
+      (Implication 
+         (Premises (∧ ($theta) (∧ ($chi) (∧ ($phi) ($psi))) ($tau))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp2rr) 
+      (Implication 
+         (Premises (∧ ($theta) (∧ ($chi) (∧ ($phi) ($psi))) ($tau))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp3ll) 
+      (Implication 
+         (Premises (∧ ($theta) ($tau) (∧ (∧ ($phi) ($psi)) ($chi)))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp3lr) 
+      (Implication 
+         (Premises (∧ ($theta) ($tau) (∧ (∧ ($phi) ($psi)) ($chi)))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp3rl) 
+      (Implication 
+         (Premises (∧ ($theta) ($tau) (∧ ($chi) (∧ ($phi) ($psi))))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp3rr) 
+      (Implication 
+         (Premises (∧ ($theta) ($tau) (∧ ($chi) (∧ ($phi) ($psi))))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpl11) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi) ($chi)) ($theta) ($tau)) ($eta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpl12) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi) ($chi)) ($theta) ($tau)) ($eta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpl13) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi) ($chi)) ($theta) ($tau)) ($eta))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpl21) 
+      (Implication 
+         (Premises (∧ (∧ ($theta) (∧ ($phi) ($psi) ($chi)) ($tau)) ($eta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpl22) 
+      (Implication 
+         (Premises (∧ (∧ ($theta) (∧ ($phi) ($psi) ($chi)) ($tau)) ($eta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpl23) 
+      (Implication 
+         (Premises (∧ (∧ ($theta) (∧ ($phi) ($psi) ($chi)) ($tau)) ($eta))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpl31) 
+      (Implication 
+         (Premises (∧ (∧ ($theta) ($tau) (∧ ($phi) ($psi) ($chi))) ($eta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpl32) 
+      (Implication 
+         (Premises (∧ (∧ ($theta) ($tau) (∧ ($phi) ($psi) ($chi))) ($eta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpl33) 
+      (Implication 
+         (Premises (∧ (∧ ($theta) ($tau) (∧ ($phi) ($psi) ($chi))) ($eta))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpr11) 
+      (Implication 
+         (Premises (∧ ($eta) (∧ (∧ ($phi) ($psi) ($chi)) ($theta) ($tau)))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpr12) 
+      (Implication 
+         (Premises (∧ ($eta) (∧ (∧ ($phi) ($psi) ($chi)) ($theta) ($tau)))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpr13) 
+      (Implication 
+         (Premises (∧ ($eta) (∧ (∧ ($phi) ($psi) ($chi)) ($theta) ($tau)))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpr21) 
+      (Implication 
+         (Premises (∧ ($eta) (∧ ($theta) (∧ ($phi) ($psi) ($chi)) ($tau)))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpr22) 
+      (Implication 
+         (Premises (∧ ($eta) (∧ ($theta) (∧ ($phi) ($psi) ($chi)) ($tau)))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpr23) 
+      (Implication 
+         (Premises (∧ ($eta) (∧ ($theta) (∧ ($phi) ($psi) ($chi)) ($tau)))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpr31) 
+      (Implication 
+         (Premises (∧ ($eta) (∧ ($theta) ($tau) (∧ ($phi) ($psi) ($chi))))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpr32) 
+      (Implication 
+         (Premises (∧ ($eta) (∧ ($theta) ($tau) (∧ ($phi) ($psi) ($chi))))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simpr33) 
+      (Implication 
+         (Premises (∧ ($eta) (∧ ($theta) ($tau) (∧ ($phi) ($psi) ($chi))))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp1l1) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi) ($chi)) ($theta)) ($tau) ($eta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp1l2) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi) ($chi)) ($theta)) ($tau) ($eta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp1l3) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi) ($chi)) ($theta)) ($tau) ($eta))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp1r1) 
+      (Implication 
+         (Premises (∧ (∧ ($theta) (∧ ($phi) ($psi) ($chi))) ($tau) ($eta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp1r2) 
+      (Implication 
+         (Premises (∧ (∧ ($theta) (∧ ($phi) ($psi) ($chi))) ($tau) ($eta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp1r3) 
+      (Implication 
+         (Premises (∧ (∧ ($theta) (∧ ($phi) ($psi) ($chi))) ($tau) ($eta))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp2l1) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ (∧ ($phi) ($psi) ($chi)) ($theta)) ($eta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp2l2) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ (∧ ($phi) ($psi) ($chi)) ($theta)) ($eta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp2l3) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ (∧ ($phi) ($psi) ($chi)) ($theta)) ($eta))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp2r1) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ ($theta) (∧ ($phi) ($psi) ($chi))) ($eta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp2r2) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ ($theta) (∧ ($phi) ($psi) ($chi))) ($eta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp2r3) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ ($theta) (∧ ($phi) ($psi) ($chi))) ($eta))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp3l1) 
+      (Implication 
+         (Premises (∧ ($tau) ($eta) (∧ (∧ ($phi) ($psi) ($chi)) ($theta)))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp3l2) 
+      (Implication 
+         (Premises (∧ ($tau) ($eta) (∧ (∧ ($phi) ($psi) ($chi)) ($theta)))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp3l3) 
+      (Implication 
+         (Premises (∧ ($tau) ($eta) (∧ (∧ ($phi) ($psi) ($chi)) ($theta)))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp3r1) 
+      (Implication 
+         (Premises (∧ ($tau) ($eta) (∧ ($theta) (∧ ($phi) ($psi) ($chi))))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp3r2) 
+      (Implication 
+         (Premises (∧ ($tau) ($eta) (∧ ($theta) (∧ ($phi) ($psi) ($chi))))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp3r3) 
+      (Implication 
+         (Premises (∧ ($tau) ($eta) (∧ ($theta) (∧ ($phi) ($psi) ($chi))))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp11l) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi)) ($chi) ($theta)) ($tau) ($eta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp11r) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi)) ($chi) ($theta)) ($tau) ($eta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp12l) 
+      (Implication 
+         (Premises (∧ (∧ ($chi) (∧ ($phi) ($psi)) ($theta)) ($tau) ($eta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp12r) 
+      (Implication 
+         (Premises (∧ (∧ ($chi) (∧ ($phi) ($psi)) ($theta)) ($tau) ($eta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp13l) 
+      (Implication 
+         (Premises (∧ (∧ ($chi) ($theta) (∧ ($phi) ($psi))) ($tau) ($eta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp13r) 
+      (Implication 
+         (Premises (∧ (∧ ($chi) ($theta) (∧ ($phi) ($psi))) ($tau) ($eta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp21l) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ (∧ ($phi) ($psi)) ($chi) ($theta)) ($eta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp21r) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ (∧ ($phi) ($psi)) ($chi) ($theta)) ($eta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp22l) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ ($chi) (∧ ($phi) ($psi)) ($theta)) ($eta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp22r) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ ($chi) (∧ ($phi) ($psi)) ($theta)) ($eta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp23l) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ ($chi) ($theta) (∧ ($phi) ($psi))) ($eta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp23r) 
+      (Implication 
+         (Premises (∧ ($tau) (∧ ($chi) ($theta) (∧ ($phi) ($psi))) ($eta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp31l) 
+      (Implication 
+         (Premises (∧ ($tau) ($eta) (∧ (∧ ($phi) ($psi)) ($chi) ($theta)))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp31r) 
+      (Implication 
+         (Premises (∧ ($tau) ($eta) (∧ (∧ ($phi) ($psi)) ($chi) ($theta)))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp32l) 
+      (Implication 
+         (Premises (∧ ($tau) ($eta) (∧ ($chi) (∧ ($phi) ($psi)) ($theta)))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp32r) 
+      (Implication 
+         (Premises (∧ ($tau) ($eta) (∧ ($chi) (∧ ($phi) ($psi)) ($theta)))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp33l) 
+      (Implication 
+         (Premises (∧ ($tau) ($eta) (∧ ($chi) ($theta) (∧ ($phi) ($psi))))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp33r) 
+      (Implication 
+         (Premises (∧ ($tau) ($eta) (∧ ($chi) ($theta) (∧ ($phi) ($psi))))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp111) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi) ($chi)) ($theta) ($tau)) ($eta) ($zeta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp112) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi) ($chi)) ($theta) ($tau)) ($eta) ($zeta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp113) 
+      (Implication 
+         (Premises (∧ (∧ (∧ ($phi) ($psi) ($chi)) ($theta) ($tau)) ($eta) ($zeta))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp121) 
+      (Implication 
+         (Premises (∧ (∧ ($theta) (∧ ($phi) ($psi) ($chi)) ($tau)) ($eta) ($zeta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp122) 
+      (Implication 
+         (Premises (∧ (∧ ($theta) (∧ ($phi) ($psi) ($chi)) ($tau)) ($eta) ($zeta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp123) 
+      (Implication 
+         (Premises (∧ (∧ ($theta) (∧ ($phi) ($psi) ($chi)) ($tau)) ($eta) ($zeta))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp131) 
+      (Implication 
+         (Premises (∧ (∧ ($theta) ($tau) (∧ ($phi) ($psi) ($chi))) ($eta) ($zeta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp132) 
+      (Implication 
+         (Premises (∧ (∧ ($theta) ($tau) (∧ ($phi) ($psi) ($chi))) ($eta) ($zeta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp133) 
+      (Implication 
+         (Premises (∧ (∧ ($theta) ($tau) (∧ ($phi) ($psi) ($chi))) ($eta) ($zeta))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp211) 
+      (Implication 
+         (Premises (∧ ($eta) (∧ (∧ ($phi) ($psi) ($chi)) ($theta) ($tau)) ($zeta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp212) 
+      (Implication 
+         (Premises (∧ ($eta) (∧ (∧ ($phi) ($psi) ($chi)) ($theta) ($tau)) ($zeta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp213) 
+      (Implication 
+         (Premises (∧ ($eta) (∧ (∧ ($phi) ($psi) ($chi)) ($theta) ($tau)) ($zeta))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp221) 
+      (Implication 
+         (Premises (∧ ($eta) (∧ ($theta) (∧ ($phi) ($psi) ($chi)) ($tau)) ($zeta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp222) 
+      (Implication 
+         (Premises (∧ ($eta) (∧ ($theta) (∧ ($phi) ($psi) ($chi)) ($tau)) ($zeta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp223) 
+      (Implication 
+         (Premises (∧ ($eta) (∧ ($theta) (∧ ($phi) ($psi) ($chi)) ($tau)) ($zeta))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp231) 
+      (Implication 
+         (Premises (∧ ($eta) (∧ ($theta) ($tau) (∧ ($phi) ($psi) ($chi))) ($zeta))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp232) 
+      (Implication 
+         (Premises (∧ ($eta) (∧ ($theta) ($tau) (∧ ($phi) ($psi) ($chi))) ($zeta))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp233) 
+      (Implication 
+         (Premises (∧ ($eta) (∧ ($theta) ($tau) (∧ ($phi) ($psi) ($chi))) ($zeta))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp311) 
+      (Implication 
+         (Premises (∧ ($eta) ($zeta) (∧ (∧ ($phi) ($psi) ($chi)) ($theta) ($tau)))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp312) 
+      (Implication 
+         (Premises (∧ ($eta) ($zeta) (∧ (∧ ($phi) ($psi) ($chi)) ($theta) ($tau)))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp313) 
+      (Implication 
+         (Premises (∧ ($eta) ($zeta) (∧ (∧ ($phi) ($psi) ($chi)) ($theta) ($tau)))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp321) 
+      (Implication 
+         (Premises (∧ ($eta) ($zeta) (∧ ($theta) (∧ ($phi) ($psi) ($chi)) ($tau)))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp322) 
+      (Implication 
+         (Premises (∧ ($eta) ($zeta) (∧ ($theta) (∧ ($phi) ($psi) ($chi)) ($tau)))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp323) 
+      (Implication 
+         (Premises (∧ ($eta) ($zeta) (∧ ($theta) (∧ ($phi) ($psi) ($chi)) ($tau)))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp331) 
+      (Implication 
+         (Premises (∧ ($eta) ($zeta) (∧ ($theta) ($tau) (∧ ($phi) ($psi) ($chi))))) 
+         (Conclusions ($phi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp332) 
+      (Implication 
+         (Premises (∧ ($eta) ($zeta) (∧ ($theta) ($tau) (∧ ($phi) ($psi) ($chi))))) 
+         (Conclusions ($psi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse simp333) 
+      (Implication 
+         (Premises (∧ ($eta) ($zeta) (∧ ($theta) ($tau) (∧ ($phi) ($psi) ($chi))))) 
+         (Conclusions ($chi))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anibar) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions (↔ ($theta) (∧ ($chi) ($tau))))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions (↔ ($theta) ($tau)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3mix1) 
+      (Implication 
+         (Premises ($phi)) 
+         (Conclusions (∨ ($phi) ($psi) ($chi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3mix2) 
+      (Implication 
+         (Premises ($phi)) 
+         (Conclusions (∨ ($psi) ($phi) ($chi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3mix3) 
+      (Implication 
+         (Premises ($phi)) 
+         (Conclusions (∨ ($psi) ($chi) ($phi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3mix1i) 
+      (Implication 
+         (Premises 
+            ($phi)
+         ) 
+         (Conclusions 
+            (∨ ($phi) ($psi) ($chi))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3mix2i) 
+      (Implication 
+         (Premises 
+            ($phi)
+         ) 
+         (Conclusions 
+            (∨ ($psi) ($phi) ($chi))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3mix3i) 
+      (Implication 
+         (Premises 
+            ($phi)
+         ) 
+         (Conclusions 
+            (∨ ($psi) ($chi) ($phi))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3mix1d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($psi) ($chi) ($theta)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3mix2d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($chi) ($psi) ($theta)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3mix3d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($chi) ($theta) ($psi)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3pm3.2i) 
+      (Implication 
+         (Premises 
+            ($phi)
+            ($psi)
+            ($chi)
+         ) 
+         (Conclusions 
+            (∧ ($phi) ($psi) ($chi))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse pm3.2an3) 
+      (Implication 
+         (Premises ($phi)) 
+         (Conclusions (Implication 
+               (Premises ($psi)) 
+               (Conclusions (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions (∧ ($phi) ($psi) ($chi)))
+                  ))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpbir3an) 
+      (Implication 
+         (Premises 
+            ($psi)
+            ($chi)
+            ($theta)
+            (↔ ($phi) (∧ ($psi) ($chi) ($theta)))
+         ) 
+         (Conclusions 
+            ($phi)
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpbir3and) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) (∧ ($chi) ($theta) ($tau))))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3anbrc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (↔ ($tau) (∧ ($psi) ($chi) ($theta)))
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl21anbrc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (↔ ($tau) (∧ (∧ ($psi) ($chi)) ($theta)))
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3imp3i2an) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises (∧ ($theta) ($tau))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ex3) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions (Implication 
+                     (Premises ($theta)) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3imp1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (Implication 
+                           (Premises ($chi)) 
+                           (Conclusions (Implication 
+                                 (Premises ($theta)) 
+                                 (Conclusions ($tau))
+                              ))
+                        ))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3impd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (Implication 
+                           (Premises ($chi)) 
+                           (Conclusions (Implication 
+                                 (Premises ($theta)) 
+                                 (Conclusions ($tau))
+                              ))
+                        ))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($chi) ($theta))) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3imp2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (Implication 
+                           (Premises ($chi)) 
+                           (Conclusions (Implication 
+                                 (Premises ($theta)) 
+                                 (Conclusions ($tau))
+                              ))
+                        ))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3impdi) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) (∧ ($phi) ($chi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3impdir) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) (∧ ($chi) ($psi)))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi) ($psi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3exp1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (Implication 
+                           (Premises ($chi)) 
+                           (Conclusions (Implication 
+                                 (Premises ($theta)) 
+                                 (Conclusions ($tau))
+                              ))
+                        ))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3expd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($chi) ($theta))) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (Implication 
+                           (Premises ($chi)) 
+                           (Conclusions (Implication 
+                                 (Premises ($theta)) 
+                                 (Conclusions ($tau))
+                              ))
+                        ))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3exp2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (Implication 
+                           (Premises ($chi)) 
+                           (Conclusions (Implication 
+                                 (Premises ($theta)) 
+                                 (Conclusions ($tau))
+                              ))
+                        ))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse exp5o) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($theta) ($tau))) 
+                     (Conclusions ($eta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (Implication 
+                           (Premises ($chi)) 
+                           (Conclusions (Implication 
+                                 (Premises ($theta)) 
+                                 (Conclusions (Implication 
+                                       (Premises ($tau)) 
+                                       (Conclusions ($eta))
+                                    ))
+                              ))
+                        ))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse exp516) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) (∧ ($psi) ($chi) ($theta))) ($tau))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (Implication 
+                           (Premises ($chi)) 
+                           (Conclusions (Implication 
+                                 (Premises ($theta)) 
+                                 (Conclusions (Implication 
+                                       (Premises ($tau)) 
+                                       (Conclusions ($eta))
+                                    ))
+                              ))
+                        ))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse exp520) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi) ($chi)) (∧ ($theta) ($tau)))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions (Implication 
+                           (Premises ($chi)) 
+                           (Conclusions (Implication 
+                                 (Premises ($theta)) 
+                                 (Conclusions (Implication 
+                                       (Premises ($tau)) 
+                                       (Conclusions ($eta))
+                                    ))
+                              ))
+                        ))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3impexp) 
+      (↔ (Implication 
+         (Premises (∧ ($phi) ($psi) ($chi))) 
+         (Conclusions ($theta))
+      ) (Implication 
+         (Premises ($phi)) 
+         (Conclusions (Implication 
+               (Premises ($psi)) 
+               (Conclusions (Implication 
+                     (Premises ($chi)) 
+                     (Conclusions ($theta))
+                  ))
+            ))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3an1rs) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi) ($theta)) ($chi))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anassrs) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 4anpull2) 
+      (↔ (∧ (∧ ($phi) ($psi)) (∧ ($chi) ($theta))) (∧ (∧ ($phi) ($chi) ($theta)) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad5ant245) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($tau) ($phi)) ($eta)) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad5ant234) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($tau) ($phi)) ($psi)) ($chi)) ($eta))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad5ant235) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($tau) ($phi)) ($psi)) ($eta)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad5ant123) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($tau)) ($eta))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad5ant124) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($phi) ($psi)) ($tau)) ($chi)) ($eta))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad5ant125) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($phi) ($psi)) ($tau)) ($eta)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad5ant134) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($phi) ($tau)) ($psi)) ($chi)) ($eta))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad5ant135) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($phi) ($tau)) ($psi)) ($eta)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad5ant145) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($phi) ($tau)) ($eta)) ($psi)) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ad5ant2345) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ (∧ ($phi) ($psi)) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ (∧ (∧ ($eta) ($phi)) ($psi)) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($chi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl13anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises (∧ ($psi) (∧ ($chi) ($theta) ($tau)))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl31anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi) ($theta)) ($tau))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl112anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($chi) (∧ ($theta) ($tau)))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl121anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises (∧ ($psi) (∧ ($chi) ($theta)) ($tau))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl211anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi)) ($theta) ($tau))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl23anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi)) (∧ ($theta) ($tau) ($eta)))) 
+               (Conclusions ($zeta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl32anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi) ($theta)) (∧ ($tau) ($eta)))) 
+               (Conclusions ($zeta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl122anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises (∧ ($psi) (∧ ($chi) ($theta)) (∧ ($tau) ($eta)))) 
+               (Conclusions ($zeta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl212anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi)) ($theta) (∧ ($tau) ($eta)))) 
+               (Conclusions ($zeta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl221anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi)) (∧ ($theta) ($tau)) ($eta))) 
+               (Conclusions ($zeta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl113anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($chi) (∧ ($theta) ($tau) ($eta)))) 
+               (Conclusions ($zeta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl131anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises (∧ ($psi) (∧ ($chi) ($theta) ($tau)) ($eta))) 
+               (Conclusions ($zeta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl311anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi) ($theta)) ($tau) ($eta))) 
+               (Conclusions ($zeta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl33anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi) ($theta)) (∧ ($tau) ($eta) ($zeta)))) 
+               (Conclusions ($sigma))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($sigma))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl222anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi)) (∧ ($theta) ($tau)) (∧ ($eta) ($zeta)))) 
+               (Conclusions ($sigma))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($sigma))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl123anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+            (Implication 
+               (Premises (∧ ($psi) (∧ ($chi) ($theta)) (∧ ($tau) ($eta) ($zeta)))) 
+               (Conclusions ($sigma))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($sigma))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl132anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+            (Implication 
+               (Premises (∧ ($psi) (∧ ($chi) ($theta) ($tau)) (∧ ($eta) ($zeta)))) 
+               (Conclusions ($sigma))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($sigma))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl213anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi)) ($theta) (∧ ($tau) ($eta) ($zeta)))) 
+               (Conclusions ($sigma))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($sigma))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl231anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi)) (∧ ($theta) ($tau) ($eta)) ($zeta))) 
+               (Conclusions ($sigma))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($sigma))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl312anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi) ($theta)) ($tau) (∧ ($eta) ($zeta)))) 
+               (Conclusions ($sigma))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($sigma))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl321anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi) ($theta)) (∧ ($tau) ($eta)) ($zeta))) 
+               (Conclusions ($sigma))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($sigma))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl133anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($sigma))
+            )
+            (Implication 
+               (Premises (∧ ($psi) (∧ ($chi) ($theta) ($tau)) (∧ ($eta) ($zeta) ($sigma)))) 
+               (Conclusions ($rho))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($rho))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl313anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($sigma))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi) ($theta)) ($tau) (∧ ($eta) ($zeta) ($sigma)))) 
+               (Conclusions ($rho))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($rho))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl331anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($sigma))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi) ($theta)) (∧ ($tau) ($eta) ($zeta)) ($sigma))) 
+               (Conclusions ($rho))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($rho))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl223anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($sigma))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi)) (∧ ($theta) ($tau)) (∧ ($eta) ($zeta) ($sigma)))) 
+               (Conclusions ($rho))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($rho))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl232anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($sigma))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi)) (∧ ($theta) ($tau) ($eta)) (∧ ($zeta) ($sigma)))) 
+               (Conclusions ($rho))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($rho))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl322anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($sigma))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi) ($theta)) (∧ ($tau) ($eta)) (∧ ($zeta) ($sigma)))) 
+               (Conclusions ($rho))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($rho))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl233anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($sigma))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($rho))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi)) (∧ ($theta) ($tau) ($eta)) (∧ ($zeta) ($sigma) ($rho)))) 
+               (Conclusions ($mu))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($mu))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl323anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($sigma))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($rho))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi) ($theta)) (∧ ($tau) ($eta)) (∧ ($zeta) ($sigma) ($rho)))) 
+               (Conclusions ($mu))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($mu))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl332anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($sigma))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($rho))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi) ($theta)) (∧ ($tau) ($eta) ($zeta)) (∧ ($sigma) ($rho)))) 
+               (Conclusions ($mu))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($mu))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl333anc) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($zeta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($sigma))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($rho))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($mu))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi) ($theta)) (∧ ($tau) ($eta) ($zeta)) (∧ ($sigma) ($rho) ($mu)))) 
+               (Conclusions ($lambda))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($lambda))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3an1b) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+            (Implication 
+               (Premises (∧ ($psi) ($chi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3an2b) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($chi))
+            (Implication 
+               (Premises (∧ ($psi) ($chi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($phi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3an3b) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($theta))
+            (Implication 
+               (Premises (∧ ($psi) ($chi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($chi) ($phi))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3an1br) 
+      (Implication 
+         (Premises 
+            (↔ ($psi) ($phi))
+            (Implication 
+               (Premises (∧ ($psi) ($chi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3an2br) 
+      (Implication 
+         (Premises 
+            (↔ ($chi) ($phi))
+            (Implication 
+               (Premises (∧ ($psi) ($chi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($phi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3an3br) 
+      (Implication 
+         (Premises 
+            (↔ ($theta) ($phi))
+            (Implication 
+               (Premises (∧ ($psi) ($chi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($chi) ($phi))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syld3an3) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syld3an1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($chi) ($psi) ($theta))) 
+               (Conclusions ($phi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($chi) ($psi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syld3an2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($chi) ($theta))) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3anl1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi) ($theta)) ($tau))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($chi) ($theta)) ($tau))) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3anl2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi) ($theta)) ($tau))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($phi) ($theta)) ($tau))) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3anl3) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi) ($theta)) ($tau))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi) ($phi)) ($tau))) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3anl) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($tau)) 
+               (Conclusions ($eta))
+            )
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($theta) ($eta)) ($zeta))) 
+               (Conclusions ($sigma))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($chi) ($tau)) ($zeta))) 
+               (Conclusions ($sigma))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3anr1) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises (∧ ($chi) (∧ ($psi) ($theta) ($tau)))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($chi) (∧ ($phi) ($theta) ($tau)))) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3anr2) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($chi) (∧ ($psi) ($theta) ($tau)))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($chi) (∧ ($psi) ($phi) ($tau)))) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3anr3) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises (∧ ($chi) (∧ ($psi) ($theta) ($tau)))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($chi) (∧ ($psi) ($theta) ($phi)))) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anidm12) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anidm13) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($phi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anidm23) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl2an3an) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($chi) ($tau))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($theta))) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl2an23an) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($theta) ($phi))) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($chi) ($tau))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($theta) ($phi))) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3ori) 
+      (Implication 
+         (Premises 
+            (∨ ($phi) ($psi) ($chi))
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (Not ($phi)) (Not ($psi)))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3jao) 
+      (Implication 
+         (Premises (∧ (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            ) (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($psi))
+            ) (Implication 
+               (Premises ($theta)) 
+               (Conclusions ($psi))
+            ))) 
+         (Conclusions (Implication 
+               (Premises (∨ ($phi) ($chi) ($theta))) 
+               (Conclusions ($psi))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3jaob) 
+      (↔ (Implication 
+         (Premises (∨ ($phi) ($chi) ($theta))) 
+         (Conclusions ($psi))
+      ) (∧ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises ($chi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises ($theta)) 
+         (Conclusions ($psi))
+      ))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3jaobOLD) 
+      (↔ (Implication 
+         (Premises (∨ ($phi) ($chi) ($theta))) 
+         (Conclusions ($psi))
+      ) (∧ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises ($chi)) 
+         (Conclusions ($psi))
+      ) (Implication 
+         (Premises ($theta)) 
+         (Conclusions ($psi))
+      ))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3jaoi) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∨ ($phi) ($chi) ($theta))) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3jaod) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($theta)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($tau)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∨ ($psi) ($theta) ($tau))) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3jaoian) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($theta) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($tau) ($psi))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∨ ($phi) ($theta) ($tau)) ($psi))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3jaodan) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($theta))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($tau))) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∨ ($psi) ($theta) ($tau)))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpjao3dan) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($theta))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($tau))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($psi) ($theta) ($tau)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3jaao) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions (Implication 
+                     (Premises ($tau)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($eta)) 
+               (Conclusions (Implication 
+                     (Premises ($zeta)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($theta) ($eta))) 
+               (Conclusions (Implication 
+                     (Premises (∨ ($psi) ($tau) ($zeta))) 
+                     (Conclusions ($chi))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse syl3an9b) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions (↔ ($chi) ($tau)))
+            )
+            (Implication 
+               (Premises ($eta)) 
+               (Conclusions (↔ ($tau) ($zeta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($theta) ($eta))) 
+               (Conclusions (↔ ($psi) ($zeta)))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3orbi123d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($theta) ($tau)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($eta) ($zeta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∨ ($psi) ($theta) ($eta)) (∨ ($chi) ($tau) ($zeta))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anbi123d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($theta) ($tau)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($eta) ($zeta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∧ ($psi) ($theta) ($eta)) (∧ ($chi) ($tau) ($zeta))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anbi12d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($theta) ($tau)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∧ ($psi) ($theta) ($eta)) (∧ ($chi) ($tau) ($eta))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anbi13d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($theta) ($tau)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∧ ($psi) ($eta) ($theta)) (∧ ($chi) ($eta) ($tau))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anbi23d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($theta) ($tau)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∧ ($eta) ($psi) ($theta)) (∧ ($eta) ($chi) ($tau))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anbi1d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∧ ($psi) ($theta) ($tau)) (∧ ($chi) ($theta) ($tau))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anbi2d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∧ ($theta) ($psi) ($tau)) (∧ ($theta) ($chi) ($tau))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anbi3d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∧ ($theta) ($tau) ($psi)) (∧ ($theta) ($tau) ($chi))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anim123d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($theta)) 
+                     (Conclusions ($tau))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($eta)) 
+                     (Conclusions ($zeta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($theta) ($eta))) 
+                     (Conclusions (∧ ($chi) ($tau) ($zeta)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3orim123d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($psi)) 
+                     (Conclusions ($chi))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($theta)) 
+                     (Conclusions ($tau))
+                  ))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises ($eta)) 
+                     (Conclusions ($zeta))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∨ ($psi) ($theta) ($eta))) 
+                     (Conclusions (∨ ($chi) ($tau) ($zeta)))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an6) 
+      (↔ (∧ (∧ ($phi) ($psi) ($chi)) (∧ ($theta) ($tau) ($eta))) (∧ (∧ ($phi) ($theta)) (∧ ($psi) ($tau)) (∧ ($chi) ($eta)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3an6) 
+      (↔ (∧ (∧ ($phi) ($psi)) (∧ ($chi) ($theta)) (∧ ($tau) ($eta))) (∧ (∧ ($phi) ($chi) ($tau)) (∧ ($psi) ($theta) ($eta)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3or6) 
+      (↔ (∨ (∨ ($phi) ($psi)) (∨ ($chi) ($theta)) (∨ ($tau) ($eta))) (∨ (∨ ($phi) ($chi) ($tau)) (∨ ($psi) ($theta) ($eta)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3an1) 
+      (Implication 
+         (Premises 
+            ($phi)
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3an2) 
+      (Implication 
+         (Premises 
+            ($psi)
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3an3) 
+      (Implication 
+         (Premises 
+            ($chi)
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3an12) 
+      (Implication 
+         (Premises 
+            ($phi)
+            ($psi)
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3an13) 
+      (Implication 
+         (Premises 
+            ($phi)
+            ($chi)
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3an23) 
+      (Implication 
+         (Premises 
+            ($psi)
+            ($chi)
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3an1i) 
+      (Implication 
+         (Premises 
+            ($psi)
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($chi) ($theta))) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($chi) ($theta))) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3anl1) 
+      (Implication 
+         (Premises 
+            ($phi)
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($psi) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3anl2) 
+      (Implication 
+         (Premises 
+            ($psi)
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3anl3) 
+      (Implication 
+         (Premises 
+            ($chi)
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3anr1) 
+      (Implication 
+         (Premises 
+            ($psi)
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($chi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3anr2) 
+      (Implication 
+         (Premises 
+            ($chi)
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3anr3) 
+      (Implication 
+         (Premises 
+            ($theta)
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi)))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3an) 
+      (Implication 
+         (Premises 
+            ($phi)
+            ($psi)
+            ($chi)
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            ($theta)
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpd3an3) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mpd3an23) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3and) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Implication 
+                     (Premises (∧ ($psi) ($chi) ($theta))) 
+                     (Conclusions ($tau))
+                  ))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3an12i) 
+      (Implication 
+         (Premises 
+            ($phi)
+            ($psi)
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3an2i) 
+      (Implication 
+         (Premises 
+            ($phi)
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($chi) ($theta))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3an3an) 
+      (Implication 
+         (Premises 
+            ($phi)
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($theta)) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($chi) ($tau))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($theta))) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse mp3an2ani) 
+      (Implication 
+         (Premises 
+            ($phi)
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises (∧ ($psi) ($theta))) 
+               (Conclusions ($tau))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($chi) ($tau))) 
+               (Conclusions ($eta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($psi) ($theta))) 
+               (Conclusions ($eta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse biimp3a) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions (↔ ($chi) ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse biimp3ar) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ ($phi) ($psi))) 
+               (Conclusions (↔ ($chi) ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($theta))) 
+               (Conclusions ($chi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anandis) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi)) (∧ ($phi) ($chi)) (∧ ($phi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ ($phi) (∧ ($psi) ($chi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3anandirs) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($theta)) (∧ ($psi) ($theta)) (∧ ($chi) ($theta)))) 
+               (Conclusions ($tau))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises (∧ (∧ ($phi) ($psi) ($chi)) ($theta))) 
+               (Conclusions ($tau))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse ecase23d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($chi)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($theta)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (∨ ($psi) ($chi) ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3ecase) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises (Not ($phi))) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (Not ($psi))) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (Not ($chi))) 
+               (Conclusions ($theta))
+            )
+            (Implication 
+               (Premises (∧ ($phi) ($psi) ($chi))) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            ($theta)
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3bior1fd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∨ ($chi) ($psi)) (∨ ($theta) ($chi) ($psi))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3bior1fand) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($theta)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∨ ($chi) ($psi)) (∨ (∧ ($theta) ($tau)) ($chi) ($psi))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3bior2fd) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($theta)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) (∨ ($theta) ($chi) ($psi))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3biant1d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($theta))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (∧ ($chi) ($psi)) (∧ ($theta) ($chi) ($psi))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse intn3an1d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($psi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not (∧ ($psi) ($chi) ($theta))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse intn3an2d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($psi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not (∧ ($chi) ($psi) ($theta))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse intn3an3d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not ($psi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (Not (∧ ($chi) ($theta) ($psi))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an3andi) 
+      (↔ (∧ ($phi) (∧ ($psi) ($chi) ($theta))) (∧ (∧ ($phi) ($psi)) (∧ ($phi) ($chi)) (∧ ($phi) ($theta)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse an33rean) 
+      (↔ (∧ (∧ ($phi) ($psi) ($chi)) (∧ ($theta) ($tau) ($eta)) (∧ ($zeta) ($sigma) ($rho))) (∧ (∧ ($phi) ($tau) ($rho)) (∧ (∧ ($psi) ($theta)) (∧ ($eta) ($sigma)) (∧ ($chi) ($zeta))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3orel2) 
+      (Implication 
+         (Premises (Not ($psi))) 
+         (Conclusions (Implication 
+               (Premises (∨ ($phi) ($psi) ($chi))) 
+               (Conclusions (∨ ($phi) ($chi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3orel2OLD) 
+      (Implication 
+         (Premises (Not ($psi))) 
+         (Conclusions (Implication 
+               (Premises (∨ ($phi) ($psi) ($chi))) 
+               (Conclusions (∨ ($phi) ($chi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3orel3) 
+      (Implication 
+         (Premises (Not ($chi))) 
+         (Conclusions (Implication 
+               (Premises (∨ ($phi) ($psi) ($chi))) 
+               (Conclusions (∨ ($phi) ($psi)))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3orel13) 
+      (Implication 
+         (Premises (∧ (Not ($phi)) (Not ($chi)))) 
+         (Conclusions (Implication 
+               (Premises (∨ ($phi) ($psi) ($chi))) 
+               (Conclusions ($psi))
+            ))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse 3pm3.2ni) 
+      (Implication 
+         (Premises 
+            (Not ($phi))
+            (Not ($psi))
+            (Not ($chi))
+         ) 
+         (Conclusions 
+            (Not (∨ ($phi) ($psi) ($chi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse df-nan) 
+      (↔ (⊼ ($phi) ($psi)) (Not (∧ ($phi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nanan) 
+      (↔ (∧ ($phi) ($psi)) (Not (⊼ ($phi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse dfnan2) 
+      (↔ (⊼ ($phi) ($psi)) (Implication 
+         (Premises ($phi)) 
+         (Conclusions (Not ($psi)))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nanor) 
+      (↔ (⊼ ($phi) ($psi)) (∨ (Not ($phi)) (Not ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nancom) 
+      (↔ (⊼ ($phi) ($psi)) (⊼ ($psi) ($phi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nannan) 
+      (↔ (⊼ ($phi) (⊼ ($psi) ($chi))) (Implication 
+         (Premises ($phi)) 
+         (Conclusions (∧ ($psi) ($chi)))
+      )) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nanim) 
+      (↔ (Implication 
+         (Premises ($phi)) 
+         (Conclusions ($psi))
+      ) (⊼ ($phi) (⊼ ($psi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nannot) 
+      (↔ (Not ($phi)) (⊼ ($phi) ($phi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nanbi) 
+      (↔ (↔ ($phi) ($psi)) (⊼ (⊼ ($phi) ($psi)) (⊼ (⊼ ($phi) ($phi)) (⊼ ($psi) ($psi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nanbi1) 
+      (Implication 
+         (Premises (↔ ($phi) ($psi))) 
+         (Conclusions (↔ (⊼ ($phi) ($chi)) (⊼ ($psi) ($chi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nanbi2) 
+      (Implication 
+         (Premises (↔ ($phi) ($psi))) 
+         (Conclusions (↔ (⊼ ($chi) ($phi)) (⊼ ($chi) ($psi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nanbi12) 
+      (Implication 
+         (Premises (∧ (↔ ($phi) ($psi)) (↔ ($chi) ($theta)))) 
+         (Conclusions (↔ (⊼ ($phi) ($chi)) (⊼ ($psi) ($theta))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nanbi1i) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+         ) 
+         (Conclusions 
+            (↔ (⊼ ($phi) ($chi)) (⊼ ($psi) ($chi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nanbi2i) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+         ) 
+         (Conclusions 
+            (↔ (⊼ ($chi) ($phi)) (⊼ ($chi) ($psi)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nanbi12i) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+            (↔ ($chi) ($theta))
+         ) 
+         (Conclusions 
+            (↔ (⊼ ($phi) ($chi)) (⊼ ($psi) ($theta)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nanbi1d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (⊼ ($psi) ($theta)) (⊼ ($chi) ($theta))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nanbi2d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (⊼ ($theta) ($psi)) (⊼ ($theta) ($chi))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nanbi12d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($theta) ($tau)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (⊼ ($psi) ($theta)) (⊼ ($chi) ($tau))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nanass) 
+      (↔ (↔ ($phi) ($chi)) (↔ (⊼ (⊼ ($phi) ($psi)) ($chi)) (⊼ ($phi) (⊼ ($psi) ($chi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse df-xor) 
+      (↔ (⊻ ($phi) ($psi)) (Not (↔ ($phi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse xnor) 
+      (↔ (↔ ($phi) ($psi)) (Not (⊻ ($phi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse xorcom) 
+      (↔ (⊻ ($phi) ($psi)) (⊻ ($psi) ($phi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse xorass) 
+      (↔ (⊻ (⊻ ($phi) ($psi)) ($chi)) (⊻ ($phi) (⊻ ($psi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse excxor) 
+      (↔ (⊻ ($phi) ($psi)) (∨ (∧ ($phi) (Not ($psi))) (∧ (Not ($phi)) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse xor2) 
+      (↔ (⊻ ($phi) ($psi)) (∧ (∨ ($phi) ($psi)) (Not (∧ ($phi) ($psi))))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse xoror) 
+      (Implication 
+         (Premises (⊻ ($phi) ($psi))) 
+         (Conclusions (∨ ($phi) ($psi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse xornan) 
+      (Implication 
+         (Premises (⊻ ($phi) ($psi))) 
+         (Conclusions (Not (∧ ($phi) ($psi))))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse xornan2) 
+      (Implication 
+         (Premises (⊻ ($phi) ($psi))) 
+         (Conclusions (⊼ ($phi) ($psi)))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse xorneg2) 
+      (↔ (⊻ ($phi) (Not ($psi))) (Not (⊻ ($phi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse xorneg1) 
+      (↔ (⊻ (Not ($phi)) ($psi)) (Not (⊻ ($phi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse xorneg) 
+      (↔ (⊻ (Not ($phi)) (Not ($psi))) (⊻ ($phi) ($psi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse xorbi12i) 
+      (Implication 
+         (Premises 
+            (↔ ($phi) ($psi))
+            (↔ ($chi) ($theta))
+         ) 
+         (Conclusions 
+            (↔ (⊻ ($phi) ($chi)) (⊻ ($psi) ($theta)))
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse xorbi12d) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($psi) ($chi)))
+            )
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ ($theta) ($tau)))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions (↔ (⊻ ($psi) ($theta)) (⊻ ($chi) ($tau))))
+            )
+         )
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse anxordi) 
+      (↔ (∧ ($phi) (⊻ ($psi) ($chi))) (⊻ (∧ ($phi) ($psi)) (∧ ($phi) ($chi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse xorexmid) 
+      (⊻ ($phi) (Not ($phi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse df-nor) 
+      (↔ (⊽ ($phi) ($psi)) (Not (∨ ($phi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse norcom) 
+      (↔ (⊽ ($phi) ($psi)) (⊽ ($psi) ($phi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse nornot) 
+      (↔ (Not ($phi)) (⊽ ($phi) ($phi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse noran) 
+      (↔ (∧ ($phi) ($psi)) (⊽ (⊽ ($phi) ($phi)) (⊽ ($psi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse noror) 
+      (↔ (∨ ($phi) ($psi)) (⊽ (⊽ ($phi) ($psi)) (⊽ ($phi) ($psi)))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse norasslem1) 
+      (↔ (Implication 
+         (Premises (∨ ($phi) ($psi))) 
+         (Conclusions ($chi))
+      ) (∨ (⊽ ($phi) ($psi)) ($chi))) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse norasslem2) 
+      (Implication 
+         (Premises ($phi)) 
+         (Conclusions (↔ ($psi) (Implication 
+               (Premises (∨ ($phi) ($chi))) 
+               (Conclusions ($psi))
+            )))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse norasslem3) 
+      (Implication 
+         (Premises (Not ($phi))) 
+         (Conclusions (↔ (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            ) (Implication 
+               (Premises (∨ ($phi) ($psi))) 
+               (Conclusions ($chi))
+            )))
+      ) 
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse norass) 
+      (↔ (↔ ($phi) ($chi)) (↔ (⊽ (⊽ ($phi) ($psi)) ($chi)) (⊽ ($phi) (⊽ ($psi) ($chi))))) 
+      (STV 1.0 1.0)
+   )
+)
+
+
+!(compileadd kb 
+   (: (no_inverse rule-abduction) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($chi))
+            )
+            (Implication 
+               (Premises ($psi)) 
+               (Conclusions ($chi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 0.5 0.4)
+   )
+)
+!(compileadd kb 
+   (: (no_inverse rule-induction) 
+      (Implication 
+         (Premises 
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($phi))
+            )
+            (Implication 
+               (Premises ($chi)) 
+               (Conclusions ($psi))
+            )
+         ) 
+         (Conclusions 
+            (Implication 
+               (Premises ($phi)) 
+               (Conclusions ($psi))
+            )
+         )
+      ) 
+      (STV 0.5 0.4)
+   )
+)
+!(compileadd kb
+   (: (no_inverse df-or)
+      (↔ (∨ ($phi) ($psi)) (Implication (Premises (Not ($phi))) (Conclusions ($psi))))
+      (STV 1.0 1.0)
+   )
+)
+!(compileadd kb
+   (: (no_inverse df-or-1)
+      (↔ (Implication (Premises (Not ($phi))) (Conclusions ($psi)))(∨ ($phi) ($psi)))
+      (STV 1.0 1.0)
+   )
+)
+
+;; pm4.64: (φ → ψ) ↔ (¬φ ∨ ψ)
+!(compileadd kb
+   (: (no_inverse pm4.64)
+      (↔ (Implication (Premises ($phi)) (Conclusions ($psi)))
+         (∨ (Not ($phi)) ($psi)))
+      (STV 1.0 1.0)
+   )
+)
+
+;; exmid: φ ∨ ¬φ  (Law of Excluded Middle)
+!(compileadd kb
+   (: (no_inverse exmid)
+      (∨ ($phi) (Not ($phi)))
       (STV 1.0 1.0)
    )
 )
