@@ -13,10 +13,7 @@ dependencies = [
     "torch-geometric>=2.7.0",
 ]
 
-[tool.uv]
-dev-dependencies = [
-    "pantograph",
-]
+
 [tool.uv.sources]
 pantograph = { git = "https://github.com/stanford-centaur/PyPantograph" }
 
@@ -28,3 +25,4 @@ exclude=["data", "experiments", "tests", "tests.*"]
 
 [dependency-groups]
 dev = ["pytest>=9.0.3"]
+lean = ["pantograph"]
