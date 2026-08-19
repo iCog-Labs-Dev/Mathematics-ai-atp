@@ -16,6 +16,30 @@ class GraphPipelineTests(unittest.TestCase):
         self.assertEqual([hyp.name for hyp in unicode_state.hypotheses], ["n"])
         self.assertEqual([hyp.type_expr for hyp in ascii_state.hypotheses], ["Nat"])
 
+    def test_parse_state_drops_case_labels(self) -> None:
+        """A `case` line names the branch a tactic produced, not a binder.
+
+        Kept as a hypothesis it becomes `case intro.zero : Prop`, which Lean never
+        declared and `goal_start` rejects.
+        """
+        state = parse_state("case intro.zero\nn : Nat\nh : Even n\n\u22a2 Even (n + 2)")
+
+        self.assertEqual([hyp.name for hyp in state.hypotheses], ["n", "h"])
+        self.assertEqual(state.goal, "Even (n + 2)")
+
+    def test_parse_state_drops_case_labels_with_subscripts(self) -> None:
+        state = parse_state("case h\u2082\nn : Nat\n\u22a2 Even n")
+
+        self.assertEqual([hyp.name for hyp in state.hypotheses], ["n"])
+
+    def test_parse_state_keeps_hypotheses_named_case(self) -> None:
+        """`case : Foo` is a binder that happens to be called `case`; only the
+        bare `case <label>` form is a branch label."""
+        state = parse_state("case : Nat\n\u22a2 Even n")
+
+        self.assertEqual([hyp.name for hyp in state.hypotheses], ["case"])
+        self.assertEqual([hyp.type_expr for hyp in state.hypotheses], ["Nat"])
+
     def test_reused_nodes_track_parent_uses_not_child_count(self) -> None:
         dag = proof_state_to_dag(DEMO_STATE)
         reused_by_label = {node.label for node in dag.reused_nodes()}

@@ -2,6 +2,11 @@
 
 Run:  uv run python -m maths_ai.gnn_inference.scripts.rl_smoke
 
+Pass ``--source-root <lake project>`` to run the same check against a compiled
+Mathlib project instead of core Lean. The seed goal is provable in either, so a
+failure under ``--source-root`` that does not reproduce without it points at the
+Lean environment rather than the RL loop.
+
 What it validates end-to-end with a REAL Pantograph server and a REAL petta binary:
   collect: RLHybridReasoner samples from a fresh (untrained) actor-critic, decodes each
   draw into a Lean tactic, the PantographExecutor applies it, PLN scores the survivors,
@@ -18,17 +23,20 @@ proving quality waits on trained checkpoints.
 
 from __future__ import annotations
 
+import argparse
 import asyncio
+from pathlib import Path
 
 import torch
 from torch.optim import AdamW
 
-from pantograph.server import Server
-
 from maths_ai.data_models.proof_components import Goal
 from maths_ai.hybrid_reasoner.joint_inference import PantographExecutor
+from maths_ai.hybrid_reasoner.pantograph_env import PantographEnv
 
 from maths_ai.gnn_inference.atp_lean_gnn.actor_critic import ActorCriticWithArgsClassifier
+from maths_ai.gnn_inference.atp_lean_gnn.model_factory import build_actor_critic_model
+from maths_ai.gnn_inference.atp_lean_gnn.model_spec import ModelSpec
 from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
 from maths_ai.gnn_inference.atp_lean_gnn.pln_reward import RewardConfig
 from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import (
@@ -54,13 +62,19 @@ SEED_HYPS = ["p : Prop"]
 
 
 def build_model(node_vocab: dict[str, int]) -> ActorCriticWithArgsClassifier:
-    model = ActorCriticWithArgsClassifier(
+    model = build_actor_critic_model(
+        model_spec=ModelSpec.from_dict(
+            {
+                "architecture": "graphsage",
+                "hidden_dim": 32,
+                "dropout": 0.1,
+                "encoder": {"num_layers": 2},
+                "use_node_type": True,
+                "max_args": 1,
+            }
+        ),
         num_node_labels=len(node_vocab),
         num_tactics=len(TACTIC_VOCAB),
-        hidden_dim=32,
-        num_layers=2,
-        dropout=0.1,
-        max_args=1,
     )
     # Bias the fresh policy toward the tactics that can actually close the seed goal,
     # so the QED branch fires within a handful of i.i.d. draws. The base head's random
@@ -71,18 +85,19 @@ def build_model(node_vocab: dict[str, int]) -> ActorCriticWithArgsClassifier:
     return model
 
 
-async def run_smoke() -> None:
+async def run_smoke(env: PantographEnv) -> None:
     torch.manual_seed(0)
 
     seed = Goal(expression=SEED_GOAL, hypotheses=SEED_HYPS)
     node_vocab = build_vocab([proof_state_to_dag(goal_to_state(seed))])
     model = build_model(node_vocab)
 
-    # Server.create() binds the subprocess pipes to THIS event loop; the sync Server()
-    # constructor would bind them to its own internal loop and every later await from
-    # asyncio.run's loop would fail with "attached to a different loop".
-    print("[rl_smoke] starting Pantograph server…")
-    server = await Server.create()
+    # env.create_server() binds the subprocess pipes to THIS event loop; the sync
+    # Server() constructor would bind them to its own internal loop and every later
+    # await from asyncio.run's loop would fail with "attached to a different loop".
+    env.verify()
+    print(f"[rl_smoke] starting Pantograph server: {env.describe()}")
+    server = await env.create_server()
     executor = PantographExecutor(server)
 
     reasoner = RLHybridReasoner(
@@ -90,6 +105,7 @@ async def run_smoke() -> None:
         node_vocab,
         TACTIC_VOCAB,
         executor=executor,
+        env=env,
         top_k_tactics=4,
         max_depth=4,
         max_nodes=30,
@@ -121,7 +137,21 @@ async def run_smoke() -> None:
 
 
 def main() -> None:
-    asyncio.run(run_smoke())
+    parser = argparse.ArgumentParser(description="Live smoke test for the on-policy RL loop")
+    parser.add_argument("--source-root", type=str, default=None,
+                        help="Lake project root whose compiled .olean artifacts the REPL "
+                             "should see (default: core Lean only)")
+    parser.add_argument("--pantograph-repl", type=str, default=None,
+                        help="Pantograph REPL binary to run instead of the bundled one")
+    args = parser.parse_args()
+
+    source_root = Path(args.source_root) if args.source_root else None
+    env = PantographEnv(
+        source_root=source_root,
+        pantograph_repl=Path(args.pantograph_repl) if args.pantograph_repl else None,
+        imports=("Init", "Mathlib") if source_root else ("Init",),
+    )
+    asyncio.run(run_smoke(env))
 
 
 if __name__ == "__main__":
