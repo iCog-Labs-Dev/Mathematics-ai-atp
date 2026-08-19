@@ -25,19 +25,23 @@ The driver supports two search modes, controlled by `selection_policy` in the co
 | `selection_policy` | Search loop | When to use |
 |---|---|---|
 | `"legacy"` (default) | Best-first AND-OR: pop highest-`combined_rank` node, expand, propagate | Baseline; simpler to debug; no HTPS budget to tune |
-| `"puct"` | HTPS repeated simulation: PUCT selection + virtual loss, batched leaf expansion, per-edge N/W backup | When you want MCTS-style exploration and the critic to serve as `v_T(g)` |
+| `"puct"` | HTPS repeated simulation: PUCT selection + virtual loss, batched leaf expansion, validity-aware `N/N_v/W/Q` backup | When you want MCTS-style exploration and the critic to serve as `v_T(g)` |
 
 PLN involvement is controlled by `use_pln` in the config (default `true`). Set to
 `false` for a pure terminal-reward run with no petta subprocess.
 
 ## 1. Checkpoint file format
 
-Both loaders call `torch.load(path)` and read `checkpoint["model_state_dict"]`
-(falling back to the whole object if that key is absent). So the expected file is:
+The RL driver requires a version-2 checkpoint manifest. It reconstructs the encoder and
+heads from the manifest, validates the model kind and node/tactic vocabulary fingerprints,
+and refuses version-1 or bare state-dict resume files. Use
+`scripts/migrate_model_checkpoint.py` to create a version-2 warm start; migration drops
+old optimizer/replay state because validity provenance cannot be reconstructed.
 
-- a **`.pt` file** written by `torch.save`,
-- containing a dict `{"model_state_dict": <state_dict>, ...}` — extra keys like
-  `optimizer_state_dict`/`epoch` are ignored — **or** a bare state dict.
+The expected file is:
+
+- a **`.pt` file** written by `torch.save`, containing `manifest`, `model_state_dict`,
+  `model_spec`, and vocabulary fingerprints.
 
 This is exactly what this repo's training scripts write; checkpoints they produced need
 no conversion. What the state dict must contain per hand-off:
@@ -56,12 +60,13 @@ RL run checkpoints written by the HTPS-enabled driver contain additional keys:
 
 | Key | Contents | Missing = |
 |---|---|---|
-| `optimizer_htps_state_dict` | Adam moment state for the decoupled imitation/critic step | fresh optimizer on resume (no moments lost from on-policy step) |
-| `tactic_queue` | list of `(goal, hypotheses, tactic_id, arg_indices)` tuples | empty queue on resume |
-| `critic_queue` | list of `(goal, hypotheses, target)` tuples | empty queue on resume |
+| `optimizer_htps_state_dict` | Adam moment state for the decoupled imitation/critic step | resume rejected |
+| `tactic_queue` | list of `(goal, hypotheses, tactic_id, arg_indices)` tuples | resume rejected |
+| `critic_queue` | list of `(node_id, goal, hypotheses, target, source)` tuples | resume rejected |
+| `rl_target_schema_version` | validity-aware replay schema version | resume rejected |
 
-Pre-HTPS checkpoints (missing these keys) still resume cleanly — the driver uses `.get`
-with defaults.
+Pre-validity checkpoints do not resume. Start a fresh RL run with the migrated model
+warm start and empty validity-aware queues.
 
 ## 2. Where to copy the files on the server
 
@@ -229,9 +234,8 @@ with working defaults.
 "device": "auto"
 ```
 
-Leave the architecture block (`hidden_dim`, `num_layers`, `max_args`, `use_node_type`)
-matching the checkpoint — the strict load makes any disagreement a startup error, which
-is the guard working, not a bug.
+Do not add an architecture block to the RL config. GraphSAGE or GATv2, including its
+readout, comes from the version-2 warm-start manifest.
 
 **Search mode:**
 
@@ -259,19 +263,26 @@ one batch before backup. `puct_c` is the exploration constant in the PUCT score
 explicit budget under `"legacy"` and a missing `num_simulations` under `"puct"` both
 raise `ValueError` before any Lean server starts.
 
+The visit counters have separate meanings. `N` counts every completed traversal, including
+an `UNKNOWN` result caused by an unelaborated node or infrastructure failure. `N_v` counts
+only traversals with a valid numeric result, and `W` accumulates those numeric values. The
+selection value is `Q = W/N_v`; when `N_v = 0`, first-play urgency is used. Therefore an
+unknown simulation contributes exploration evidence through `N`, but it cannot create a
+critic target of `0.0` or `1.0`.
+
 **PLN kill switch:**
 
 ```json
 "use_pln": true
 ```
 
-`true` (default): PLN ranks subgoals after every successful tactic application, the DTS
-bandit replaces fallback STVs, and the PLN fallback can close a node as SOLVED when its
-STV score ≥ 0.9. Reward shaping adds the PLN potential Φ = `stv.strength` to every
-edge's terminal reward.
+`true` (default): PLN ranks every Lean-returned subgoal after a successful tactic
+application, and the DTS bandit replaces fallback STVs. Reward shaping adds the PLN
+potential Φ = `stv.strength` to every edge's terminal reward. PLN cannot close a node;
+only a Lean transition with no remaining goals creates hard success.
 
-`false`: no petta subprocess ever spawns. Subgoals are linked in Lean's executor order,
-capped at `top_k_subgoals`, with `stv=None` on every child node.
+`false`: no petta subprocess ever spawns. Every Lean-returned subgoal is linked in the
+executor's order, with `stv=None` on every child node.
 `ProofNode.local_score` degrades to GNN probability alone; `potential()` returns 0.0
 so `edge_shaped_reward = edge_terminal_reward` everywhere. The PLN fallback block is
 skipped — a node whose every tactic is rejected goes straight to exhausted.
@@ -290,17 +301,16 @@ skipped — a node whose every tactic is rejected goes straight to exhausted.
 ```
 
 `htps_steps_per_round=0` disables the decoupled step entirely — only the on-policy step
-runs, matching the pre-HTPS behavior. Set to a positive integer (e.g. 4) to also run
+runs. Set to a positive integer (e.g. 4) to also run
 supervised imitation + soft-critic regression steps per round through a separate
 optimizer (does not affect the on-policy optimizer's moments).
 
-After each collect round the driver mines every graph — solved or not — into two replay
-queues: the tactic queue receives `TacticImitationSample`s from `extract_minimal_hypertree`
-(step-minimal proof edges, PLN-fallback edges excluded); the critic queue receives
-`CriticSample`s from `extract_critic_samples` (SOLVED=1.0, DEAD=0.0, unresolved nodes
-with ≥ `visit_threshold` edge visits get a soft `W/N` target). The decoupled step then
-draws random batches from these queues and runs one joint forward (one `model.encode`
-call for both losses):
+After each collect round the driver mines every graph into two replay queues. The tactic
+queue receives Lean-confirmed step-minimal proof edges. The critic queue receives only
+valid `CriticSample`s with provenance: hard Lean/search labels, root budget labels, or
+soft `Q` targets supported by at least `visit_threshold` valid backups. Unknown and
+unelaborated nodes are omitted. Imitation and critic batches use separate public encoder
+forwards before one supervised backward pass.
 
 ```
 L = L_tactic_imitation + w_critic_soft · L_critic_soft
@@ -340,7 +350,7 @@ What startup prints, in order — each line is a checkpoint you can verify:
 window Z` → per-round lines:
 
 ```
-Round 0: solved 2/8, trans 11, fail 19, return 0.213, loss 0.847, bc 0.500, 94.2s
+Round 0: solved 2/8, trans 11, rej 19, err 0, return 0.213, loss 0.847, bc 0.500, 94.2s
 ```
 
 With `htps_steps_per_round > 0`, the round line is followed by additional loss fields
@@ -355,11 +365,16 @@ round:
 import json, pandas as pd
 rows = [json.loads(l) for l in open("runs/rl_actor_critic/<stamp>/metrics.jsonl")]
 train = pd.DataFrame([r for r in rows if "num_transitions" in r])
-train.plot(x="round", y=["solved", "num_failures", "mean_return", "total_loss"], subplots=True)
+train.plot(
+    x="round",
+    y=["solved", "num_failures", "searches_failed", "mean_return", "total_loss"],
+    subplots=True,
+)
 ```
 
-Healthy early signs: `num_failures` trending down, `solved` and `mean_return` up,
-`entropy` positive (not collapsing to 0), curriculum-widened lines appearing.
+Healthy early signs: rejected tactics (`num_failures`) and whole-search errors
+(`searches_failed`) trending down, `solved` and `mean_return` up, `entropy` positive
+(not collapsing to 0), and curriculum-widened lines appearing.
 
 When the decoupled HTPS step is enabled, additional columns appear once the queues fill:
 
@@ -369,7 +384,7 @@ When the decoupled HTPS step is enabled, additional columns appear once the queu
 | `tactic_queue_len` | Current size of the tactic imitation replay queue |
 | `critic_queue_len` | Current size of the soft-critic replay queue |
 | `tactic_imitation_loss` | Cross-entropy on proof-edge tactics + arguments (decoupled step) |
-| `critic_soft_loss` | MSE of critic head vs. SOLVED/DEAD/soft-W/N targets (decoupled step) |
+| `critic_soft_loss` | MSE of critic head vs. valid status/root/soft-Q targets (decoupled step) |
 
 With `selection_policy="puct"`, also watch that `visit_stats.N > 0` on edges in the
 saved graphs — a consistently zero visit count means the simulation loop is not
@@ -412,9 +427,9 @@ uv run python maths_ai/gnn_inference/scripts/rl_train.py \
 | Error | Cause | Fix |
 |---|---|---|
 | `Missing vocab file: .../vocab/node_vocab.json` | `prepared_root` wrong or symlink broken | point at the real prepared dataset directory |
-| `RuntimeError: Error(s) in loading state_dict ... size mismatch` | architecture block ≠ checkpoint | set `hidden_dim`/`num_layers`/`max_args` to the checkpoint's values |
+| `ValueError: checkpoint manifest ...` | model or vocabulary manifest does not match | migrate the intended checkpoint and use its prepared vocabulary |
 | `Missing key(s) in state_dict: "actor.base.weight" ...` | a pointer checkpoint was given to hand-off B | run hand-off A first |
-| `Warm-start shape mismatch (hidden_dim disagreement...)` | hand-off A config ≠ pointer architecture | same fix as above, in the AC config |
+| `Warm-start shape mismatch` | hand-off A config ≠ pointer architecture | fix the supervised AC configuration before migration |
 | `ValueError: selection_policy='legacy' cannot have an explicit simulation budget` | `num_simulations`/`sim_batch_size`/`puct_c` set non-null under `"legacy"` | set them all to `null` for legacy mode |
 | `ValueError: selection_policy='puct' requires num_simulations` | `"puct"` set without a simulation budget | add `"num_simulations": <int>` |
 | `RuntimeError: rank_subgoals requires PLN; ... use_pln=False` | `rank_subgoals` called directly on a `use_pln=False` reasoner | this is a guard, not a config error; indicates a code path that expects PLN was reached — check that the calling code respects the flag |

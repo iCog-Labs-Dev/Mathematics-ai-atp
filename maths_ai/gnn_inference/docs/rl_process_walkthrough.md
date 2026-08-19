@@ -12,7 +12,7 @@ Two search modes are available, selected by `selection_policy` in `RLTrainingCon
 - **`"legacy"`** (default) — the original best-first AND-OR loop, unchanged in behavior.
   An explicit simulation budget under this mode raises `ValueError` at config construction.
 - **`"puct"`** — HTPS-style repeated simulation: PUCT-guided partial-hypertree selection
-  with virtual loss, batched leaf expansion, per-edge N/W visit statistics, and a decoupled
+  with virtual loss, batched leaf expansion, validity-aware per-edge `N/N_v/W/Q` statistics, and a decoupled
   imitation + soft-critic step fed from the accumulated visit data.
 
 Sections 2–6 describe both modes side by side. The legacy path is the original document's
@@ -27,26 +27,30 @@ text; the HTPS additions are clearly delimited.
 | `u_k` | the k-th pointer-selected tactic argument (a DAG node) | index into the state DAG's node list |
 | `a = (τ, u_1…u_K)` | one full action | `EdgeAction(tactic_id, arg_indices, multiplicity)` |
 | `π(a\|s)` | the policy: tactic head × autoregressive pointer | `ActorCriticWithArgsClassifier` |
-| `V(s)` | the critic's value estimate for state `s` | `CriticHead` on the state embedding |
+| `V_θ(s)` | the current critic prediction for state `s` | `CriticHead` on the state embedding |
+| `y(s)` | a numeric critic learning target, with explicit validity and provenance | `CriticSample` from `compute_backups` |
 | `Φ(s)` | shaping potential = PLN strength σ of `s` (0 at terminals, 0 when stv is None) | `pln_reward.potential` |
 | `r` | per-edge shaped reward `r_term + Σ_j(γΦ(child_j) − Φ(parent))` | `pln_reward.edge_shaped_reward` |
 | `G` | per-edge return `r + γ·AND-combine(children's backup values)` | `search_harvest.extract_transitions` |
 | `Â` | advantage `G − V(s)`, batch-normalized | `pln_rl_training.compute_onpolicy_loss` |
 | `m` | multiplicity: how many of the k i.i.d. draws produced this action | `EdgeAction.multiplicity` |
 | `γ` | discount (default 0.99) | `RewardConfig.gamma` |
-| `N(e)` | visit count: completed simulations whose backup traversed edge `e` | `EdgeVisitStats.N` |
-| `W(e)` | accumulated backed-up value over those N simulations | `EdgeVisitStats.W` |
+| `N(e)` | completed traversals of edge `e`, including unknown backups | `EdgeVisitStats.N` |
+| `N_v(e)` | traversals of edge `e` with a valid numeric backup | `EdgeVisitStats.N_v` |
+| `W(e)` | accumulated value over those `N_v` valid backups | `EdgeVisitStats.W` |
 | `VL(e)` | virtual loss: in-flight simulations holding edge `e` | `EdgeVisitStats.virtual_loss` |
 | `P(e)` | policy prior: tactic probability stamped at edge creation | `EdgeVisitStats.prior_prob` |
-| `Q(e)` | mean action value `W/(N+VL)`, first-play-urgency 0.5 at count 0 | `EdgeVisitStats.Q` |
+| `Q(e)` | mean valid action value `W/N_v`, first-play urgency 0.5 when `N_v=0` | `EdgeVisitStats.Q` |
 | `c` | PUCT exploration constant (default 1.0) | `puct_c` in `RLTrainingConfig` |
 | `v_T(s)` | leaf value estimate for unresolved simulation leaf | `RLHybridReasoner._leaf_value` |
 | `B` | simulation batch size | `sim_batch_size` in `RLTrainingConfig` |
 
 ## 0. The model: one encoder, four heads
 
-`ActorCriticWithArgsClassifier` runs the GraphSAGE encoder **once** per state and feeds
-four heads from its outputs (`encode`, actor_critic.py):
+`ActorCriticWithArgsClassifier` runs the checkpoint-selected encoder once per state and
+feeds four heads from its outputs (`encode`, actor_critic.py). The version-2 checkpoint
+manifest selects GraphSAGE or GATv2, including the GATv2 readout mode; RL search and loss
+code use the common encoder interface and do not import either architecture directly.
 
 1. **Node embeddings** `[N, H]` — one vector per node of the state DAG (the proof state
    parsed into a hash-consed graph by `proof_state_to_dag`).
@@ -160,8 +164,8 @@ puct_score(e) = Q(e) + c · P(e) · sqrt(total_visits) / (1 + N(e) + VL(e))
 
 where `total_visits = Σ_{e' viable} (N(e') + VL(e'))` over the node's non-DEAD edges,
 `P(e)` is the tactic probability stamped at edge creation time (`EdgeVisitStats.prior_prob
-= tactic.probability`), and `Q(e) = W(e) / (N(e) + VL(e))` with first-play-urgency 0.5
-when the count is zero.
+= tactic.probability`), and `Q(e) = W(e) / N_v(e)` with first-play urgency 0.5 when no
+valid numeric backup exists.
 
 The AND semantics require entering **every child** of the chosen edge — all subgoals
 must close for the edge to count. The descent therefore pushes all children of the chosen
@@ -195,19 +199,22 @@ hook fires per node when its execution finishes.
 Walk each simulation's `chosen_edges` and assign values bottom-up:
 
 ```
-value(SOLVED node)   = 1.0
-value(DEAD node)     = 0.0
-value(unresolved leaf, no chosen edge below) = _leaf_value(node)   # critic: c_θ(s)
-value(interior node) = product of value(child) for each child of chosen_edges[node_id]
+value(SOLVED node) = valid 1.0 from Lean
+value(genuine path failure) = valid 0.0
+value(unelaborated or infrastructure-failed node) = UNKNOWN
+value(unresolved leaf) = critic prediction with CRITIC_BOOTSTRAP provenance
+value(interior node) = validity-aware AND-combination of every chosen child
 ```
 
 The product over children is the AND-combine: all subgoals of an edge must close. For
 each `(node_id, edge_id)` in `chosen_edges`:
 
 ```
-edge_value = product of value(child) for child in edge.child_ids
-stats.N    += 1
-stats.W    += edge_value
+edge_value = AND-combine(value(child) for child in edge.child_ids)
+stats.N += 1
+if edge_value is valid:
+    stats.N_v += 1
+    stats.W += edge_value
 stats.virtual_loss = max(0, stats.virtual_loss - 1)   # release the in-flight hold
 ```
 
@@ -237,11 +244,11 @@ would pin the memory of every intermediate activation for minutes. What is store
 (rl_reasoner.py):
 
 - **Per-node pending stash** — during a node's expansion, every decoded draw sits in
-  `self._pending: {goal_key → _PendingNode}`, where `goal_key = (expression, hyps)` and
-  `_PendingNode.actions = {fingerprint → EdgeAction}`. `fingerprint = (tactic_name,
-  args)`. `EdgeAction` is three integers-worth of data: `tactic_id`, `arg_indices` (the
-  raw sampled pointer positions — the recompute must evaluate what was actually sampled),
-  `multiplicity`.
+  `self._pending: {node_id → _PendingNode}`, where `node_id` is the unique graph-node
+  identifier and `_PendingNode.actions = {fingerprint → EdgeAction}`. `fingerprint =
+  (tactic_name, args)`. `EdgeAction` is three integers-worth of data: `tactic_id`,
+  `arg_indices` (the raw sampled pointer positions — the recompute must evaluate what was
+  actually sampled), and `multiplicity`.
 
   The per-node keying (not a single flat dict) means that a batched proposal across
   several simulation leaves cannot misattribute one leaf's rejected samples to another
@@ -265,9 +272,13 @@ would pin the memory of every intermediate activation for minutes. What is store
   on one reasoner (`collect_round`, rl_training_driver.py), with per-theorem
   timeout/exception isolation so one dead search cannot kill the round.
 
-- **Visit statistics** (HTPS mode only) — `EdgeVisitStats.N`, `W`, `virtual_loss`,
-  `prior_prob` are stored on every `ProofHyperedge` inside the graph (hypergraph.py).
-  They survive in `RLSearchResult.graph` and are consumed after the search by
+- **Visit statistics** (HTPS mode only) — `EdgeVisitStats.N`, `N_v`, `W`, `Q`,
+  `virtual_loss`, and `prior_prob` are stored on every `ProofHyperedge` inside the graph
+  (hypergraph.py). `N` counts all completed traversals, including unknown outcomes;
+  `N_v` counts only traversals with valid numeric backups; `W` sums those valid values;
+  and `Q = W/N_v`, with first-play urgency when `N_v = 0`. Unknown outcomes therefore
+  affect exploration through `N` but never add a numeric value to `W`. These statistics
+  survive in `RLSearchResult.graph` and are consumed after the search by
   `extract_critic_samples` and `extract_minimal_hypertree` (section 4b).
 
 ## 4. Harvest: turning the finished graph into on-policy training targets
@@ -275,29 +286,30 @@ would pin the memory of every intermediate activation for minutes. What is store
 `train_step_onpolicy` (pln_rl_training.py) first harvests each result's graph. This
 section describes the on-policy A2C path that runs every round regardless of search mode.
 
-**Value backup** (`search_harvest.backup_values`) — a numeric AND-OR recursion, memoized
-and cycle-safe. In the legacy mode:
+**Value backup** (`search_harvest.compute_backups`) — a validity-aware AND-OR recursion,
+memoized and cycle-safe. In the legacy mode:
 
 ```
-value(SOLVED)      = 1.0
-value(DEAD)        = 0.0
-value(interior)    = max over edges of AND-combine(child values)   # OR over tactics
-AND-combine        = product (default) or min of children          # all must close
-value(unexpanded)  = 0.0                                           # not yet shown provable
+value(SOLVED)      = valid 1.0 from Lean
+value(genuine DEAD) = valid 0.0
+value(unelaborated) = UNKNOWN
+value(interior)    = validity-aware OR over tactic edges
+AND-combine        = product (default) or min of valid children
+value(unexpanded)  = UNKNOWN
 ```
 
-Under HTPS, `backup_values` accepts an optional `visit_threshold`. For an unresolved
-interior or unexpanded node, the function also computes a **soft target**: the W/N ratio
-of the node's max-prior outgoing edge, provided that edge has at least `visit_threshold`
-completed simulations. When the soft target is available, the node's backup value is
-`max(hard_status_value, W/N)` — accumulated simulation consensus can lift the floor above
-zero but cannot overwrite a stronger status signal (SOLVED = 1.0 always wins). Under
-`selection_policy="legacy"` no edge accumulates visits, so the default `None` threshold
-reduces exactly to the original hard backup.
+Under HTPS, `compute_backups` accepts an optional `visit_threshold`. A supported outgoing
+edge with at least that many valid backups contributes a soft `VISIT_MEAN` target from
+the maximum supported `Q`. Unknown and unelaborated nodes emit no critic sample. Under
+`selection_policy="legacy"` no edge accumulates visits, so no soft target is available.
 
 The backup is the **critic's regression target**. It contains no PLN number — only
 demonstrated solvability (and, in HTPS mode, accumulated simulation consensus) enters the
-value target, so an unreliable PLN or an untrained critic cannot poison this signal.
+value target, so an unreliable PLN or an untrained critic cannot poison this signal. In an
+AND-edge with multiple subgoals, one solved child contributes `1.0`, but the edge remains
+`UNKNOWN` when another child is unelaborated or infrastructure-failed; it does not become
+`0.0` merely because a complete proof was not observed. A hard `0.0` requires a genuine,
+fully searched failure boundary.
 
 **Per-edge reward** (`pln_reward.edge_shaped_reward`) — where PLN enters, in the only
 provably-safe slot:
@@ -319,21 +331,20 @@ is potential-based (Ng–Harada–Russell): because Φ is a function of state al
 constant offset per trajectory — so it can bias learning speed toward states PLN likes
 but cannot change which policy is optimal.
 
-**Transitions** (`extract_transitions`) — one `HarvestedTransition` per hyperedge,
-restricted to `edge_ids = keys(edge_actions)` so only policy-produced edges are harvested
-(on-policy filter; PLN-fallback pseudo-edges are excluded automatically):
+**Actor transitions** (`extract_transitions`) — one `ActorTransition` per policy-produced
+edge with a valid edge outcome. Unknown edges are omitted. Critic targets are separate
+`CriticSample` rows, deduplicated by node and carrying their `BackupSource` provenance.
 
 ```
-HarvestedTransition(node_id, goal, tactic, reward=r,
-                    children_value = AND-combine(child backups),
-                    value_target   = backup value of the parent,
-                    return_        = r + γ·children_value,
-                    edge_id)
+ActorTransition(node_id, goal, tactic, reward=r,
+                successor_value = valid AND-combined child outcome,
+                return_        = r + γ·successor_value,
+                edge_id)
 ```
 
 `return_` is a one-step bootstrapped target: the immediate shaped reward plus the
-discounted AND-OR value of what the action produced. Because `children_value` comes from
-the backup — which already OR-maxes over everything the search discovered below — the
+discounted validity-aware AND-OR value of what the action produced. Because
+`successor_value` comes from the backup — which already OR-maxes over everything the
 return sees arbitrarily deep consequences without an explicit T-step rollout sum.
 
 ## 4b. HTPS-mode additional harvest: imitation + soft-critic queues
@@ -341,25 +352,24 @@ return sees arbitrarily deep consequences without an explicit T-step rollout sum
 After each search in HTPS mode, two more extraction passes run before the on-policy step,
 filling rolling deques that are consumed by `train_step_htps_style` later in the round.
 
-**Critic samples** (`extract_critic_samples`) — one `CriticSample(goal, hypotheses,
-target)` per node in the graph:
-- SOLVED node: `target = 1.0`.
-- DEAD node: `target = 0.0`.
-- Unresolved node with a max-prior outgoing edge whose `N ≥ visit_threshold`:
-  `target = W/N` — the search's own value consensus for that node. Nodes without
-  sufficient evidence emit no sample (insufficient visit count is no label, not a 0 label).
+**Critic samples** (`extract_critic_samples`) — one `CriticSample` per unique node with a
+valid target and an explicit source:
+- Lean-confirmed SOLVED node: `1.0`, source `LEAN_STATUS`.
+- Genuine search failure: `0.0`, source `SEARCH_FAILURE`.
+- Clean root budget failure: root-only `0.0`, source `ROOT_EPISODE`.
+- Supported MCTS action: `Q`, source `VISIT_MEAN`.
+- Unknown or unelaborated evidence: no row.
 
 These samples bypass the on-policy recompute entirely: they are supervised regression
 targets whose validity does not depend on the current parameters — any parameters that
 encode "this goal was proved" should output value near 1.0.
 
 **Minimal-hypertree imitation samples** (`extract_minimal_hypertree`) — for each SOLVED
-node, find the **step-minimal** proof path: the SOLVED outgoing edge whose subtree
+node, find the **step-minimal** proof path: the Lean-confirmed SOLVED outgoing edge whose subtree
 requires the fewest total tactic applications (memoized over the shared subgraph). Emit
 one `TacticImitationSample(goal, hypotheses, tactic_id, arg_indices)` per edge on that
-minimal tree, restricted to edges present in `edge_actions`. Only policy-produced edges
-become training data — the PLN-fallback pseudo-edge (`PLN_fallback`) is excluded by this
-filter even if it appears SOLVED in the graph.
+minimal tree, restricted to edges present in `edge_actions`. PLN ranking cannot create a
+proof edge or hard success target.
 
 The minimal hypertree is the proof the search actually found expressed as the cheapest
 path to closure. Imitating it is more targeted than imitating every edge in the SOLVED
@@ -382,9 +392,13 @@ and train** — θ is identical in both phases. Hence the hard invariant: exactl
 `optimizer.step()` per collect round.
 
 **Returns per row type**:
-- success row: `G` from the harvest, plus its `value_target` for the critic;
+- valid edge row: `G` from the actor harvest;
 - failure row: `G = terminal_failure − step_penalty`, and **no critic target** — the
   action failed, but the state may still be provable by another tactic.
+
+The critic is evaluated in a separate forward over unique `CriticSample` rows. Unknown
+nodes do not enter that batch. Actor-only and critic-only updates therefore avoid empty
+PyG batches while still contributing to one combined backward pass and optimizer step.
 
 **Advantage** — over all rows jointly:
 
@@ -402,7 +416,7 @@ collected. `detach()` on V keeps the critic out of the actor's gradient path.
 
 ```
 L_actor   = − Σ_i m_i · (log π(τ_i|s_i) + w_arg·Σ_k log π(u_k|s_i,τ_i)) · Â_i  /  Σ_i m_i
-L_critic  = MSE(V(s), value_target)          # success rows only
+L_critic  = MSE(V_θ(s), y(s))                # unique valid critic rows only
 L_entropy = − mean H(π(·|s))                 # subtracted: rewards exploration
 L_bc      = CE(tactic_logits, τ)             # success rows only, annealed weight
 total     = L_actor + 0.5·L_critic − 0.01·L_entropy + w_bc(t)·L_bc
@@ -428,16 +442,14 @@ importance-ratio to invalidate and may run many times per round.
 Setting `htps_steps_per_round=0` (the default) disables it entirely — the queues never
 fill, no second optimizer is created, and existing behavior is unchanged.
 
-**Single forward, two losses**:
-
-Both `tactic_batch` (imitation samples) and `critic_batch` (critic samples) are
-featurized into one joint `Batch` and pushed through one `model.encode` forward.
+Imitation rows and critic rows use separate forwards through the same public encoder
+interface. This keeps actor-only and critic-only batches well-defined for GraphSAGE and
+GATv2.
 
 ```
 L_tactic_imitation = CE(tactic_logits[imitation rows], tactic_id)
                    + arg_loss_weight · Σ_k forced_step_logp(arg_indices_k)
-                     (critic-only rows carry label −1 and are masked from CE)
-L_critic_soft      = MSE(V(s)[critic rows], stored W/N-or-status target)
+L_critic_soft      = MSE(V_θ(s), stored Q-or-status target)
 loss               = L_tactic_imitation + w_critic_soft · L_critic_soft
 ```
 
@@ -485,11 +497,11 @@ partial graph is returned cleanly with all experience gathered so far. A hard
 single Lean call, where the event loop is blocked and the deadline check cannot fire;
 that case loses the search's experience.
 
-**Checkpoint format (HTPS additions)** — `save_checkpoint` writes both optimizer state
-dicts and serializes the tactic/critic deques as lists of plain tuples (not pickled
-dataclasses), so checkpoints remain loadable across module refactors. The load side uses
-`.get` with empty-list defaults, so checkpoints from before the HTPS queues were added
-resume without errors.
+**Checkpoint format** — `save_checkpoint` writes the version-2 model manifest, both
+optimizer states, the optimizer-step anneal count, fixed search settings, and both replay
+queues. Critic rows serialize `(node_id, goal, hypotheses, target, source)`. Resume
+requires the validity-aware schema and identical search semantics; pre-validity optimizer
+and replay state must start a fresh RL run.
 
 Two data-side choices matter for why this learns at all:
 
@@ -513,10 +525,10 @@ Two data-side choices matter for why this learns at all:
 | featurizer identity collect↔train | `reasoner.dag_featurize_data` passed to the trainer | stored arg indices point at wrong DAG nodes |
 | vocabs from `prepared_root` only | `_load_vocabs`; never `build_vocab` on rollout states | warm-started embeddings mean the wrong tokens |
 | Φ(terminal) = 0 | `potential` returns 0 for SOLVED/DEAD and for `stv is None` | shaping stops telescoping; terminals get biased by `γ^T Φ(s_T)` |
-| critic sees success rows only | `success_t` mask in `compute_onpolicy_loss` | failed actions poison state values |
+| critic sees unique valid node rows only | `extract_critic_samples` + separate critic batch | failed actions or unknown states poison state values |
 | dedup with multiplicity | `EdgeAction.multiplicity` weighting | high-probability actions under-weighted |
-| value target from backup, not PLN | `backup_values` uses statuses (+ soft W/N in HTPS) | unreliable PLN trains the critic |
-| per-node pending stash | `_pending: {goal_key → _PendingNode}` in `RLHybridReasoner` | batched proposals misattribute one leaf's failures to another goal |
+| value target from validity-aware backup, not PLN | `compute_backups` emits hard/root/soft-Q targets with provenance | unreliable PLN trains the critic |
+| per-node pending stash | `_pending: {node_id → _PendingNode}` in `RLHybridReasoner` | batched proposals misattribute one leaf's failures to another goal |
 | edge-id uniqueness per search | sequential collect; `RLSearchResult` resets stashes | edge-id collisions corrupt the `edge_actions` join table |
 | virtual loss released by backup | `stats.virtual_loss = max(0, vl - 1)` in `_backup_simulation` | in-flight selections never clear; future PUCT scores permanently inflated |
 | prior_prob stamped once at `add_edge` | `EdgeVisitStats(prior_prob=tactic.probability)` | `puct_score` reads a stale or recomputed prior; selection not reproducible |
@@ -535,4 +547,3 @@ Two data-side choices matter for why this learns at all:
 | on-policy loss + decoupled HTPS step | `atp_lean_gnn/pln_rl_training.py`, `atp_lean_gnn/actor_critic_loss.py` |
 | driver, curriculum, eval, checkpointing | `atp_lean_gnn/rl_training_driver.py`, `scripts/rl_train.py`, `configs/rl_actor_critic.json` |
 | tests | `tests/test_actor_critic.py`, `tests/test_pln_reward.py`, `tests/test_pln_rl_training.py`, `tests/test_rl_reasoner.py`, `tests/test_rl_training_driver.py`, `tests/test_search_harvest.py`, `tests/test_selection_policy.py`, `tests/test_visit_stats.py` |
-
