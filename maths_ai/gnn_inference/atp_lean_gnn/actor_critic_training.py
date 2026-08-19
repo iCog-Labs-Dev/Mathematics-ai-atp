@@ -9,6 +9,7 @@ from .actor_critic import ActorCriticWithArgsClassifier
 from .actor_critic_loss import compute_actor_critic_combined_loss
 from .reward import RewardSource
 from .reporting import console_print
+from .training_safety import require_finite_loss
 
 
 def _format_elapsed(seconds: float) -> str:
@@ -99,6 +100,7 @@ def train_one_epoch_actor_critic(
     critic_weight: float = 0.5,
     entropy_weight: float = 0.01,
     arg_loss_weight: float = 0.5,
+    amp_dtype: torch.dtype | None = None,
 ) -> dict[str, float]:
     """Train one epoch of Actor-Critic RL."""
     model.train()
@@ -127,7 +129,11 @@ def train_one_epoch_actor_critic(
         tactic_mask = _extract_tactic_mask(batch, int(targets.numel()), num_tactics, device)
 
         optimizer.zero_grad(set_to_none=True)
-        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+        with torch.amp.autocast(
+            device_type=device.type,
+            enabled=use_amp,
+            dtype=amp_dtype,
+        ):
             # Single GNN forward: encode once, sample the tactic, then run only the
             # pointer on the already-computed encoder outputs.
             node_embeddings, state_emb, tactic_logits, values = model.encode(
@@ -166,15 +172,19 @@ def train_one_epoch_actor_critic(
                 arg_loss_weight=arg_loss_weight,
             )
 
+        require_finite_loss(
+            loss,
+            architecture=model.model_spec.architecture,
+            amp_dtype=amp_dtype,
+            epoch=epoch,
+            batch_index=batch_index,
+            components=batch_metrics,
+        )
         grad_scaler.scale(loss).backward()
-        if torch.isfinite(loss):
-            grad_scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-            grad_scaler.step(optimizer)
-            grad_scaler.update()
-        else:
-            print(f"  WARNING: Skipping batch {batch_index} due to non-finite loss: {loss.item()}")
-            optimizer.zero_grad(set_to_none=True)
+        grad_scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        grad_scaler.step(optimizer)
+        grad_scaler.update()
 
         batch_size = int(targets.numel())
         for k in total_metrics:
@@ -210,6 +220,7 @@ def evaluate_model_actor_critic(
     critic_weight: float = 0.5,
     entropy_weight: float = 0.01,
     arg_loss_weight: float = 0.5,
+    amp_dtype: torch.dtype | None = None,
 ) -> dict[str, float]:
     """Evaluate Actor-Critic model."""
     model.eval()
@@ -236,7 +247,11 @@ def evaluate_model_actor_critic(
         num_tactics = model.actor.base.out_features
         tactic_mask = _extract_tactic_mask(batch, int(targets.numel()), num_tactics, device)
 
-        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+        with torch.amp.autocast(
+            device_type=device.type,
+            enabled=use_amp,
+            dtype=amp_dtype,
+        ):
             # During evaluation, actions are chosen greedily via argmax.
             node_embeddings, state_emb, tactic_logits, values = model.encode(
                 batch, tactic_mask=tactic_mask

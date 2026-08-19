@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from maths_ai.data_models.proof_components import Goal, STV, TacticCandidate
-from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph, NodeStatus
+from maths_ai.hybrid_reasoner.hypergraph import BackupValidity, ProofHypergraph, NodeStatus
 
 from maths_ai.gnn_inference.atp_lean_gnn.pln_reward import (
     RewardConfig,
@@ -14,7 +14,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.pln_reward import (
 )
 from maths_ai.gnn_inference.atp_lean_gnn.search_harvest import (
     HarvestConfig,
-    backup_values,
+    compute_backups,
     extract_transitions,
 )
 
@@ -72,34 +72,37 @@ class SearchHarvestTests(unittest.TestCase):
     def test_backup_solved_and_dead(self) -> None:
         g = ProofHypergraph(Goal(expression="P", hypotheses=[]))
         g.add_edge(g.root_id, _tac(), ranked_subgoals=[])  # QED
-        self.assertEqual(backup_values(g)[g.root_id], 1.0)
+        self.assertEqual(compute_backups(g).node_targets[g.root_id].value, 1.0)
 
     def test_backup_and_node_product(self) -> None:
         g, edge = self._and_graph()
         a_id, b_id = edge.child_ids
 
-        # Both subgoals open ⇒ product(0,0) = 0.
-        self.assertEqual(backup_values(g)[g.root_id], 0.0)
+        # Open subgoals have no observed numeric outcome.
+        self.assertEqual(
+            compute_backups(g).node_targets[g.root_id].validity,
+            BackupValidity.UNKNOWN,
+        )
 
         # Solve A only ⇒ A=1, B=0 ⇒ product = 0 (AND: all must close).
         g.add_edge(a_id, _tac(), ranked_subgoals=[])
-        vals = backup_values(g)
-        self.assertEqual(vals[a_id], 1.0)
-        self.assertEqual(vals[g.root_id], 0.0)
+        vals = compute_backups(g).node_targets
+        self.assertEqual(vals[a_id].value, 1.0)
+        self.assertEqual(vals[g.root_id].validity, BackupValidity.UNKNOWN)
 
         # Solve B ⇒ product(1,1) = 1 and root propagates to SOLVED.
         g.add_edge(b_id, _tac(), ranked_subgoals=[])
-        vals = backup_values(g)
-        self.assertEqual(vals[b_id], 1.0)
-        self.assertEqual(vals[g.root_id], 1.0)
+        vals = compute_backups(g).node_targets
+        self.assertEqual(vals[b_id].value, 1.0)
+        self.assertEqual(vals[g.root_id].value, 1.0)
         self.assertEqual(g.nodes[g.root_id].status, NodeStatus.SOLVED)
 
     def test_backup_min_combine(self) -> None:
         g, edge = self._and_graph()
         a_id, _ = edge.child_ids
         g.add_edge(a_id, _tac(), ranked_subgoals=[])  # A solved (1), B unresolved (0)
-        vals = backup_values(g, HarvestConfig(and_combine="min"))
-        self.assertEqual(vals[g.root_id], 0.0)  # min(1, 0)
+        vals = compute_backups(g, HarvestConfig(and_combine="min")).node_targets
+        self.assertEqual(vals[g.root_id].validity, BackupValidity.UNKNOWN)
 
     def test_extract_transitions_fields(self) -> None:
         g, edge = self._and_graph()
@@ -113,17 +116,15 @@ class SearchHarvestTests(unittest.TestCase):
         self.assertEqual(len(transitions), 3)
 
         root_t = next(t for t in transitions if t.node_id == g.root_id)
-        # Root subgoals both solved ⇒ children_value = product(1,1) = 1; value_target = 1.
-        self.assertEqual(root_t.children_value, 1.0)
-        self.assertEqual(root_t.value_target, 1.0)
+        # Root subgoals both solved ⇒ successor_value = product(1,1) = 1.
+        self.assertEqual(root_t.successor_value, 1.0)
         self.assertAlmostEqual(root_t.return_, root_t.reward + 0.9 * 1.0)
 
     def test_edge_ids_filter(self) -> None:
         g, edge = self._and_graph()
         # Only harvest the root edge (on-policy selection).
         transitions = extract_transitions(g, edge_ids=[edge.id])
-        self.assertEqual(len(transitions), 1)
-        self.assertEqual(transitions[0].node_id, g.root_id)
+        self.assertEqual(len(transitions), 0)
 
 
 if __name__ == "__main__":

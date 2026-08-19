@@ -15,19 +15,27 @@ from torch.optim import AdamW
 from torch.utils.data import Dataset
 from torch_geometric.loader import DataLoader
 
+from .batching import GraphBudgetBatchSampler, GraphSize
 from .argument_training import (
     evaluate_model_with_args,
     train_one_epoch_with_args,
 )
-from .argument_selector import TacticWithArgsClassifier, TacticWithArgsConfig
+from .argument_selector import TacticWithArgsClassifier
 from .dataset import CANONICAL_SPLITS, canonicalize_split_name
 from .labels import UNKNOWN_TACTIC, get_tactic_arity
-from .model import GraphSAGEClassifierConfig, GraphSAGEStateClassifier
-from .pyg import NODE_TYPE_TO_ID
+from .model import SupervisedTacticClassifier
+from .model_factory import (
+    build_actor_critic_model as create_actor_critic_model,
+    build_pointer_model as create_pointer_model,
+    build_supervised_tactic_model,
+)
+from .model_spec import ModelSpec
 from .reporting import console_print
 from .actor_critic import ActorCriticWithArgsClassifier, load_from_pointer_checkpoint
 from .actor_critic_training import build_param_groups, train_one_epoch_actor_critic, evaluate_model_actor_critic
+from .checkpointing import checkpoint_payload, validate_checkpoint_manifest
 from .reward import MockRewardSource
+from .training_safety import require_finite_loss, resolve_amp_dtype
 
 
 DEFAULT_BASELINE_CONFIG_PATH = Path("configs") / "baseline_graphsage_state.json"
@@ -35,6 +43,19 @@ DEFAULT_POINTER_CONFIG_PATH = Path("configs") / "pointer_graphsage_state.json"
 DEFAULT_ACTOR_CRITIC_CONFIG_PATH = Path("configs") / "actor_critic_graphsage_state.json"
 REQUIRED_DATA_FIELDS = ("x", "node_type", "edge_index", "y", "split", "row_index", "tactic_name")
 REQUIRED_POINTER_DATA_FIELDS = REQUIRED_DATA_FIELDS + ("premise_mask", "arg_node_indices")
+
+
+def _default_model_spec() -> ModelSpec:
+    return ModelSpec.from_dict(
+        {
+            "architecture": "graphsage",
+            "hidden_dim": 128,
+            "dropout": 0.2,
+            "encoder": {"num_layers": 4},
+            "use_node_type": True,
+            "max_args": 3,
+        }
+    )
 
 
 @dataclass(frozen=True)
@@ -50,6 +71,8 @@ class TrainingLoopConfig:
     persistent_workers: bool = True
     prefetch_factor: int = 2
     use_amp: bool = True
+    max_batch_nodes: int = 0
+    max_batch_edges: int = 0
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -64,7 +87,30 @@ class TrainingLoopConfig:
             "persistent_workers": self.persistent_workers,
             "prefetch_factor": self.prefetch_factor,
             "use_amp": self.use_amp,
+            "max_batch_nodes": self.max_batch_nodes,
+            "max_batch_edges": self.max_batch_edges,
         }
+
+
+def _validate_training_loop(training: TrainingLoopConfig) -> None:
+    if training.batch_size < 1:
+        raise ValueError("training.batch_size must be positive.")
+    if training.epochs < 1:
+        raise ValueError("training.epochs must be positive.")
+    if training.learning_rate <= 0:
+        raise ValueError("training.learning_rate must be positive.")
+    if training.weight_decay < 0:
+        raise ValueError("training.weight_decay cannot be negative.")
+    if training.grad_clip <= 0:
+        raise ValueError("training.grad_clip must be positive.")
+    if training.log_every_batches < 1:
+        raise ValueError("training.log_every_batches must be positive.")
+    if training.num_workers < 0:
+        raise ValueError("training.num_workers cannot be negative.")
+    if training.prefetch_factor < 1:
+        raise ValueError("training.prefetch_factor must be positive.")
+    if training.max_batch_nodes < 0 or training.max_batch_edges < 0:
+        raise ValueError("training graph budgets cannot be negative.")
 
 
 @dataclass(frozen=True)
@@ -74,8 +120,7 @@ class BaselineConfig:
     seed: int = 42
     device: str = "auto"
     edge_mode: str = "bidirectional"
-    use_node_type: bool = True
-    model: GraphSAGEClassifierConfig = field(default_factory=GraphSAGEClassifierConfig)
+    model: ModelSpec = field(default_factory=_default_model_spec)
     training: TrainingLoopConfig = field(default_factory=TrainingLoopConfig)
 
     @classmethod
@@ -91,12 +136,7 @@ class BaselineConfig:
             seed=int(payload.get("seed", 42)),
             device=str(payload.get("device", "auto")),
             edge_mode=str(payload.get("edge_mode", "bidirectional")),
-            use_node_type=bool(payload.get("use_node_type", True)),
-            model=GraphSAGEClassifierConfig(
-                hidden_dim=int(model_payload.get("hidden_dim", 128)),
-                num_layers=int(model_payload.get("num_layers", 4)),
-                dropout=float(model_payload.get("dropout", 0.2)),
-            ),
+            model=ModelSpec.from_dict(model_payload),
             training=TrainingLoopConfig(
                 batch_size=int(training_payload.get("batch_size", 32)),
                 epochs=int(training_payload.get("epochs", 20)),
@@ -109,6 +149,8 @@ class BaselineConfig:
                 persistent_workers=bool(training_payload.get("persistent_workers", True)),
                 prefetch_factor=int(training_payload.get("prefetch_factor", 2)),
                 use_amp=bool(training_payload.get("use_amp", True)),
+                max_batch_nodes=int(training_payload.get("max_batch_nodes", 0)),
+                max_batch_edges=int(training_payload.get("max_batch_edges", 0)),
             ),
         ).normalized()
 
@@ -121,26 +163,7 @@ class BaselineConfig:
         if device not in {"auto", "cpu", "cuda"}:
             raise ValueError("Training config field 'device' must be one of: auto, cpu, cuda.")
 
-        if self.model.hidden_dim < 1:
-            raise ValueError("Training config field 'model.hidden_dim' must be positive.")
-        if self.model.num_layers < 1:
-            raise ValueError("Training config field 'model.num_layers' must be positive.")
-        if self.training.batch_size < 1:
-            raise ValueError("Training config field 'training.batch_size' must be positive.")
-        if self.training.epochs < 1:
-            raise ValueError("Training config field 'training.epochs' must be positive.")
-        if self.training.learning_rate <= 0:
-            raise ValueError("Training config field 'training.learning_rate' must be positive.")
-        if self.training.weight_decay < 0:
-            raise ValueError("Training config field 'training.weight_decay' cannot be negative.")
-        if self.training.grad_clip <= 0:
-            raise ValueError("Training config field 'training.grad_clip' must be positive.")
-        if self.training.log_every_batches < 1:
-            raise ValueError("Training config field 'training.log_every_batches' must be positive.")
-        if self.training.num_workers < 0:
-            raise ValueError("Training config field 'training.num_workers' cannot be negative.")
-        if self.training.prefetch_factor < 1:
-            raise ValueError("Training config field 'training.prefetch_factor' must be positive.")
+        _validate_training_loop(self.training)
 
         return BaselineConfig(
             prepared_root=self.prepared_root.resolve(),
@@ -148,7 +171,6 @@ class BaselineConfig:
             seed=self.seed,
             device=device,
             edge_mode=edge_mode,
-            use_node_type=self.use_node_type,
             model=self.model,
             training=self.training,
         )
@@ -160,7 +182,6 @@ class BaselineConfig:
             "seed": self.seed,
             "device": self.device,
             "edge_mode": self.edge_mode,
-            "use_node_type": self.use_node_type,
             "model": self.model.to_dict(),
             "training": self.training.to_dict(),
         }
@@ -174,10 +195,8 @@ class PointerConfig:
     seed: int = 42
     device: str = "auto"
     edge_mode: str = "bidirectional"
-    use_node_type: bool = True
-    max_args: int = 3
     arg_loss_weight: float = 0.5
-    model: TacticWithArgsConfig = field(default_factory=TacticWithArgsConfig)
+    model: ModelSpec = field(default_factory=_default_model_spec)
     training: TrainingLoopConfig = field(default_factory=TrainingLoopConfig)
 
     @classmethod
@@ -193,16 +212,8 @@ class PointerConfig:
             seed=int(payload.get("seed", 42)),
             device=str(payload.get("device", "auto")),
             edge_mode=str(payload.get("edge_mode", "bidirectional")),
-            use_node_type=bool(payload.get("use_node_type", True)),
-            max_args=int(payload.get("max_args", 3)),
             arg_loss_weight=float(payload.get("arg_loss_weight", 0.5)),
-            model=TacticWithArgsConfig(
-                hidden_dim=int(model_payload.get("hidden_dim", 128)),
-                num_layers=int(model_payload.get("num_layers", 4)),
-                dropout=float(model_payload.get("dropout", 0.2)),
-                max_args=int(model_payload.get("max_args", 3)),
-                arg_loss_weight=float(model_payload.get("arg_loss_weight", 0.5)),
-            ),
+            model=ModelSpec.from_dict(model_payload),
             training=TrainingLoopConfig(
                 batch_size=int(training_payload.get("batch_size", 32)),
                 epochs=int(training_payload.get("epochs", 20)),
@@ -215,6 +226,8 @@ class PointerConfig:
                 persistent_workers=bool(training_payload.get("persistent_workers", True)),
                 prefetch_factor=int(training_payload.get("prefetch_factor", 2)),
                 use_amp=bool(training_payload.get("use_amp", True)),
+                max_batch_nodes=int(training_payload.get("max_batch_nodes", 0)),
+                max_batch_edges=int(training_payload.get("max_batch_edges", 0)),
             ),
         ).normalized()
 
@@ -227,24 +240,9 @@ class PointerConfig:
         if device not in {"auto", "cpu", "cuda"}:
             raise ValueError("Training config field 'device' must be one of: auto, cpu, cuda.")
 
-        if self.model.hidden_dim < 1:
-            raise ValueError("Training config field 'model.hidden_dim' must be positive.")
-        if self.model.num_layers < 1:
-            raise ValueError("Training config field 'model.num_layers' must be positive.")
-        if self.max_args < 1:
-            raise ValueError("Training config field 'max_args' must be positive.")
         if self.arg_loss_weight < 0:
             raise ValueError("Training config field 'arg_loss_weight' cannot be negative.")
-        if self.training.batch_size < 1:
-            raise ValueError("Training config field 'training.batch_size' must be positive.")
-        if self.training.epochs < 1:
-            raise ValueError("Training config field 'training.epochs' must be positive.")
-        if self.training.learning_rate <= 0:
-            raise ValueError("Training config field 'training.learning_rate' must be positive.")
-        if self.training.weight_decay < 0:
-            raise ValueError("Training config field 'training.weight_decay' cannot be negative.")
-        if self.training.grad_clip <= 0:
-            raise ValueError("Training config field 'training.grad_clip' must be positive.")
+        _validate_training_loop(self.training)
 
         return PointerConfig(
             prepared_root=self.prepared_root.resolve(),
@@ -252,8 +250,6 @@ class PointerConfig:
             seed=self.seed,
             device=device,
             edge_mode=edge_mode,
-            use_node_type=self.use_node_type,
-            max_args=self.max_args,
             arg_loss_weight=self.arg_loss_weight,
             model=self.model,
             training=self.training,
@@ -266,8 +262,6 @@ class PointerConfig:
             "seed": self.seed,
             "device": self.device,
             "edge_mode": self.edge_mode,
-            "use_node_type": self.use_node_type,
-            "max_args": self.max_args,
             "arg_loss_weight": self.arg_loss_weight,
             "model": self.model.to_dict(),
             "training": self.training.to_dict(),
@@ -281,14 +275,12 @@ class ActorCriticConfig:
     seed: int = 42
     device: str = "auto"
     edge_mode: str = "bidirectional"
-    use_node_type: bool = True
-    max_args: int = 3
     arg_loss_weight: float = 0.5
     critic_weight: float = 0.5
     entropy_weight: float = 0.01
     arg_lr_multiplier: float = 0.1
     pretrained_pointer_checkpoint: str | None = None
-    model: TacticWithArgsConfig = field(default_factory=TacticWithArgsConfig)
+    model: ModelSpec = field(default_factory=_default_model_spec)
     training: TrainingLoopConfig = field(default_factory=TrainingLoopConfig)
 
     @classmethod
@@ -304,20 +296,12 @@ class ActorCriticConfig:
             seed=int(payload.get("seed", 42)),
             device=str(payload.get("device", "auto")),
             edge_mode=str(payload.get("edge_mode", "bidirectional")),
-            use_node_type=bool(payload.get("use_node_type", True)),
-            max_args=int(payload.get("max_args", 3)),
             arg_loss_weight=float(payload.get("arg_loss_weight", 0.5)),
             critic_weight=float(payload.get("critic_weight", 0.5)),
             entropy_weight=float(payload.get("entropy_weight", 0.01)),
             arg_lr_multiplier=float(payload.get("arg_lr_multiplier", 0.1)),
             pretrained_pointer_checkpoint=payload.get("pretrained_pointer_checkpoint"),
-            model=TacticWithArgsConfig(
-                hidden_dim=int(model_payload.get("hidden_dim", 128)),
-                num_layers=int(model_payload.get("num_layers", 4)),
-                dropout=float(model_payload.get("dropout", 0.2)),
-                max_args=int(model_payload.get("max_args", 3)),
-                arg_loss_weight=float(model_payload.get("arg_loss_weight", 0.5)),
-            ),
+            model=ModelSpec.from_dict(model_payload),
             training=TrainingLoopConfig(
                 batch_size=int(training_payload.get("batch_size", 32)),
                 epochs=int(training_payload.get("epochs", 20)),
@@ -330,6 +314,8 @@ class ActorCriticConfig:
                 persistent_workers=bool(training_payload.get("persistent_workers", True)),
                 prefetch_factor=int(training_payload.get("prefetch_factor", 2)),
                 use_amp=bool(training_payload.get("use_amp", True)),
+                max_batch_nodes=int(training_payload.get("max_batch_nodes", 0)),
+                max_batch_edges=int(training_payload.get("max_batch_edges", 0)),
             ),
         ).normalized()
 
@@ -342,12 +328,6 @@ class ActorCriticConfig:
         if device not in {"auto", "cpu", "cuda"}:
             raise ValueError("Training config field 'device' must be one of: auto, cpu, cuda.")
 
-        if self.model.hidden_dim < 1:
-            raise ValueError("Training config field 'model.hidden_dim' must be positive.")
-        if self.model.num_layers < 1:
-            raise ValueError("Training config field 'model.num_layers' must be positive.")
-        if self.max_args < 1:
-            raise ValueError("Training config field 'max_args' must be positive.")
         if self.arg_loss_weight < 0:
             raise ValueError("Training config field 'arg_loss_weight' cannot be negative.")
         if self.critic_weight < 0:
@@ -356,16 +336,7 @@ class ActorCriticConfig:
             raise ValueError("Training config field 'entropy_weight' cannot be negative.")
         if self.arg_lr_multiplier < 0:
             raise ValueError("Training config field 'arg_lr_multiplier' cannot be negative.")
-        if self.training.batch_size < 1:
-            raise ValueError("Training config field 'training.batch_size' must be positive.")
-        if self.training.epochs < 1:
-            raise ValueError("Training config field 'training.epochs' must be positive.")
-        if self.training.learning_rate <= 0:
-            raise ValueError("Training config field 'training.learning_rate' must be positive.")
-        if self.training.weight_decay < 0:
-            raise ValueError("Training config field 'training.weight_decay' cannot be negative.")
-        if self.training.grad_clip <= 0:
-            raise ValueError("Training config field 'training.grad_clip' must be positive.")
+        _validate_training_loop(self.training)
 
         return ActorCriticConfig(
             prepared_root=self.prepared_root.resolve(),
@@ -373,8 +344,6 @@ class ActorCriticConfig:
             seed=self.seed,
             device=device,
             edge_mode=edge_mode,
-            use_node_type=self.use_node_type,
-            max_args=self.max_args,
             arg_loss_weight=self.arg_loss_weight,
             critic_weight=self.critic_weight,
             entropy_weight=self.entropy_weight,
@@ -391,8 +360,6 @@ class ActorCriticConfig:
             "seed": self.seed,
             "device": self.device,
             "edge_mode": self.edge_mode,
-            "use_node_type": self.use_node_type,
-            "max_args": self.max_args,
             "arg_loss_weight": self.arg_loss_weight,
             "critic_weight": self.critic_weight,
             "entropy_weight": self.entropy_weight,
@@ -647,6 +614,31 @@ class PreparedGraphDataset(Dataset):
                 f"but '{self.pyg_dir}' contains {len(self.files)} '.pt' files."
             )
 
+    def graph_sizes(self) -> list[GraphSize]:
+        sizes: list[GraphSize] = []
+        for path in self.files:
+            sidecar = path.with_suffix(".size.json")
+            if not sidecar.exists():
+                raise RuntimeError(
+                    f"Prepared graph '{path}' has no size sidecar '{sidecar}'. "
+                    "Re-run preparation before enabling graph budgets."
+                )
+            payload = _read_json(sidecar)
+            edge_field = f"edges_{self.edge_mode}"
+            if edge_field not in payload:
+                raise RuntimeError(
+                    f"Prepared graph size sidecar '{sidecar}' has no '{edge_field}' field. "
+                    "Re-run preparation to record edge counts for each loader edge mode."
+                )
+            sizes.append(
+                GraphSize(
+                    dataset_id=str(payload.get("dataset_id", path.stem)),
+                    nodes=int(payload["nodes"]),
+                    edges=int(payload[edge_field]),
+                )
+            )
+        return sizes
+
     def __len__(self) -> int:
         return len(self.files)
 
@@ -674,7 +666,6 @@ def build_dataloaders(
 ) -> tuple[dict[str, PreparedGraphDataset], dict[str, DataLoader]]:
     use_workers = config.training.num_workers > 0
     loader_kwargs: dict[str, object] = {
-        "batch_size": config.training.batch_size,
         "num_workers": config.training.num_workers,
         "pin_memory": config.training.pin_memory,
     }
@@ -691,14 +682,32 @@ def build_dataloaders(
         )
         for split in CANONICAL_SPLITS
     }
-    loaders = {
-        split: DataLoader(
-            dataset,
-            shuffle=(split == "train"),
-            **loader_kwargs,
-        )
-        for split, dataset in datasets.items()
-    }
+    if config.training.max_batch_nodes or config.training.max_batch_edges:
+        samplers = {
+            split: GraphBudgetBatchSampler(
+                dataset.graph_sizes(),
+                max_graphs=config.training.batch_size,
+                max_nodes=config.training.max_batch_nodes,
+                max_edges=config.training.max_batch_edges,
+                shuffle=(split == "train"),
+                seed=config.seed,
+            )
+            for split, dataset in datasets.items()
+        }
+        loaders = {
+            split: DataLoader(dataset, batch_sampler=samplers[split], **loader_kwargs)
+            for split, dataset in datasets.items()
+        }
+    else:
+        loaders = {
+            split: DataLoader(
+                dataset,
+                batch_size=config.training.batch_size,
+                shuffle=(split == "train"),
+                **loader_kwargs,
+            )
+            for split, dataset in datasets.items()
+        }
     return datasets, loaders
 
 
@@ -769,46 +778,46 @@ def resolve_device(device_name: str) -> torch.device:
     return torch.device(device_name)
 
 
-def build_baseline_model(metadata: PreparedMetadata, config: BaselineConfig) -> GraphSAGEStateClassifier:
-    return GraphSAGEStateClassifier(
+def build_baseline_model(metadata: PreparedMetadata, config: BaselineConfig) -> SupervisedTacticClassifier:
+    return build_supervised_tactic_model(
+        model_spec=config.model,
         num_node_labels=len(metadata.node_vocab),
         num_tactics=len(metadata.tactic_vocab),
-        num_node_types=len(NODE_TYPE_TO_ID),
-        hidden_dim=config.model.hidden_dim,
-        num_layers=config.model.num_layers,
-        dropout=config.model.dropout,
-        use_node_type=config.use_node_type,
     )
 
 
 def build_pointer_model(metadata: PreparedMetadata, config: PointerConfig) -> TacticWithArgsClassifier:
-    return TacticWithArgsClassifier(
+    return create_pointer_model(
+        model_spec=config.model,
         num_node_labels=len(metadata.node_vocab),
         num_tactics=len(metadata.tactic_vocab),
-        num_node_types=len(NODE_TYPE_TO_ID),
-        hidden_dim=config.model.hidden_dim,
-        num_layers=config.model.num_layers,
-        dropout=config.model.dropout,
-        use_node_type=config.use_node_type,
-        max_args=config.max_args,
     )
 
 
 def build_actor_critic_model(metadata: PreparedMetadata, config: ActorCriticConfig) -> ActorCriticWithArgsClassifier:
-    return ActorCriticWithArgsClassifier(
+    return create_actor_critic_model(
+        model_spec=config.model,
         num_node_labels=len(metadata.node_vocab),
         num_tactics=len(metadata.tactic_vocab),
-        num_node_types=len(NODE_TYPE_TO_ID),
-        hidden_dim=config.model.hidden_dim,
-        num_layers=config.model.num_layers,
-        dropout=config.model.dropout,
-        use_node_type=config.use_node_type,
-        max_args=config.max_args,
     )
 
 
-def _use_cuda_amp(device: torch.device, config: BaselineConfig | PointerConfig | ActorCriticConfig) -> bool:
-    return config.training.use_amp and device.type == "cuda"
+def _amp_dtype(
+    device: torch.device,
+    config: BaselineConfig | PointerConfig | ActorCriticConfig,
+) -> torch.dtype | None:
+    return resolve_amp_dtype(
+        architecture=config.model.architecture,
+        device=device,
+        requested=config.training.use_amp,
+    )
+
+
+def _use_cuda_amp(
+    device: torch.device,
+    config: BaselineConfig | PointerConfig | ActorCriticConfig,
+) -> bool:
+    return _amp_dtype(device, config) is not None
 
 
 def _should_log_batch(batch_index: int, total_batches: int, *, log_every_batches: int) -> bool:
@@ -827,7 +836,7 @@ def _format_elapsed(seconds: float) -> str:
 
 
 def train_one_epoch(
-    model: GraphSAGEStateClassifier,
+    model: SupervisedTacticClassifier,
     loader: DataLoader,
     *,
     optimizer: AdamW,
@@ -840,6 +849,7 @@ def train_one_epoch(
     log_every_batches: int,
     use_amp: bool,
     pin_memory: bool,
+    amp_dtype: torch.dtype | None = None,
 ) -> dict[str, float | int]:
     model.train()
     total_loss = 0.0
@@ -859,9 +869,21 @@ def train_one_epoch(
             raise ValueError("The train split contains '<UNK_TACTIC>' targets, which should never happen.")
 
         optimizer.zero_grad(set_to_none=True)
-        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+        with torch.amp.autocast(
+            device_type=device.type,
+            enabled=use_amp,
+            dtype=amp_dtype,
+        ):
             logits = model(batch)
             loss = F.cross_entropy(logits, targets)
+
+        require_finite_loss(
+            loss,
+            architecture=model.model_spec.architecture,
+            amp_dtype=amp_dtype,
+            epoch=epoch,
+            batch_index=batch_index,
+        )
 
         grad_scaler.scale(loss).backward()
         grad_scaler.unscale_(optimizer)
@@ -889,7 +911,7 @@ def train_one_epoch(
 
 
 def evaluate_model(
-    model: GraphSAGEStateClassifier,
+    model: SupervisedTacticClassifier,
     loader: DataLoader,
     *,
     device: torch.device,
@@ -898,6 +920,7 @@ def evaluate_model(
     log_every_batches: int | None = None,
     use_amp: bool = False,
     pin_memory: bool = False,
+    amp_dtype: torch.dtype | None = None,
 ) -> dict[str, float | int]:
     model.eval()
     loss_sum = 0.0
@@ -914,7 +937,11 @@ def evaluate_model(
     with torch.no_grad():
         for batch_index, batch in enumerate(loader, start=1):
             batch = batch.to(device, non_blocking=(device.type == "cuda" and pin_memory))
-            with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+            with torch.amp.autocast(
+                device_type=device.type,
+                enabled=use_amp,
+                dtype=amp_dtype,
+            ):
                 logits = model(batch)
             targets = batch.y.view(-1)
             batch_metrics = compute_eval_metrics_from_logits(
@@ -970,29 +997,56 @@ def _create_run_dir(run_root: Path) -> Path:
 def _save_checkpoint(
     path: Path,
     *,
-    model: GraphSAGEStateClassifier | TacticWithArgsClassifier | ActorCriticWithArgsClassifier,
+    model: SupervisedTacticClassifier | TacticWithArgsClassifier | ActorCriticWithArgsClassifier,
     optimizer: AdamW,
     config: BaselineConfig | PointerConfig | ActorCriticConfig,
+    metadata: PreparedMetadata,
     epoch: int,
     val_metrics: dict[str, float | int],
 ) -> Path:
+    if isinstance(config, BaselineConfig):
+        model_kind = "supervised_tactic"
+    elif isinstance(config, PointerConfig):
+        model_kind = "tactic_with_args"
+    else:
+        model_kind = "actor_critic_with_args"
     torch.save(
-        {
-            "epoch": epoch,
-            "config": config.to_dict(),
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "val_metrics": val_metrics,
-        },
+        checkpoint_payload(
+            model_kind=model_kind,
+            model_spec=config.model,
+            node_vocab=metadata.node_vocab,
+            tactic_vocab=metadata.tactic_vocab,
+            model=model,
+            epoch=epoch,
+            config=config.to_dict(),
+            optimizer_state_dict=optimizer.state_dict(),
+            val_metrics=val_metrics,
+        ),
         path,
     )
     return path
 
 
-def _load_checkpoint(path: Path, *, device: torch.device) -> dict[str, object]:
+def _load_checkpoint(
+    path: Path,
+    *,
+    device: torch.device,
+    metadata: PreparedMetadata,
+    expected_model_kind: str,
+    expected_model_spec: ModelSpec,
+) -> dict[str, object]:
     if not path.exists():
         raise FileNotFoundError(f"Checkpoint '{path}' does not exist.")
-    return torch.load(path, map_location=device, weights_only=False)
+    checkpoint = torch.load(path, map_location=device, weights_only=False)
+    _, checkpoint_spec = validate_checkpoint_manifest(
+        checkpoint,
+        node_vocab=metadata.node_vocab,
+        tactic_vocab=metadata.tactic_vocab,
+        expected_model_kind=expected_model_kind,
+    )
+    if checkpoint_spec != expected_model_spec:
+        raise ValueError("Checkpoint model specification does not match the run config.")
+    return checkpoint
 
 
 def _write_eval_file(run_dir: Path, *, split: str, metrics: dict[str, object]) -> Path:
@@ -1007,7 +1061,8 @@ def train_baseline(
     metadata = load_prepared_metadata(config.prepared_root)
     set_seed(config.seed)
     device = resolve_device(config.device)
-    use_amp = _use_cuda_amp(device, config)
+    amp_dtype = _amp_dtype(device, config)
+    use_amp = amp_dtype is not None
     datasets, loaders = build_dataloaders(metadata, config, required_fields=REQUIRED_DATA_FIELDS)
     if resume_run_dir is None:
         run_dir = _create_run_dir(config.run_root)
@@ -1038,19 +1093,34 @@ def train_baseline(
         lr=config.training.learning_rate,
         weight_decay=config.training.weight_decay,
     )
-    grad_scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
+    grad_scaler = torch.amp.GradScaler(
+        device.type,
+        enabled=amp_dtype == torch.float16,
+    )
 
     if resume_run_dir is not None:
         if not last_checkpoint_path.exists():
             raise FileNotFoundError(
                 f"Resume run directory '{run_dir}' is missing 'last.pt', so training cannot resume."
             )
-        last_checkpoint = _load_checkpoint(last_checkpoint_path, device=device)
+        last_checkpoint = _load_checkpoint(
+            last_checkpoint_path,
+            device=device,
+            metadata=metadata,
+            expected_model_kind="supervised_tactic",
+            expected_model_spec=config.model,
+        )
         model.load_state_dict(last_checkpoint["model_state_dict"])
         optimizer.load_state_dict(last_checkpoint["optimizer_state_dict"])
         start_epoch = int(last_checkpoint["epoch"]) + 1
         if best_checkpoint_path.exists():
-            best_checkpoint = _load_checkpoint(best_checkpoint_path, device=device)
+            best_checkpoint = _load_checkpoint(
+                best_checkpoint_path,
+                device=device,
+                metadata=metadata,
+                expected_model_kind="supervised_tactic",
+                expected_model_spec=config.model,
+            )
             best_epoch = int(best_checkpoint["epoch"])
             best_val_top1 = float(
                 dict(best_checkpoint.get("val_metrics", {})).get("top1_accuracy", -1.0)
@@ -1091,6 +1161,7 @@ def train_baseline(
             log_every_batches=config.training.log_every_batches,
             use_amp=use_amp,
             pin_memory=config.training.pin_memory,
+            amp_dtype=amp_dtype,
         )
         val_metrics = evaluate_model(
             model,
@@ -1101,6 +1172,7 @@ def train_baseline(
             log_every_batches=config.training.log_every_batches,
             use_amp=use_amp,
             pin_memory=config.training.pin_memory,
+            amp_dtype=amp_dtype,
         )
 
         epoch_record = {
@@ -1120,6 +1192,7 @@ def train_baseline(
             model=model,
             optimizer=optimizer,
             config=config,
+            metadata=metadata,
             epoch=epoch,
             val_metrics=val_metrics,
         )
@@ -1131,6 +1204,7 @@ def train_baseline(
                 model=model,
                 optimizer=optimizer,
                 config=config,
+                metadata=metadata,
                 epoch=epoch,
                 val_metrics=val_metrics,
             )
@@ -1145,7 +1219,13 @@ def train_baseline(
             f"excluded={epoch_record['unknown_label_excluded_count']}"
         )
 
-    best_checkpoint = _load_checkpoint(best_checkpoint_path, device=device)
+    best_checkpoint = _load_checkpoint(
+        best_checkpoint_path,
+        device=device,
+        metadata=metadata,
+        expected_model_kind="supervised_tactic",
+        expected_model_spec=config.model,
+    )
     model.load_state_dict(best_checkpoint["model_state_dict"])
 
     eval_val = {
@@ -1161,6 +1241,7 @@ def train_baseline(
             log_every_batches=config.training.log_every_batches,
             use_amp=use_amp,
             pin_memory=config.training.pin_memory,
+            amp_dtype=amp_dtype,
         ),
     }
     eval_test = {
@@ -1176,6 +1257,7 @@ def train_baseline(
             log_every_batches=config.training.log_every_batches,
             use_amp=use_amp,
             pin_memory=config.training.pin_memory,
+            amp_dtype=amp_dtype,
         ),
     }
     _write_eval_file(run_dir, split="val", metrics=eval_val)
@@ -1215,7 +1297,8 @@ def train_pointer(
     metadata = load_prepared_metadata(config.prepared_root)
     set_seed(config.seed)
     device = resolve_device(config.device)
-    use_amp = _use_cuda_amp(device, config)
+    amp_dtype = _amp_dtype(device, config)
+    use_amp = amp_dtype is not None
     datasets, loaders = build_dataloaders(metadata, config, required_fields=REQUIRED_POINTER_DATA_FIELDS)
     
     if resume_run_dir is None:
@@ -1247,19 +1330,34 @@ def train_pointer(
         lr=config.training.learning_rate,
         weight_decay=config.training.weight_decay,
     )
-    grad_scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
+    grad_scaler = torch.amp.GradScaler(
+        device.type,
+        enabled=amp_dtype == torch.float16,
+    )
 
     if resume_run_dir is not None:
         if not last_checkpoint_path.exists():
             raise FileNotFoundError(
                 f"Resume run directory '{run_dir}' is missing 'last.pt', so training cannot resume."
             )
-        last_checkpoint = _load_checkpoint(last_checkpoint_path, device=device)
+        last_checkpoint = _load_checkpoint(
+            last_checkpoint_path,
+            device=device,
+            metadata=metadata,
+            expected_model_kind="tactic_with_args",
+            expected_model_spec=config.model,
+        )
         model.load_state_dict(last_checkpoint["model_state_dict"])
         optimizer.load_state_dict(last_checkpoint["optimizer_state_dict"])
         start_epoch = int(last_checkpoint["epoch"]) + 1
         if best_checkpoint_path.exists():
-            best_checkpoint = _load_checkpoint(best_checkpoint_path, device=device)
+            best_checkpoint = _load_checkpoint(
+                best_checkpoint_path,
+                device=device,
+                metadata=metadata,
+                expected_model_kind="tactic_with_args",
+                expected_model_spec=config.model,
+            )
             best_epoch = int(best_checkpoint["epoch"])
             best_val_loss = float(
                 dict(best_checkpoint.get("val_metrics", {})).get("combined_loss", float("inf"))
@@ -1280,7 +1378,7 @@ def train_pointer(
         f"persistent_workers={config.training.persistent_workers and config.training.num_workers > 0}, "
         f"prefetch_factor={config.training.prefetch_factor if config.training.num_workers > 0 else 'n/a'}"
     )
-    console_print(f"  Max args per step        : {config.max_args}")
+    console_print(f"  Max args per step        : {config.model.max_args}")
     console_print(f"  Argument loss weight     : {config.arg_loss_weight}")
     if resume_run_dir is not None:
         console_print(
@@ -1303,6 +1401,7 @@ def train_pointer(
             log_every_batches=config.training.log_every_batches,
             use_amp=use_amp,
             pin_memory=config.training.pin_memory,
+            amp_dtype=amp_dtype,
         )
         val_metrics = evaluate_model_with_args(
             model,
@@ -1314,6 +1413,7 @@ def train_pointer(
             log_every_batches=config.training.log_every_batches,
             use_amp=use_amp,
             pin_memory=config.training.pin_memory,
+            amp_dtype=amp_dtype,
         )
 
         epoch_record = {
@@ -1335,6 +1435,7 @@ def train_pointer(
             model=model,
             optimizer=optimizer,
             config=config,
+            metadata=metadata,
             epoch=epoch,
             val_metrics=val_metrics,
         )
@@ -1346,6 +1447,7 @@ def train_pointer(
                 model=model,
                 optimizer=optimizer,
                 config=config,
+                metadata=metadata,
                 epoch=epoch,
                 val_metrics=val_metrics,
             )
@@ -1358,7 +1460,13 @@ def train_pointer(
             f"known={epoch_record['known_label_eval_count']}"
         )
 
-    best_checkpoint = _load_checkpoint(best_checkpoint_path, device=device)
+    best_checkpoint = _load_checkpoint(
+        best_checkpoint_path,
+        device=device,
+        metadata=metadata,
+        expected_model_kind="tactic_with_args",
+        expected_model_spec=config.model,
+    )
     model.load_state_dict(best_checkpoint["model_state_dict"])
 
     eval_val = {
@@ -1375,6 +1483,7 @@ def train_pointer(
             log_every_batches=config.training.log_every_batches,
             use_amp=use_amp,
             pin_memory=config.training.pin_memory,
+            amp_dtype=amp_dtype,
         ),
     }
     eval_test = {
@@ -1391,6 +1500,7 @@ def train_pointer(
             log_every_batches=config.training.log_every_batches,
             use_amp=use_amp,
             pin_memory=config.training.pin_memory,
+            amp_dtype=amp_dtype,
         ),
     }
     _write_eval_file(run_dir, split="val", metrics=eval_val)
@@ -1430,7 +1540,8 @@ def train_actor_critic(
     metadata = load_prepared_metadata(config.prepared_root)
     set_seed(config.seed)
     device = resolve_device(config.device)
-    use_amp = _use_cuda_amp(device, config)
+    amp_dtype = _amp_dtype(device, config)
+    use_amp = amp_dtype is not None
     datasets, loaders = build_dataloaders(metadata, config, required_fields=REQUIRED_POINTER_DATA_FIELDS)
 
     if resume_run_dir is None:
@@ -1460,7 +1571,13 @@ def train_actor_critic(
 
     if config.pretrained_pointer_checkpoint is not None:
         console_print(f"  Loading pretrained pointer checkpoint: {config.pretrained_pointer_checkpoint}")
-        load_from_pointer_checkpoint(model, config.pretrained_pointer_checkpoint, device)
+        load_from_pointer_checkpoint(
+            model,
+            config.pretrained_pointer_checkpoint,
+            device,
+            node_vocab=metadata.node_vocab,
+            tactic_vocab=metadata.tactic_vocab,
+        )
 
     param_groups = build_param_groups(model, config.training.learning_rate, config.arg_lr_multiplier)
     optimizer = AdamW(
@@ -1468,19 +1585,34 @@ def train_actor_critic(
         lr=config.training.learning_rate,
         weight_decay=config.training.weight_decay,
     )
-    grad_scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
+    grad_scaler = torch.amp.GradScaler(
+        device.type,
+        enabled=amp_dtype == torch.float16,
+    )
 
     if resume_run_dir is not None:
         if not last_checkpoint_path.exists():
             raise FileNotFoundError(
                 f"Resume run directory '{run_dir}' is missing 'last.pt', so training cannot resume."
             )
-        last_checkpoint = _load_checkpoint(last_checkpoint_path, device=device)
+        last_checkpoint = _load_checkpoint(
+            last_checkpoint_path,
+            device=device,
+            metadata=metadata,
+            expected_model_kind="actor_critic_with_args",
+            expected_model_spec=config.model,
+        )
         model.load_state_dict(last_checkpoint["model_state_dict"])
         optimizer.load_state_dict(last_checkpoint["optimizer_state_dict"])
         start_epoch = int(last_checkpoint["epoch"]) + 1
         if best_checkpoint_path.exists():
-            best_checkpoint = _load_checkpoint(best_checkpoint_path, device=device)
+            best_checkpoint = _load_checkpoint(
+                best_checkpoint_path,
+                device=device,
+                metadata=metadata,
+                expected_model_kind="actor_critic_with_args",
+                expected_model_spec=config.model,
+            )
             best_epoch = int(best_checkpoint["epoch"])
             best_val_loss = float(
                 dict(best_checkpoint.get("val_metrics", {})).get("total_loss", float("inf"))
@@ -1511,6 +1643,7 @@ def train_actor_critic(
             log_every_batches=config.training.log_every_batches,
             use_amp=use_amp,
             pin_memory=config.training.pin_memory,
+            amp_dtype=amp_dtype,
             critic_weight=config.critic_weight,
             entropy_weight=config.entropy_weight,
             arg_loss_weight=config.arg_loss_weight,
@@ -1524,6 +1657,7 @@ def train_actor_critic(
             log_every_batches=config.training.log_every_batches,
             use_amp=use_amp,
             pin_memory=config.training.pin_memory,
+            amp_dtype=amp_dtype,
             critic_weight=config.critic_weight,
             entropy_weight=config.entropy_weight,
             arg_loss_weight=config.arg_loss_weight,
@@ -1535,6 +1669,7 @@ def train_actor_critic(
             model=model,
             optimizer=optimizer,
             config=config,
+            metadata=metadata,
             epoch=epoch,
             val_metrics=val_metrics,
         )
@@ -1548,6 +1683,7 @@ def train_actor_critic(
                 model=model,
                 optimizer=optimizer,
                 config=config,
+                metadata=metadata,
                 epoch=epoch,
                 val_metrics=val_metrics,
             )
@@ -1555,7 +1691,13 @@ def train_actor_critic(
 
     # Evaluate test split with best checkpoint
     console_print(f"\n  Training completed. Loading best checkpoint from epoch {best_epoch} for test evaluation...")
-    best_checkpoint = _load_checkpoint(best_checkpoint_path, device=device)
+    best_checkpoint = _load_checkpoint(
+        best_checkpoint_path,
+        device=device,
+        metadata=metadata,
+        expected_model_kind="actor_critic_with_args",
+        expected_model_spec=config.model,
+    )
     model.load_state_dict(best_checkpoint["model_state_dict"])
     test_metrics = evaluate_model_actor_critic(
         model,
@@ -1566,6 +1708,7 @@ def train_actor_critic(
         log_every_batches=config.training.log_every_batches,
         use_amp=use_amp,
         pin_memory=config.training.pin_memory,
+        amp_dtype=amp_dtype,
         critic_weight=config.critic_weight,
         entropy_weight=config.entropy_weight,
         arg_loss_weight=config.arg_loss_weight,
@@ -1600,9 +1743,16 @@ def evaluate_baseline_run(run_dir: str | Path, *, split: str) -> dict[str, objec
     config = load_baseline_config(config_path)
     metadata = load_prepared_metadata(config.prepared_root)
     device = resolve_device(config.device)
+    amp_dtype = _amp_dtype(device, config)
     model = build_baseline_model(metadata, config).to(device)
     checkpoint_path = run_directory / "best.pt"
-    checkpoint = _load_checkpoint(checkpoint_path, device=device)
+    checkpoint = _load_checkpoint(
+        checkpoint_path,
+        device=device,
+        metadata=metadata,
+        expected_model_kind="supervised_tactic",
+        expected_model_spec=config.model,
+    )
     model.load_state_dict(checkpoint["model_state_dict"])
 
     canonical_split = canonicalize_split_name(split)
@@ -1622,8 +1772,9 @@ def evaluate_baseline_run(run_dir: str | Path, *, split: str) -> dict[str, objec
             unknown_tactic_id=metadata.unknown_tactic_id,
             split_name=canonical_split,
             log_every_batches=config.training.log_every_batches,
-            use_amp=_use_cuda_amp(device, config),
+            use_amp=amp_dtype is not None,
             pin_memory=config.training.pin_memory,
+            amp_dtype=amp_dtype,
         ),
     }
     _write_eval_file(run_directory, split=canonical_split, metrics=metrics)
@@ -1638,7 +1789,7 @@ def build_train_arg_parser() -> argparse.ArgumentParser:
         type=str,
         choices=["baseline", "pointer", "actor_critic"],
         default="baseline",
-        help="Which model type to train (baseline GraphSAGE, pointer argument selector, or actor critic)",
+        help="Which model type to train (baseline, pointer argument selector, or actor critic)",
     )
     parser.add_argument(
         "--config",
