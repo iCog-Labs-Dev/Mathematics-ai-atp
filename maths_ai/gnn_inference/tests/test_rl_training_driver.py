@@ -13,7 +13,7 @@ from maths_ai.data_models.proof_components import Goal, STV
 from maths_ai.hybrid_reasoner.hypergraph import TacticOutcome
 from maths_ai.pln_inference.model import PLNResult
 
-from maths_ai.gnn_inference.atp_lean_gnn.actor_critic import ActorCriticWithArgsClassifier
+from maths_ai.gnn_inference.atp_lean_gnn.checkpointing import checkpoint_payload
 from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
 from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import goal_to_state
 from maths_ai.gnn_inference.atp_lean_gnn.pyg import build_vocab
@@ -29,6 +29,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver import (
     run_rl_training,
     save_checkpoint,
 )
+from maths_ai.gnn_inference.tests.model_helpers import actor_critic
 
 
 # ---------------------------------------------------------------------------
@@ -98,14 +99,7 @@ def _build_node_vocab():
 
 
 def _make_model(node_vocab):
-    return ActorCriticWithArgsClassifier(
-        num_node_labels=len(node_vocab),
-        num_tactics=len(TACTIC_VOCAB),
-        hidden_dim=16,
-        num_layers=2,
-        dropout=0.1,
-        max_args=2,
-    )
+    return actor_critic(len(node_vocab), len(TACTIC_VOCAB))
 
 
 def _make_reasoner(model, node_vocab, executor, *, top_k=3):
@@ -142,17 +136,22 @@ def _write_config(tmp: Path, **overrides) -> RLTrainingConfig:
     torch.manual_seed(0)
     model = _make_model(node_vocab)
     ckpt = tmp / "warmstart.pt"
-    torch.save({"model_state_dict": model.state_dict()}, ckpt)
+    torch.save(
+        checkpoint_payload(
+            model_kind="actor_critic_with_args",
+            model_spec=model.model_spec,
+            node_vocab=node_vocab,
+            tactic_vocab=TACTIC_VOCAB,
+            model=model,
+        ),
+        ckpt,
+    )
 
     defaults = dict(
         warmstart_checkpoint=ckpt,
         prepared_root=tmp / "prepared",
         run_root=tmp / "runs",
         device="cpu",
-        hidden_dim=16,
-        num_layers=2,
-        dropout=0.1,
-        max_args=2,
         num_rounds=2,
         theorems_per_round=2,
         theorem_timeout_s=30.0,
@@ -432,8 +431,9 @@ class HTPSDriverTests(unittest.TestCase):
             self.assertIsInstance(goal, str)
             self.assertIsInstance(tactic_id, int)
             self.assertGreater(len(state["critic_queue"]), 0)
-            goal_c, hyps_c, target = state["critic_queue"][0]
+            node_id, goal_c, hyps_c, target, source = state["critic_queue"][0]
             self.assertEqual(target, 1.0)  # QED executor ⇒ SOLVED root ⇒ hard label
+            self.assertEqual(source, "lean_status")
 
             # Resume restores the queues: with num_rounds == start_round the loop
             # body never runs, so the final checkpoint's queues are exactly the
@@ -447,9 +447,7 @@ class HTPSDriverTests(unittest.TestCase):
             self.assertEqual(state2["tactic_queue"], state["tactic_queue"])
             self.assertEqual(state2["critic_queue"], state["critic_queue"])
 
-    def test_pre_htps_checkpoint_still_resumes(self):
-        # A checkpoint written before the HTPS keys existed must load with the
-        # defaults (empty queues, fresh optimizer_htps).
+    def test_pre_validity_checkpoint_resume_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             cfg = _write_config(tmp, num_rounds=1)
@@ -457,16 +455,21 @@ class HTPSDriverTests(unittest.TestCase):
             asyncio.run(run_rl_training(cfg, reasoner_factory=_qed_factory, pool=_pool()))
             run_dir = next((tmp / "runs").iterdir())
             state = torch.load(run_dir / "last.pt", weights_only=False)
-            for key in ("optimizer_htps_state_dict", "tactic_queue", "critic_queue"):
+            for key in (
+                "rl_target_schema_version",
+                "optimizer_htps_state_dict",
+                "tactic_queue",
+                "critic_queue",
+            ):
                 state.pop(key, None)  # strip back to the pre-HTPS format
             torch.save(state, run_dir / "last.pt")
 
             cfg.num_rounds = 2
             torch.manual_seed(0)
-            metrics = asyncio.run(run_rl_training(
-                cfg, resume_run_dir=run_dir, reasoner_factory=_qed_factory, pool=_pool()
-            ))
-            self.assertEqual(metrics["round"], 1)
+            with self.assertRaisesRegex(ValueError, "predates validity-aware"):
+                asyncio.run(run_rl_training(
+                    cfg, resume_run_dir=run_dir, reasoner_factory=_qed_factory, pool=_pool()
+                ))
 
 
 class PLNKillSwitchDriverTests(unittest.TestCase):

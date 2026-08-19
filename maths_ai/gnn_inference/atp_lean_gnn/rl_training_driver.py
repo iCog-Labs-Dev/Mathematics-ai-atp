@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import random
+import re
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -27,9 +28,12 @@ import torch
 from torch.optim import AdamW
 
 from maths_ai.data_models.proof_components import Goal
+from maths_ai.hybrid_reasoner.pantograph_env import PantographEnv
+from maths_ai.hybrid_reasoner.hypergraph import BackupSource
 from maths_ai.hybrid_reasoner.selection_policy import resolve_search_params
 
 from .actor_critic import ActorCriticWithArgsClassifier
+from .checkpointing import build_model_from_checkpoint, checkpoint_payload
 from .dataset import iter_dataset_rows
 from .pln_reward import RewardConfig
 from .pln_rl_training import make_dag_featurizer, train_step_htps_style, train_step_onpolicy
@@ -53,11 +57,8 @@ from .state import parse_state
 class RLTrainingConfig:
     """Configuration for the RL training driver (flat JSON, ``from_json`` below).
 
-    ``warmstart_checkpoint`` is the phase-3 supervised actor-critic ``best.pt``
-    (full ``ActorCriticWithArgsClassifier`` state dict, loaded strict). The
-    ``hidden_dim``/``num_layers``/``max_args``/``use_node_type`` block must match
-    that checkpoint's architecture — the strict load turns a mismatch into a
-    startup error instead of a silent random init.
+    ``warmstart_checkpoint`` is a version-2, self-describing supervised
+    actor-critic checkpoint. Its manifest owns the encoder architecture.
     """
 
     warmstart_checkpoint: Path
@@ -90,10 +91,10 @@ class RLTrainingConfig:
     theorem_timeout_s: float = 120.0
     checkpoint_every: int = 20
     eval_every: int = 25
+    max_dead_rounds: int = 3
 
     # Search budgets (RLHybridReasoner).
     top_k_tactics: int = 4
-    top_k_subgoals: int = 3
     max_depth: int = 8
     max_nodes: int = 64
 
@@ -116,7 +117,7 @@ class RLTrainingConfig:
 
     # Decoupled HTPS-style step (Phases 2–3). htps_steps_per_round=0 disables it
     # entirely — no queues fill semantics change, no second optimizer steps.
-    visit_threshold: int = 4          # min edge visits before W/N becomes a critic target
+    visit_threshold: int = 4          # min valid edge backups before Q becomes a critic target
     critic_queue_size: int = 10000
     htps_steps_per_round: int = 0     # 0 ⇒ decoupled step disabled ⇒ current behavior
     htps_batch_size: int = 64
@@ -132,6 +133,8 @@ class RLTrainingConfig:
     critic_weight: float = 0.5
     entropy_weight: float = 0.01
     arg_loss_weight: float = 0.5
+    max_update_nodes: int = 0
+    max_update_edges: int = 0
 
     # Reward (Approach 1 potential shaping lives inside pln_reward).
     reward_gamma: float = 0.99
@@ -139,17 +142,18 @@ class RLTrainingConfig:
     reward_terminal_success: float = 1.0
     reward_terminal_failure: float = 0.0
 
-    # Model architecture — MUST match the warm-start checkpoint (strict load enforces it).
-    hidden_dim: int = 512
-    num_layers: int = 4
-    dropout: float = 0.2
-    max_args: int = 3
-    use_node_type: bool = True
-
     run_root: Path = Path("runs/rl_actor_critic")
     device: str = "auto"
 
-    _PATH_FIELDS = ("warmstart_checkpoint", "prepared_root", "theorem_file", "run_root")
+    source_root: Path | None = None
+    pantograph_repl: Path | None = None
+    pantograph_imports: list[str] | None = None
+    server_timeout_s: int = 120
+
+    _PATH_FIELDS = (
+        "warmstart_checkpoint", "prepared_root", "theorem_file", "run_root",
+        "source_root", "pantograph_repl",
+    )
 
     def __post_init__(self) -> None:
         # Fail at config construction — before any Lean server spins up. Only
@@ -178,6 +182,37 @@ class RLTrainingConfig:
                 continue
             out[key] = str(value) if isinstance(value, Path) else value
         return out
+
+
+def pantograph_env(cfg: RLTrainingConfig) -> PantographEnv:
+    if cfg.pantograph_imports is not None:
+        imports = tuple(cfg.pantograph_imports)
+    elif cfg.source_root is not None:
+        imports = ("Init", "Mathlib")
+    else:
+        imports = ("Init",)
+    return PantographEnv(
+        source_root=cfg.source_root,
+        pantograph_repl=cfg.pantograph_repl,
+        imports=imports,
+        timeout=cfg.server_timeout_s,
+    )
+
+
+def search_settings(cfg: RLTrainingConfig) -> dict[str, object]:
+    """Search semantics that must remain fixed across an exact RL resume."""
+
+    return {
+        "top_k_tactics": cfg.top_k_tactics,
+        "max_depth": cfg.max_depth,
+        "max_nodes": cfg.max_nodes,
+        "selection_policy": cfg.selection_policy,
+        "num_simulations": cfg.num_simulations,
+        "sim_batch_size": cfg.sim_batch_size,
+        "puct_c": cfg.puct_c,
+        "use_pln": cfg.use_pln,
+        "visit_threshold": cfg.visit_threshold,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -370,28 +405,42 @@ def save_checkpoint(
     round_idx: int,
     curriculum_size: int,
     best_proof_rate: float,
+    onpolicy_steps: int,
     path: Path,
     *,
     optimizer_htps: torch.optim.Optimizer | None = None,
     tactic_queue: "deque[TacticImitationSample] | None" = None,
     critic_queue: "deque[CriticSample] | None" = None,
+    node_vocab: dict[str, int],
+    tactic_vocab: dict[str, int],
+    saved_search_settings: dict[str, object],
 ) -> None:
     """Write the resume state (Decision 1.4: optimizer-htps + queues included).
 
     Queue samples are serialized as plain tuples of strings/ints/floats, not
-    pickled dataclass instances, so the checkpoint stays loadable across module
-    refactors. Old checkpoints without the new keys still resume (``.get`` with
-    defaults on the load side).
+    pickled dataclass instances. Runtime loading still requires a version-2
+    manifest; pre-manifest checkpoints must go through the explicit migration
+    command.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "model_state_dict": model.state_dict(),
+    training_state = {
+        "rl_target_schema_version": 2,
         "optimizer_state_dict": optimizer.state_dict(),
         "round": round_idx,
         "curriculum_size": curriculum_size,
         "best_proof_rate": best_proof_rate,
+        "onpolicy_steps": onpolicy_steps,
+        "search_settings": saved_search_settings,
         "torch_rng_state": torch.get_rng_state(),
     }
+    payload = checkpoint_payload(
+        model_kind="actor_critic_with_args",
+        model_spec=model.model_spec,
+        node_vocab=node_vocab,
+        tactic_vocab=tactic_vocab,
+        model=model,
+        **training_state,
+    )
     if optimizer_htps is not None:
         payload["optimizer_htps_state_dict"] = optimizer_htps.state_dict()
     if tactic_queue is not None:
@@ -401,7 +450,8 @@ def save_checkpoint(
         ]
     if critic_queue is not None:
         payload["critic_queue"] = [
-            (s.goal, tuple(s.hypotheses), s.target) for s in critic_queue
+            (s.node_id, s.goal, tuple(s.hypotheses), s.target, s.source.value)
+            for s in critic_queue
         ]
     torch.save(payload, path)
 
@@ -490,20 +540,17 @@ async def run_rl_training(
     device = _resolve_device(cfg.device)
     node_vocab, tactic_vocab = _load_vocabs(cfg.prepared_root)
 
-    # Model + warm start (strict full load of the supervised actor-critic run).
-    model = ActorCriticWithArgsClassifier(
-        num_node_labels=len(node_vocab),
-        num_tactics=len(tactic_vocab),
-        hidden_dim=cfg.hidden_dim,
-        num_layers=cfg.num_layers,
-        dropout=cfg.dropout,
-        use_node_type=cfg.use_node_type,
-        max_args=cfg.max_args,
-    ).to(device)
-
     checkpoint = torch.load(cfg.warmstart_checkpoint, map_location=device, weights_only=False)
-    model.load_state_dict(checkpoint.get("model_state_dict", checkpoint), strict=True)
-    console_print(f"Warm start (strict): {cfg.warmstart_checkpoint}")
+    model, _manifest, model_spec = build_model_from_checkpoint(
+        checkpoint,
+        node_vocab=node_vocab,
+        tactic_vocab=tactic_vocab,
+        expected_model_kind="actor_critic_with_args",
+    )
+    model = model.to(device)
+    console_print(
+        f"Warm start (strict, {model_spec.architecture}): {cfg.warmstart_checkpoint}"
+    )
 
     optimizer = AdamW(model.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
     # Decoupled HTPS-style step: separate optimizer instance over the SAME
@@ -521,6 +568,7 @@ async def run_rl_training(
 
     # Run dir / resume.
     start_round = 0
+    onpolicy_steps = 0
     best_proof_rate = -1.0
     curriculum_size_override: Optional[int] = None
     if resume_run_dir is not None:
@@ -529,11 +577,30 @@ async def run_rl_training(
         if not last_path.exists():
             raise FileNotFoundError(f"Resume requested but {last_path} does not exist")
         state = torch.load(last_path, map_location=device, weights_only=False)
-        model.load_state_dict(state["model_state_dict"], strict=True)
+        if state.get("rl_target_schema_version") != 2:
+            raise ValueError(
+                "This checkpoint predates validity-aware RL targets and cannot be resumed. "
+                "Use its model checkpoint as a warm start for a fresh RL run."
+            )
+        if state.get("search_settings") != search_settings(cfg):
+            raise ValueError(
+                "Resume configuration changes the saved search semantics. Start a fresh "
+                "RL run when changing PUCT, depth, node, tactic, PLN, or visit settings."
+            )
+        resumed_model, _resume_manifest, resume_spec = build_model_from_checkpoint(
+            state,
+            node_vocab=node_vocab,
+            tactic_vocab=tactic_vocab,
+            expected_model_kind="actor_critic_with_args",
+        )
+        if resume_spec != model_spec:
+            raise ValueError(
+                "Resume checkpoint model specification does not match the configured "
+                "warm-start checkpoint."
+            )
+        model.load_state_dict(resumed_model.state_dict(), strict=True)
         optimizer.load_state_dict(state["optimizer_state_dict"])
-        # New keys restored with defaults so pre-HTPS checkpoints still resume.
-        if state.get("optimizer_htps_state_dict") is not None:
-            optimizer_htps.load_state_dict(state["optimizer_htps_state_dict"])
+        optimizer_htps.load_state_dict(state["optimizer_htps_state_dict"])
         tactic_queue.extend(
             TacticImitationSample(
                 goal=g, hypotheses=tuple(h), tactic_id=int(tid), arg_indices=tuple(args)
@@ -541,11 +608,18 @@ async def run_rl_training(
             for g, h, tid, args in state.get("tactic_queue", [])
         )
         critic_queue.extend(
-            CriticSample(goal=g, hypotheses=tuple(h), target=float(t))
-            for g, h, t in state.get("critic_queue", [])
+            CriticSample(
+                node_id=int(node_id),
+                goal=goal,
+                hypotheses=tuple(hypotheses),
+                target=float(target),
+                source=BackupSource(source),
+            )
+            for node_id, goal, hypotheses, target, source in state["critic_queue"]
         )
         torch.set_rng_state(state["torch_rng_state"].cpu())
         start_round = int(state["round"]) + 1
+        onpolicy_steps = int(state["onpolicy_steps"])
         best_proof_rate = float(state.get("best_proof_rate", -1.0))
         curriculum_size_override = int(state.get("curriculum_size", 0)) or None
         console_print(f"Resumed {run_dir} at round {start_round} (best proof rate {best_proof_rate:.3f})")
@@ -561,11 +635,12 @@ async def run_rl_training(
 
     # Reasoner (live Pantograph unless a factory is injected).
     if reasoner_factory is None:
-        from pantograph.server import Server
-
         from maths_ai.hybrid_reasoner.joint_inference import PantographExecutor
 
-        server = await Server.create()
+        environment = pantograph_env(cfg)
+        environment.verify()
+        console_print(f"Pantograph environment: {environment.describe()}")
+        server = await environment.create_server()
         executor = PantographExecutor(server)
         reasoner = RLHybridReasoner(
             model=model,
@@ -574,7 +649,6 @@ async def run_rl_training(
             executor=executor,
             device=device,
             top_k_tactics=cfg.top_k_tactics,
-            top_k_subgoals=cfg.top_k_subgoals,
             max_depth=cfg.max_depth,
             max_nodes=cfg.max_nodes,
             selection_policy=cfg.selection_policy,
@@ -582,6 +656,7 @@ async def run_rl_training(
             sim_batch_size=cfg.sim_batch_size,
             puct_c=cfg.puct_c,
             use_pln=cfg.use_pln,
+            env=environment,
         )
     else:
         reasoner = reasoner_factory(model, node_vocab, tactic_vocab, cfg)
@@ -605,6 +680,7 @@ async def run_rl_training(
 
     recent_solve_rates: list[float] = []
     last_metrics: dict[str, float] = {}
+    dead_rounds = 0
 
     for round_idx in range(start_round, cfg.num_rounds):
         round_start = time.time()
@@ -617,7 +693,7 @@ async def run_rl_training(
             reasoner, batch, timeout_s=cfg.theorem_timeout_s
         )
 
-        bc_weight = bc_weight_at_round(round_idx, cfg)
+        bc_weight = bc_weight_at_round(onpolicy_steps, cfg)
         if results:
             # Exactly ONE optimizer step per collect round (on-policy invariant).
             # The decoupled train_step_htps_style below is EXEMPT: it is supervised
@@ -637,9 +713,28 @@ async def run_rl_training(
                 entropy_weight=cfg.entropy_weight,
                 arg_loss_weight=cfg.arg_loss_weight,
                 bc_weight=bc_weight,
+                max_update_nodes=cfg.max_update_nodes,
+                max_update_edges=cfg.max_update_edges,
             )
         else:
-            metrics = {"num_transitions": 0.0, "num_failures": 0.0}
+            metrics = {
+                "num_transitions": 0.0,
+                "num_failures": 0.0,
+                "onpolicy_optimizer_step": 0.0,
+            }
+        onpolicy_steps += int(metrics.get("onpolicy_optimizer_step", 0.0))
+
+        if metrics.get("onpolicy_optimizer_step", 0.0) == 0.0:
+            dead_rounds += 1
+            if dead_rounds >= cfg.max_dead_rounds:
+                raise RuntimeError(
+                    "RL training produced no valid actor or critic update for "
+                    f"{cfg.max_dead_rounds} consecutive rounds. Inspect unknown-label and "
+                    "whole-search error metrics, and verify the Pantograph environment at "
+                    f"{cfg.source_root}."
+                )
+        else:
+            dead_rounds = 0
 
         # Decoupled HTPS-style step (Phases 2–3): mine every collected graph —
         # solved or not — into the replay queues, then run the configured number
@@ -716,10 +811,14 @@ async def run_rl_training(
         if (round_idx + 1) % cfg.checkpoint_every == 0:
             save_checkpoint(
                 model, optimizer, round_idx, pool.curriculum_size, best_proof_rate,
+                onpolicy_steps,
                 run_dir / "last.pt",
                 optimizer_htps=optimizer_htps,
                 tactic_queue=tactic_queue,
                 critic_queue=critic_queue,
+                node_vocab=node_vocab,
+                tactic_vocab=tactic_vocab,
+                saved_search_settings=search_settings(cfg),
             )
 
         if cfg.eval_every > 0 and (round_idx + 1) % cfg.eval_every == 0 and pool.eval_items:
@@ -733,20 +832,28 @@ async def run_rl_training(
                 best_proof_rate = eval_stats["proof_rate"]
                 save_checkpoint(
                     model, optimizer, round_idx, pool.curriculum_size, best_proof_rate,
+                    onpolicy_steps,
                     run_dir / "best.pt",
                     optimizer_htps=optimizer_htps,
                     tactic_queue=tactic_queue,
                     critic_queue=critic_queue,
+                    node_vocab=node_vocab,
+                    tactic_vocab=tactic_vocab,
+                    saved_search_settings=search_settings(cfg),
                 )
                 console_print(f"  New best proof rate {best_proof_rate:.3f} → best.pt")
 
     # Final checkpoint so the run is always resumable from its end state.
     save_checkpoint(
         model, optimizer, cfg.num_rounds - 1, pool.curriculum_size, best_proof_rate,
+        onpolicy_steps,
         run_dir / "last.pt",
         optimizer_htps=optimizer_htps,
         tactic_queue=tactic_queue,
         critic_queue=critic_queue,
+        node_vocab=node_vocab,
+        tactic_vocab=tactic_vocab,
+        saved_search_settings=search_settings(cfg),
     )
     return last_metrics
 
@@ -777,29 +884,31 @@ def driver_main(argv: list[str] | None = None) -> int:
         async def _eval() -> None:
             device = _resolve_device(cfg.device)
             node_vocab, tactic_vocab = _load_vocabs(cfg.prepared_root)
-            model = ActorCriticWithArgsClassifier(
-                num_node_labels=len(node_vocab),
-                num_tactics=len(tactic_vocab),
-                hidden_dim=cfg.hidden_dim,
-                num_layers=cfg.num_layers,
-                dropout=cfg.dropout,
-                use_node_type=cfg.use_node_type,
-                max_args=cfg.max_args,
-            ).to(device)
             checkpoint = torch.load(cfg.warmstart_checkpoint, map_location=device, weights_only=False)
-            model.load_state_dict(checkpoint.get("model_state_dict", checkpoint), strict=True)
-
-            from pantograph.server import Server
+            model, _manifest, _model_spec = build_model_from_checkpoint(
+                checkpoint,
+                node_vocab=node_vocab,
+                tactic_vocab=tactic_vocab,
+                expected_model_kind="actor_critic_with_args",
+            )
+            model = model.to(device)
 
             from maths_ai.hybrid_reasoner.joint_inference import PantographExecutor
 
-            server = await Server.create()
+            environment = pantograph_env(cfg)
+            environment.verify()
+            server = await environment.create_server()
             reasoner = RLHybridReasoner(
                 model=model, node_vocab=node_vocab, tactic_vocab=tactic_vocab,
                 executor=PantographExecutor(server), device=device,
-                top_k_tactics=cfg.top_k_tactics, top_k_subgoals=cfg.top_k_subgoals,
+                top_k_tactics=cfg.top_k_tactics,
                 max_depth=cfg.max_depth, max_nodes=cfg.max_nodes,
+                selection_policy=cfg.selection_policy,
+                num_simulations=cfg.num_simulations,
+                sim_batch_size=cfg.sim_batch_size,
+                puct_c=cfg.puct_c,
                 use_pln=cfg.use_pln,
+                env=environment,
             )
             pool = build_theorem_pool(cfg)
             stats = await evaluate_proof_rate(reasoner, pool.eval_items, timeout_s=cfg.theorem_timeout_s)
