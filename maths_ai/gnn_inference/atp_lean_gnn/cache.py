@@ -92,6 +92,19 @@ def write_pyg_artifact(output_root: str | Path, *, split: str, row_index: int, d
     path = root / split / "pyg" / f"{example_stem(row_index)}.pt"
     path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(data, path)
+    bidirectional_edge_index = torch.unique(
+        torch.cat([data.edge_index, data.edge_index[[1, 0], :]], dim=1),
+        dim=1,
+    )
+    _write_json(
+        path.with_suffix(".size.json"),
+        {
+            "dataset_id": f"{split}:{row_index}",
+            "nodes": int(data.num_nodes),
+            "edges_forward": int(data.edge_index.size(1)),
+            "edges_bidirectional": int(bidirectional_edge_index.size(1)),
+        },
+    )
     return path
 
 

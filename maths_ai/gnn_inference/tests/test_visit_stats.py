@@ -1,8 +1,8 @@
 """Unit tests for EdgeVisitStats (Phase 0 of the HTPS/MCTS integration).
 
-The Q property is the mean backed-up value under virtual loss:
-Q = W / (N + virtual_loss), with a first-play-urgency value of 0.5 when
-the edge has never been traversed (N + virtual_loss == 0).
+The Q property is the mean of valid numeric backups:
+Q = W / N_v, with first-play urgency when N_v == 0. Total traversal count N
+is separate and still includes unknown simulations.
 """
 
 from maths_ai.hybrid_reasoner.hypergraph import EdgeVisitStats, ProofHyperedge, ProofHypergraph
@@ -20,25 +20,24 @@ def test_q_is_first_play_urgency_when_unvisited():
 
 
 def test_q_is_mean_of_backed_up_values():
-    stats = EdgeVisitStats(N=4, W=3.0)
+    stats = EdgeVisitStats(N=4, N_v=4, W=3.0)
     assert stats.Q == 3.0 / 4
 
 
 def test_virtual_loss_inflates_denominator_without_adding_value():
     # Two completed simulations worth 1.0 each; one simulation in flight.
-    stats = EdgeVisitStats(N=2, W=2.0, virtual_loss=1)
-    assert stats.Q == 2.0 / 3
-    # After the in-flight simulation backs up with value 0.0:
+    stats = EdgeVisitStats(N=2, N_v=2, W=2.0, virtual_loss=1)
+    assert stats.Q == 1.0
+    # After the in-flight simulation backs up unknown:
     stats.virtual_loss -= 1
     stats.N += 1
-    assert stats.Q == 2.0 / 3  # same value, now from completed statistics
+    assert stats.Q == 1.0
 
 
 def test_virtual_loss_alone_pins_q_to_zero():
-    # An unvisited edge selected by an in-flight simulation reads as a
-    # pending loss (W=0 over a nonzero count), not as first-play urgency.
+    # An in-flight unknown traversal leaves the valid-value mean unsupported.
     stats = EdgeVisitStats(virtual_loss=2)
-    assert stats.Q == 0.0
+    assert stats.Q == 0.5
 
 
 def test_proof_hyperedge_carries_independent_stats():

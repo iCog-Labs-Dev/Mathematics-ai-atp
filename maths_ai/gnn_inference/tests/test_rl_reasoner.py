@@ -16,6 +16,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.actor_critic import (
     ActionSample,
     ActorCriticWithArgsClassifier,
 )
+from maths_ai.gnn_inference.tests.model_helpers import actor_critic
 from maths_ai.gnn_inference.atp_lean_gnn.pln_reward import RewardConfig
 from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import (
     EdgeAction,
@@ -123,14 +124,7 @@ def _make_reasoner(executor, *, top_k=3, seed=0, reasoner_cls=RLHybridReasoner, 
     from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import goal_to_state
 
     node_vocab = build_vocab([proof_state_to_dag(goal_to_state(goal))])
-    model = ActorCriticWithArgsClassifier(
-        num_node_labels=len(node_vocab),
-        num_tactics=len(TACTIC_VOCAB),
-        hidden_dim=16,
-        num_layers=2,
-        dropout=0.1,
-        max_args=2,
-    )
+    model = actor_critic(len(node_vocab), len(TACTIC_VOCAB))
     reasoner = reasoner_cls(
         model,
         node_vocab,
@@ -273,7 +267,7 @@ class OnPolicyLossTests(unittest.TestCase):
         self.assertGreater(len(result.failure_actions), 0)
 
         loss_result = compute_onpolicy_loss(
-            model, [], {}, result.failure_actions, reasoner.dag_featurize_data,
+            model, [], [], {}, result.failure_actions, reasoner.dag_featurize_data,
         )
         self.assertIsNotNone(loss_result)
         loss, metrics = loss_result
@@ -297,7 +291,7 @@ class OnPolicyLossTests(unittest.TestCase):
             model.eval()  # deterministic forward so only multiplicity differs
             failures = [FailureRecord(goal=goal, action=EdgeAction(tactic_id=1, multiplicity=m))]
             out = compute_onpolicy_loss(
-                model, transitions, result.edge_actions, failures,
+                model, transitions, [], result.edge_actions, failures,
                 reasoner.dag_featurize_data, reward_cfg=RewardConfig(step_penalty=0.0),
             )
             self.assertIsNotNone(out)
@@ -474,10 +468,7 @@ class PLNDisabledTests(unittest.TestCase):
         from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import goal_to_state
         goal = Goal(expression=GOAL_EXPR, hypotheses=HYPS)
         node_vocab = build_vocab([proof_state_to_dag(goal_to_state(goal))])
-        model = ActorCriticWithArgsClassifier(
-            num_node_labels=len(node_vocab), num_tactics=len(TACTIC_VOCAB),
-            hidden_dim=16, num_layers=2, dropout=0.1, max_args=2,
-        )
+        model = actor_critic(len(node_vocab), len(TACTIC_VOCAB))
         raw = RLHybridReasoner(
             model, node_vocab, TACTIC_VOCAB,
             executor=_QEDExecutor(), top_k_tactics=3, max_depth=3, max_nodes=20,
@@ -488,7 +479,7 @@ class PLNDisabledTests(unittest.TestCase):
 
     def test_subgoal_nodes_have_stv_none_and_executor_order(self):
         # With PLN off, subgoals keep Lean's order; stv=None on each node.
-        # top_k_subgoals=2 with three subgoals: only the first two must appear.
+        # Every Lean-returned subgoal must remain in the AND-edge.
         root_expr = GOAL_EXPR
         executor = _SubgoalExecutor({root_expr: ["A", "B", "C"]})
         reasoner, _model, _vocab = _make_reasoner(
@@ -496,17 +487,13 @@ class PLNDisabledTests(unittest.TestCase):
             reasoner_cls=_GoalTrackingReasoner,
             top_k=1,
             use_pln=False,
-            top_k_subgoals=2,
         )
         result = self._prove(reasoner)
         child_nodes = [
             n for n in result.graph.nodes.values() if n.id != result.graph.root_id
         ]
         child_exprs = [n.goal.expression for n in child_nodes]
-        # First two subgoals in Lean order, not three.
-        self.assertIn("A", child_exprs)
-        self.assertIn("B", child_exprs)
-        self.assertNotIn("C", child_exprs)
+        self.assertEqual(child_exprs, ["A", "B", "C"])
         for n in child_nodes:
             self.assertIsNone(n.stv)
 

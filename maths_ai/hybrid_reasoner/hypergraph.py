@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
+from enum import Enum
+from math import isfinite
 from typing import Deque, Dict, List, Optional, Protocol, Set, Tuple
 
 from maths_ai.data_models.proof_components import STV, Goal, TacticCandidate
@@ -42,6 +44,66 @@ class EdgeStatus:
     PENDING = "pending"  # children still open/expanded; outcome undetermined
     SOLVED = "solved"    # no children, or every child is SOLVED (AND-success)
     DEAD = "dead"        # the tactic failed to apply, or some child is DEAD
+
+
+class NodeClosureReason(str, Enum):
+    NONE = "none"
+    CANDIDATES_EXHAUSTED = "candidates_exhausted"
+    NO_CANDIDATES = "no_candidates"
+    DEPTH_LIMIT = "depth_limit"
+    CYCLE = "cycle"
+    ELABORATION_ERROR = "elaboration_error"
+    EXTERNAL_ABORT = "external_abort"
+
+
+class SearchEndReason(str, Enum):
+    RUNNING = "running"
+    ROOT_SOLVED = "root_solved"
+    ROOT_DEAD = "root_dead"
+    MAX_NODES = "max_nodes"
+    NUM_SIMULATIONS = "num_simulations"
+    DEADLINE = "deadline"
+    FRONTIER_EMPTY = "frontier_empty"
+    EXTERNAL_ABORT = "external_abort"
+
+
+class BackupValidity(str, Enum):
+    VALID = "valid"
+    UNKNOWN = "unknown"
+
+
+class BackupSource(str, Enum):
+    NONE = "none"
+    LEAN_STATUS = "lean_status"
+    SEARCH_FAILURE = "search_failure"
+    ROOT_EPISODE = "root_episode"
+    VISIT_MEAN = "visit_mean"
+    CRITIC_BOOTSTRAP = "critic_bootstrap"
+
+
+@dataclass(frozen=True)
+class BackupValue:
+    value: Optional[float]
+    validity: BackupValidity
+    source: BackupSource
+
+    def __post_init__(self) -> None:
+        if self.validity == BackupValidity.UNKNOWN:
+            if self.value is not None or self.source != BackupSource.NONE:
+                raise ValueError("Unknown backups must have no numeric value or source.")
+            return
+        if self.value is None or not isfinite(self.value) or not 0.0 <= self.value <= 1.0:
+            raise ValueError("Valid backups require a finite value in [0, 1].")
+        if self.source == BackupSource.NONE:
+            raise ValueError("Valid backups require provenance.")
+
+    @classmethod
+    def unknown(cls) -> "BackupValue":
+        return cls(None, BackupValidity.UNKNOWN, BackupSource.NONE)
+
+    @classmethod
+    def valid(cls, value: float, source: BackupSource) -> "BackupValue":
+        return cls(float(value), BackupValidity.VALID, source)
 
 
 def _state_key(goal: Goal) -> str:
@@ -69,6 +131,7 @@ class ProofNode:
     combined_rank: float = 0.0
     exhausted: bool = False
     note: Optional[str] = None
+    closure_reason: NodeClosureReason = NodeClosureReason.NONE
     """Free-text annotation for terminal states the graph can't infer on its
     own — e.g. why a node was force-marked dead (cycle, depth limit, no
     candidates) — useful for inspecting/visualizing a finished search."""
@@ -100,6 +163,7 @@ class ProofNode:
             "stv": None if self.stv is None else {"strength": self.stv.strength, "confidence": self.stv.confidence},
             "combined_rank": self.combined_rank,
             "note": self.note,
+            "closure_reason": self.closure_reason.value,
         }
 
 
@@ -108,8 +172,9 @@ class EdgeVisitStats:
     """Per-edge MCTS visit statistics (HTPS-style).
 
     ``N`` counts completed simulations whose backup passed through this
-    edge; ``W`` accumulates the backed-up values of those simulations, so
-    ``W / N`` is the empirical action value. ``virtual_loss`` counts
+    edge. ``N_v`` counts the subset with a valid numeric backup, and ``W``
+    accumulates only those values, so ``W / N_v`` is the empirical action
+    value. ``virtual_loss`` counts
     in-flight simulations that selected this edge but have not backed up
     yet — each one is treated as a pending loss (contributes 0 to ``W``
     while inflating the visit count), which steers concurrent simulations
@@ -121,6 +186,7 @@ class EdgeVisitStats:
     """
 
     N: int = 0
+    N_v: int = 0
     W: float = 0.0
     virtual_loss: int = 0
     prior_prob: float = 0.0
@@ -134,10 +200,9 @@ class EdgeVisitStats:
         fresh edge is neither maximally attractive nor pre-emptively
         written off before its first simulation.
         """
-        count = self.N + self.virtual_loss
-        if count == 0:
+        if self.N_v == 0:
             return 0.5
-        return self.W / count
+        return self.W / self.N_v
 
 
 @dataclass
@@ -158,6 +223,14 @@ class ProofHyperedge:
             "probability": self.tactic.probability,
             "child_ids": list(self.child_ids),
             "status": self.status,
+            "visits": {
+                "N": self.visit_stats.N,
+                "N_v": self.visit_stats.N_v,
+                "W": self.visit_stats.W,
+                "Q": self.visit_stats.Q,
+                "virtual_loss": self.visit_stats.virtual_loss,
+                "prior_prob": self.visit_stats.prior_prob,
+            },
         }
 
 
@@ -229,6 +302,7 @@ class ProofHypergraph:
         self._next_edge_id = 0
         self.nodes: Dict[int, ProofNode] = {}
         self.edges: Dict[int, ProofHyperedge] = {}
+        self.end_reason = SearchEndReason.RUNNING
 
         self.root_id = self._new_node(goal=root_goal, depth=0, gnn_probability=1.0, stv=None)
 
@@ -299,6 +373,7 @@ class ProofHypergraph:
                 child.status = NodeStatus.DEAD
                 child.exhausted = True
                 child.note = "cycle: identical to an ancestor goal"
+                child.closure_reason = NodeClosureReason.CYCLE
             child_ids.append(child_id)
 
         edge = ProofHyperedge(
@@ -323,13 +398,20 @@ class ProofHypergraph:
             self.nodes[edge.source_id].note = note
         self._propagate(edge.source_id)
 
-    def mark_node_exhausted(self, node_id: int, *, note: Optional[str] = None) -> None:
+    def mark_node_exhausted(
+        self,
+        node_id: int,
+        *,
+        reason: NodeClosureReason,
+        note: Optional[str] = None,
+    ) -> None:
         """No more tactic candidates remain for ``node_id`` (top-k exhausted,
         depth limit reached, or the GNN returned no viable prediction).
         Lets ``_recompute_node`` decide DEAD vs. staying EXPANDED/SOLVED.
         """
         node = self.nodes[node_id]
         node.exhausted = True
+        node.closure_reason = reason
         if note:
             node.note = note
         self._propagate(node_id)
@@ -403,6 +485,7 @@ class ProofHypergraph:
             "root_id": self.root_id,
             "solved": self.is_solved(),
             "exhausted": self.is_exhausted(),
+            "end_reason": self.end_reason.value,
             "num_nodes": len(self.nodes),
             "num_edges": len(self.edges),
             "nodes": [node.summary() for node in self.nodes.values()],

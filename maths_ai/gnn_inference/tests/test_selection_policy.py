@@ -4,7 +4,7 @@ and the search-mode validator.
 puct_score(stats, total_node_visits, c)
   = Q + c * stats.prior_prob * sqrt(total_node_visits) / (1 + N + virtual_loss)
 
-where Q = W / (N + virtual_loss) with first-play-urgency 0.5 at count 0, and
+where Q = W / N_v with first-play-urgency 0.5 when no valid backup exists, and
 prior_prob is the policy prior stamped onto the stats at edge creation.
 """
 
@@ -27,16 +27,15 @@ def test_q_dominates_at_high_visit_counts():
     # A well-visited winning edge (Q=1) with a tiny prior beats a well-visited
     # losing edge (Q=0) with a large prior: the exploration bonus has decayed
     # by 1/(1+N) while Q has converged.
-    winning = EdgeVisitStats(N=100, W=100.0, prior_prob=0.01)
-    losing = EdgeVisitStats(N=100, W=0.0, prior_prob=0.99)
+    winning = EdgeVisitStats(N=100, N_v=100, W=100.0, prior_prob=0.01)
+    losing = EdgeVisitStats(N=100, N_v=100, W=0.0, prior_prob=0.99)
     total = 200
     assert puct_score(winning, total, c=1.0) > puct_score(losing, total, c=1.0)
 
 
 def test_virtual_loss_suppresses_in_flight_edge():
-    # Identical priors and no completed visits; one edge has a simulation in
-    # flight. Virtual loss lowers its Q (0.5 FPU → 0.0 pending-loss) and
-    # inflates its bonus denominator, so the untouched sibling scores higher.
+    # Identical priors and no valid backups; one edge has a simulation in
+    # flight. Exploration still sees the traversal through N + virtual_loss.
     in_flight = EdgeVisitStats(virtual_loss=1, prior_prob=0.5)
     untouched = EdgeVisitStats(prior_prob=0.5)
     total = 1

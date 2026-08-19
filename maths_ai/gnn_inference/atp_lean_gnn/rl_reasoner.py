@@ -40,6 +40,7 @@ from torch_geometric.data import Batch
 from maths_ai.data_models.proof_components import Goal, TacticCandidate
 from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph, ProofNode
 from maths_ai.hybrid_reasoner.joint_inference import (
+    ExpansionResult,
     HybridReasoner,
     _sanitize_inaccessible_names,
 )
@@ -112,9 +113,9 @@ class RLHybridReasoner(HybridReasoner):
         )
 
         # Per-search stashes, reset by prove(); _pending holds one sub-dict per
-        # proposing node (flushed by _on_expansion_complete when that node's
+        # proposing graph node (flushed by _on_expansion_complete when that node's
         # expansion finishes).
-        self._pending: Dict[tuple, _PendingNode] = {}
+        self._pending: Dict[int, _PendingNode] = {}
         self._result: Optional[RLSearchResult] = None
         # Argmax proposals (evaluation) vs. i.i.d. sampling (training); set per prove().
         self._greedy: bool = False
@@ -149,9 +150,28 @@ class RLHybridReasoner(HybridReasoner):
         Each goal's sampled actions land in its own pending sub-dict, so a later
         flush of one goal's failures cannot touch another's (Decision 1.1).
         """
+        return self._predict_next_tactics_batch(sub_goals, node_ids=None)
+
+    def predict_next_tactics_for_nodes(
+        self, nodes: List[ProofNode]
+    ) -> List[List[TacticCandidate]]:
+        sanitized = [_sanitize_inaccessible_names(node.goal) for node in nodes]
+        return self._predict_next_tactics_batch(
+            sanitized,
+            node_ids=[node.id for node in nodes],
+        )
+
+    def _predict_next_tactics_batch(
+        self,
+        sub_goals: List[Goal],
+        *,
+        node_ids: Optional[List[int]],
+    ) -> List[List[TacticCandidate]]:
         pendings: List[_PendingNode] = []
-        for sub_goal in sub_goals:
-            key = _goal_key(sub_goal)
+        if node_ids is not None and len(node_ids) != len(sub_goals):
+            raise ValueError("node_ids must align with sub_goals")
+        for row, sub_goal in enumerate(sub_goals):
+            key = node_ids[row] if node_ids is not None else -(row + 1)
             pending = self._pending.get(key)
             if pending is None:
                 pending = _PendingNode(goal=sub_goal)
@@ -232,41 +252,34 @@ class RLHybridReasoner(HybridReasoner):
     # Stash migration: fingerprint → edge.id on link, failures on flush
     # ------------------------------------------------------------------
 
-    def _pending_for_node(self, node_goal: Goal) -> Optional[tuple]:
-        """Locate the pending sub-dict for a node.
-
-        Proposals fingerprint the SANITIZED goal (that is what ``_expand`` /
-        ``_expand_leaves`` pass to the proposal seam), while graph nodes carry
-        the original goal — try the raw key first, then the sanitized one.
-        """
-        key = _goal_key(node_goal)
-        if key in self._pending:
-            return key
-        sanitized_key = _goal_key(_sanitize_inaccessible_names(node_goal))
-        if sanitized_key in self._pending:
-            return sanitized_key
-        return None
-
     def _link(self, graph: ProofHypergraph, node: ProofNode, tactic: TacticCandidate, ranked_subgoals: list):
         edge = super()._link(graph, node, tactic, ranked_subgoals)
-        # PLN_fallback pseudo-edges carry no sampled action; leave them out of the join.
-        pending_key = self._pending_for_node(node.goal)
-        if pending_key is not None:
+        pending_key = node.id
+        if pending_key in self._pending:
             fingerprint = _fingerprint(tactic.tactic_name, tuple(tactic.arguments))
             action = self._pending[pending_key].actions.pop(fingerprint, None)
             if action is not None and edge is not None and self._result is not None:
                 self._result.edge_actions[edge.id] = action
         return edge
 
-    def _on_expansion_complete(self, node: ProofNode) -> None:
-        """Flush this node's still-pending samples (executor-rejected) into
-        failure records — and only this node's, so batched expansion of other
-        leaves leaves their pending actions untouched."""
-        pending_key = self._pending_for_node(node.goal)
-        if pending_key is not None:
-            self._flush_pending(pending_key)
+    def _on_expansion_complete(
+        self,
+        node: ProofNode,
+        result: ExpansionResult,
+    ) -> None:
+        """Settle sampled actions according to what Lean actually observed."""
+        if result == ExpansionResult.TACTICS_EXECUTED:
+            self._flush_pending(node.id)
+            return
 
-    def _flush_pending(self, key: tuple) -> None:
+        pending = self._pending.pop(node.id, None)
+        if result in (ExpansionResult.NO_CANDIDATES, ExpansionResult.DEPTH_LIMIT):
+            if pending is not None and pending.actions:
+                raise AssertionError(
+                    f"{result.value} cannot leave executable actions for node {node.id}"
+                )
+
+    def _flush_pending(self, key: int) -> None:
         """Convert one node's still-pending samples into failure records."""
         pending = self._pending.pop(key, None)
         if pending is None:
@@ -324,12 +337,13 @@ class RLHybridReasoner(HybridReasoner):
         self._result = RLSearchResult(graph=None)  # graph attached after the base search
         try:
             graph = await super().prove(goal, hypotheses=hypotheses, deadline=deadline)
-            # Any sub-dicts not flushed by _on_expansion_complete (search ended
-            # mid-expansion, e.g. deadline) are this search's remaining rejects.
-            for key in list(self._pending):
-                self._flush_pending(key)
+            if self._pending:
+                raise AssertionError(
+                    "Normal search completion left sampled actions without an expansion outcome."
+                )
             self._result.graph = graph
             result, self._result = self._result, None
         finally:
+            self._pending.clear()
             self._greedy = False
         return result
