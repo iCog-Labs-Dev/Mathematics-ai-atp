@@ -1,18 +1,18 @@
 {
+  "model_type": "pointer",
   "prepared_root": "maths_ai/gnn_inference/artifacts/prepared/v1",
-  "run_root": "maths_ai/gnn_inference/runs/baseline_gnn",
+  "run_root": "maths_ai/gnn_inference/runs/pointer_gatv2_state_mean_max_attention",
   "seed": 42,
   "device": "auto",
   "edge_mode": "bidirectional",
+  "arg_loss_weight": 0.5,
   "model": {
-    "architecture": "graphsage",
+    "architecture": "gatv2",
     "hidden_dim": 512,
     "dropout": 0.2,
     "use_node_type": true,
     "max_args": 3,
-    "encoder": {
-      "num_layers": 4
-    }
+    "encoder": {"num_layers": 4, "heads": 8, "readout": "state_mean_max_attention"}
   },
   "training": {
     "batch_size": 256,
@@ -20,8 +20,8 @@
     "learning_rate": 0.001,
     "weight_decay": 0.0001,
     "grad_clip": 1.0,
-    "log_every_batches": 100,
-    "num_workers": 12,
+    "log_every_batches": 50,
+    "num_workers": 8,
     "pin_memory": true,
     "persistent_workers": true,
     "prefetch_factor": 2,

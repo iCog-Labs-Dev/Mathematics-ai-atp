@@ -5,13 +5,16 @@
   "seed": 42,
   "device": "auto",
   "edge_mode": "bidirectional",
-  "use_node_type": true,
-  "max_args": 3,
   "arg_loss_weight": 0.5,
   "model": {
+    "architecture": "graphsage",
     "hidden_dim": 512,
-    "num_layers": 4,
-    "dropout": 0.2
+    "dropout": 0.2,
+    "use_node_type": true,
+    "max_args": 3,
+    "encoder": {
+      "num_layers": 4
+    }
   },
   "training": {
     "batch_size": 256,
@@ -24,6 +27,8 @@
     "pin_memory": true,
     "persistent_workers": true,
     "prefetch_factor": 2,
-    "use_amp": true
+    "use_amp": true,
+    "max_batch_nodes": 100000,
+    "max_batch_edges": 400000
   }
 }

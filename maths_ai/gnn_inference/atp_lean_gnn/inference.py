@@ -202,13 +202,10 @@ class InferencePipeline:
         data.edge_index = transform_edge_index(data.edge_index, edge_mode="bidirectional")
         batch = Batch.from_data_list([data])
 
-        node_embeddings = self.model.backbone.encode_nodes(batch)
-        state_emb = self.model.backbone.readout(node_embeddings, batch)
-        
-        if hasattr(self.model, "actor"):
-            tactic_logits = self.model.actor(state_emb)
-        else:
-            tactic_logits = self.model.backbone.classifier(state_emb)
+        encoded = self.model.encode_graph(batch)
+        node_embeddings = encoded.node_embeddings
+        state_emb = encoded.state_embeddings
+        tactic_logits = self.model.predict_tactics(encoded)
         tactic_probs = torch.softmax(tactic_logits.squeeze(0), dim=-1)
         top_candidates = _top_tactic_candidates(tactic_probs, self.id_to_tactic, top_k=top_k)
 

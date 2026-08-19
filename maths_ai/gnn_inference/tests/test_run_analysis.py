@@ -10,7 +10,7 @@ import torch
 from maths_ai.gnn_inference.atp_lean_gnn import (
     BaselineConfig,
     DatasetRow,
-    GraphSAGEClassifierConfig,
+    ModelSpec,
     TrainingLoopConfig,
     analyze_saved_run,
     build_tactic_vocab,
@@ -152,8 +152,14 @@ class RunAnalysisTests(unittest.TestCase):
             seed=11,
             device="cpu",
             edge_mode="bidirectional",
-            use_node_type=True,
-            model=GraphSAGEClassifierConfig(hidden_dim=16, num_layers=2, dropout=0.1),
+            model=ModelSpec.from_dict({
+                "architecture": "graphsage",
+                "hidden_dim": 16,
+                "dropout": 0.1,
+                "encoder": {"num_layers": 2},
+                "use_node_type": True,
+                "max_args": 3,
+            }),
             training=TrainingLoopConfig(
                 batch_size=2,
                 epochs=1,

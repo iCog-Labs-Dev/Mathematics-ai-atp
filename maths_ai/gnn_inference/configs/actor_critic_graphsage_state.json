@@ -6,19 +6,20 @@
   "seed": 42,
   "device": "auto",
   "edge_mode": "bidirectional",
-  "use_node_type": true,
-  "max_args": 3,
   "arg_loss_weight": 0.5,
   "critic_weight": 0.5,
   "entropy_weight": 0.01,
   "arg_lr_multiplier": 0.1,
   "pretrained_pointer_checkpoint": "/home/jovyan/Nol/Mathematics-ai-atp/maths_ai/gnn_inference/runs/pointer_gnn/run_20260726_122913/best.pt",
   "model": {
+    "architecture": "graphsage",
     "hidden_dim": 512,
-    "num_layers": 4,
     "dropout": 0.2,
+    "use_node_type": true,
     "max_args": 3,
-    "arg_loss_weight": 0.5
+    "encoder": {
+      "num_layers": 4
+    }
   },
   "training": {
     "batch_size": 256,
@@ -31,6 +32,8 @@
     "pin_memory": true,
     "persistent_workers": true,
     "prefetch_factor": 2,
-    "use_amp": true
+    "use_amp": true,
+    "max_batch_nodes": 100000,
+    "max_batch_edges": 400000
   }
 }

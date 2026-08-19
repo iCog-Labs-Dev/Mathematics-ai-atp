@@ -10,7 +10,7 @@ import torch
 from maths_ai.gnn_inference.atp_lean_gnn import (
     BaselineConfig,
     DatasetRow,
-    GraphSAGEClassifierConfig,
+    ModelSpec,
     PreparedGraphDataset,
     TrainingLoopConfig,
     build_dataloaders,
@@ -155,8 +155,14 @@ class TrainingPipelineTests(unittest.TestCase):
             seed=7,
             device="cpu",
             edge_mode="bidirectional",
-            use_node_type=True,
-            model=GraphSAGEClassifierConfig(hidden_dim=16, num_layers=2, dropout=0.1),
+            model=ModelSpec.from_dict({
+                "architecture": "graphsage",
+                "hidden_dim": 16,
+                "dropout": 0.1,
+                "encoder": {"num_layers": 2},
+                "use_node_type": True,
+                "max_args": 3,
+            }),
             training=TrainingLoopConfig(
                 batch_size=2,
                 epochs=1,
@@ -188,6 +194,46 @@ class TrainingPipelineTests(unittest.TestCase):
             metadata.state_label_id,
         )
         self.assertNotIn(int(sample.state_node_index.item()), source_nodes)
+
+    def test_preparation_writes_graph_size_sidecars_for_budget_sampling(self) -> None:
+        metadata = load_prepared_metadata(self.prepared_root)
+        dataset = PreparedGraphDataset(metadata, split="train", edge_mode="forward")
+        sizes = dataset.graph_sizes()
+        bidirectional_sizes = PreparedGraphDataset(
+            metadata,
+            split="train",
+            edge_mode="bidirectional",
+        ).graph_sizes()
+
+        self.assertEqual(len(sizes), len(dataset))
+        self.assertTrue(all(size.nodes > 0 and size.edges >= 0 for size in sizes))
+        self.assertTrue(
+            all(
+                bidirectional.edges >= forward.edges
+                for forward, bidirectional in zip(sizes, bidirectional_sizes)
+            )
+        )
+        for path in dataset.files:
+            self.assertTrue(path.with_suffix(".size.json").exists())
+
+        budgeted = BaselineConfig(
+            prepared_root=self.prepared_root,
+            run_root=self.run_root,
+            device="cpu",
+            model=self._tiny_config().model,
+            training=TrainingLoopConfig(
+                batch_size=2,
+                epochs=1,
+                num_workers=0,
+                pin_memory=False,
+                persistent_workers=False,
+                max_batch_nodes=max(size.nodes for size in sizes),
+                max_batch_edges=max(size.edges for size in bidirectional_sizes),
+                use_amp=False,
+            ),
+        ).normalized()
+        _, loaders = build_dataloaders(metadata, budgeted)
+        self.assertEqual(len(list(loaders["train"])), len(dataset))
 
     def test_bidirectional_transform_preserves_nodes_and_adds_reverse_edges(self) -> None:
         metadata = load_prepared_metadata(self.prepared_root)
@@ -271,8 +317,14 @@ class TrainingPipelineTests(unittest.TestCase):
             seed=7,
             device="cpu",
             edge_mode="bidirectional",
-            use_node_type=True,
-            model=GraphSAGEClassifierConfig(hidden_dim=16, num_layers=2, dropout=0.1),
+            model=ModelSpec.from_dict({
+                "architecture": "graphsage",
+                "hidden_dim": 16,
+                "dropout": 0.1,
+                "encoder": {"num_layers": 2},
+                "use_node_type": True,
+                "max_args": 3,
+            }),
             training=TrainingLoopConfig(
                 batch_size=2,
                 epochs=2,

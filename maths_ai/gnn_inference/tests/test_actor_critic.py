@@ -27,8 +27,10 @@ from maths_ai.gnn_inference.atp_lean_gnn.actor_critic_loss import (
     compute_actor_critic_combined_loss,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.actor_critic_training import build_param_groups
+from maths_ai.gnn_inference.atp_lean_gnn.checkpointing import checkpoint_payload
 from maths_ai.gnn_inference.atp_lean_gnn.reward import MockRewardSource
 from maths_ai.gnn_inference.atp_lean_gnn.argument_selector import TacticWithArgsClassifier
+from maths_ai.gnn_inference.tests.model_helpers import actor_critic, pointer
 from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
 
 
@@ -90,14 +92,7 @@ class ActorCriticTests(unittest.TestCase):
 
     def test_full_model_forward(self) -> None:
         batch, vocab = self._build_tiny_batch()
-        model = ActorCriticWithArgsClassifier(
-            num_node_labels=len(vocab),
-            num_tactics=5,
-            hidden_dim=16,
-            num_layers=2,
-            dropout=0.1,
-            max_args=2,
-        )
+        model = actor_critic(len(vocab), 5)
         tactic_logits, values, arg_logits_list = model(
             batch,
             tactic_names=["apply", "apply"],
@@ -112,28 +107,14 @@ class ActorCriticTests(unittest.TestCase):
         batch, vocab = self._build_tiny_batch()
         # Create pointer classifier and actor-critic classifier with same seed/weights
         torch.manual_seed(42)
-        model_ptr = TacticWithArgsClassifier(
-            num_node_labels=len(vocab),
-            num_tactics=5,
-            hidden_dim=16,
-            num_layers=2,
-            dropout=0.1,
-            max_args=2,
-        )
+        model_ptr = pointer(len(vocab), 5)
         torch.manual_seed(42)
-        model_ac = ActorCriticWithArgsClassifier(
-            num_node_labels=len(vocab),
-            num_tactics=5,
-            hidden_dim=16,
-            num_layers=2,
-            dropout=0.1,
-            max_args=2,
-        )
+        model_ac = actor_critic(len(vocab), 5)
 
         # Synchronize argument selector and embedding parameters
         model_ac.tactic_embedding.weight.data.copy_(model_ptr.tactic_embedding.weight.data)
         model_ac.argument_selector.load_state_dict(model_ptr.argument_selector.state_dict())
-        model_ac.backbone.load_state_dict(model_ptr.backbone.state_dict())
+        model_ac.encoder.load_state_dict(model_ptr.encoder.state_dict())
 
         model_ptr.eval()
         model_ac.eval()
@@ -220,14 +201,7 @@ class ActorCriticTests(unittest.TestCase):
 
     def test_gradient_flow_and_advantage_detached(self) -> None:
         batch, vocab = self._build_tiny_batch()
-        model = ActorCriticWithArgsClassifier(
-            num_node_labels=len(vocab),
-            num_tactics=5,
-            hidden_dim=16,
-            num_layers=2,
-            dropout=0.1,
-            max_args=2,
-        )
+        model = actor_critic(len(vocab), 5)
 
         # Use "have" (arity 2) to ensure both query_proj and query_proj_ar are used and receive gradients
         tactic_logits, values, arg_logits_list = model(batch, tactic_names=["have", "have"])
@@ -260,9 +234,6 @@ class ActorCriticTests(unittest.TestCase):
             optimizer.step()
 
         for name, p in model.named_parameters():
-            if "backbone.classifier" in name:
-                # backbone.classifier is the supervised tactic head and is unused in AC forward
-                continue
             self.assertIsNotNone(p.grad, f"Parameter {name} has None gradient")
             self.assertFalse(torch.all(p.grad == 0), f"Parameter {name} has zero gradient")
 
@@ -279,14 +250,7 @@ class ActorCriticTests(unittest.TestCase):
                 self.assertTrue(torch.all(p.grad == 0), "Critic received gradients from actor loss alone")
 
     def test_differential_lr_param_groups(self) -> None:
-        model = ActorCriticWithArgsClassifier(
-            num_node_labels=10,
-            num_tactics=5,
-            hidden_dim=16,
-            num_layers=2,
-            dropout=0.1,
-            max_args=2,
-        )
+        model = actor_critic(10, 5)
         base_lr = 0.001
         arg_lr_multiplier = 0.1
         groups = build_param_groups(model, base_lr, arg_lr_multiplier)
@@ -301,22 +265,16 @@ class ActorCriticTests(unittest.TestCase):
         self.assertEqual(len(g0_params) + len(g1_params), len(list(model.parameters())))
 
     def test_init_actor_from_supervised(self) -> None:
-        model = ActorCriticWithArgsClassifier(
-            num_node_labels=10,
-            num_tactics=5,
-            hidden_dim=16,
-            num_layers=2,
-            dropout=0.1,
-            max_args=2,
-        )
-        model.backbone.classifier.weight.data.normal_()
-        model.backbone.classifier.bias.data.normal_()
+        model = actor_critic(10, 5)
+        classifier = nn.Linear(16, 5)
+        classifier.weight.data.normal_()
+        classifier.bias.data.normal_()
 
-        init_actor_from_supervised(model)
+        init_actor_from_supervised(model, classifier)
 
         # The inherited ``base`` layer receives the supervised classifier weights.
-        self.assertTrue(torch.allclose(model.actor.base.weight, model.backbone.classifier.weight))
-        self.assertTrue(torch.allclose(model.actor.base.bias, model.backbone.classifier.bias))
+        self.assertTrue(torch.allclose(model.actor.base.weight, classifier.weight))
+        self.assertTrue(torch.allclose(model.actor.base.bias, classifier.bias))
         # The residual branch's output layer is zero, so the branch is silent at init.
         self.assertTrue(torch.all(model.actor.residual[3].weight == 0))
         self.assertTrue(torch.all(model.actor.residual[3].bias == 0))
@@ -324,84 +282,88 @@ class ActorCriticTests(unittest.TestCase):
     def test_warmstart_behavioral_equivalence(self) -> None:
         # After warm-start, the actor must reproduce the supervised classifier exactly
         # (residual == 0), not merely share the final-layer weights.
-        model = ActorCriticWithArgsClassifier(
-            num_node_labels=10,
-            num_tactics=5,
-            hidden_dim=16,
-            num_layers=2,
-            dropout=0.1,
-            max_args=2,
-        )
-        model.backbone.classifier.weight.data.normal_()
-        model.backbone.classifier.bias.data.normal_()
-        init_actor_from_supervised(model)
+        model = actor_critic(10, 5)
+        classifier = nn.Linear(16, 5)
+        classifier.weight.data.normal_()
+        classifier.bias.data.normal_()
+        init_actor_from_supervised(model, classifier)
 
         model.eval()  # disable dropout so the comparison is deterministic
         state_emb = torch.randn(8, 16)
         with torch.no_grad():
             actor_logits = model.actor(state_emb)
-            classifier_logits = model.backbone.classifier(state_emb)
+            classifier_logits = classifier(state_emb)
         self.assertTrue(torch.allclose(actor_logits, classifier_logits, atol=1e-6))
 
     def test_load_from_pointer_checkpoint(self) -> None:
         batch, vocab = self._build_tiny_batch()
-        model_ptr = TacticWithArgsClassifier(
-            num_node_labels=len(vocab),
-            num_tactics=5,
-            hidden_dim=16,
-            num_layers=2,
-            dropout=0.1,
-            max_args=2,
-        )
+        model_ptr = pointer(len(vocab), 5)
+        tactic_vocab = {f"tactic_{index}": index for index in range(5)}
         import tempfile
         import os
         with tempfile.TemporaryDirectory() as tmpdir:
             ckpt_path = os.path.join(tmpdir, "ptr_best.pt")
-            torch.save({"model_state_dict": model_ptr.state_dict()}, ckpt_path)
-
-            model_ac = ActorCriticWithArgsClassifier(
-                num_node_labels=len(vocab),
-                num_tactics=5,
-                hidden_dim=16,
-                num_layers=2,
-                dropout=0.1,
-                max_args=2,
+            torch.save(
+                checkpoint_payload(
+                    model_kind="tactic_with_args",
+                    model_spec=model_ptr.model_spec,
+                    node_vocab=vocab,
+                    tactic_vocab=tactic_vocab,
+                    model=model_ptr,
+                ),
+                ckpt_path,
             )
 
-            load_from_pointer_checkpoint(model_ac, ckpt_path, torch.device("cpu"))
+            model_ac = actor_critic(len(vocab), 5)
 
-            self.assertTrue(torch.allclose(model_ac.backbone.label_embedding.weight, model_ptr.backbone.label_embedding.weight))
+            load_from_pointer_checkpoint(
+                model_ac,
+                ckpt_path,
+                torch.device("cpu"),
+                node_vocab=vocab,
+                tactic_vocab=tactic_vocab,
+            )
+
+            self.assertTrue(torch.allclose(
+                model_ac.encoder.node_features.label_embedding.weight,
+                model_ptr.encoder.node_features.label_embedding.weight,
+            ))
             self.assertTrue(torch.allclose(model_ac.tactic_embedding.weight, model_ptr.tactic_embedding.weight))
             self.assertTrue(torch.allclose(model_ac.argument_selector.query_proj.weight, model_ptr.argument_selector.query_proj.weight))
-            self.assertTrue(torch.allclose(model_ac.actor.base.weight, model_ptr.backbone.classifier.weight))
+            self.assertTrue(torch.allclose(
+                model_ac.actor.base.weight,
+                model_ptr.tactic_classifier.weight,
+            ))
 
     def test_load_from_pointer_checkpoint_shape_mismatch_raises(self) -> None:
         batch, vocab = self._build_tiny_batch()
-        model_ptr = TacticWithArgsClassifier(
-            num_node_labels=len(vocab),
-            num_tactics=5,
-            hidden_dim=16,
-            num_layers=2,
-            dropout=0.1,
-            max_args=2,
-        )
+        model_ptr = pointer(len(vocab), 5)
+        tactic_vocab = {f"tactic_{index}": index for index in range(5)}
         import tempfile
         import os
         with tempfile.TemporaryDirectory() as tmpdir:
             ckpt_path = os.path.join(tmpdir, "ptr_best.pt")
-            torch.save({"model_state_dict": model_ptr.state_dict()}, ckpt_path)
+            torch.save(
+                checkpoint_payload(
+                    model_kind="tactic_with_args",
+                    model_spec=model_ptr.model_spec,
+                    node_vocab=vocab,
+                    tactic_vocab=tactic_vocab,
+                    model=model_ptr,
+                ),
+                ckpt_path,
+            )
 
             # Model built at a different hidden_dim than the checkpoint.
-            model_ac = ActorCriticWithArgsClassifier(
-                num_node_labels=len(vocab),
-                num_tactics=5,
-                hidden_dim=32,
-                num_layers=2,
-                dropout=0.1,
-                max_args=2,
-            )
+            model_ac = actor_critic(len(vocab), 5, hidden_dim=32)
             with self.assertRaises(ValueError):
-                load_from_pointer_checkpoint(model_ac, ckpt_path, torch.device("cpu"))
+                load_from_pointer_checkpoint(
+                    model_ac,
+                    ckpt_path,
+                    torch.device("cpu"),
+                    node_vocab=vocab,
+                    tactic_vocab=tactic_vocab,
+                )
 
     def test_mock_reward_source(self) -> None:
         reward_src = MockRewardSource()
@@ -414,14 +376,7 @@ class ActorCriticTests(unittest.TestCase):
 
     def test_training_step_e2e(self) -> None:
         batch, vocab = self._build_tiny_batch()
-        model = ActorCriticWithArgsClassifier(
-            num_node_labels=len(vocab),
-            num_tactics=5,
-            hidden_dim=16,
-            num_layers=2,
-            dropout=0.1,
-            max_args=2,
-        )
+        model = actor_critic(len(vocab), 5)
         optimizer = AdamW(model.parameters(), lr=0.001)
         reward_src = MockRewardSource()
 
@@ -493,14 +448,7 @@ class ActorCriticTests(unittest.TestCase):
 
     def test_act_sampling_shapes_and_gradients(self) -> None:
         batch, vocab = self._build_tiny_batch()
-        model = ActorCriticWithArgsClassifier(
-            num_node_labels=len(vocab),
-            num_tactics=5,
-            hidden_dim=16,
-            num_layers=2,
-            dropout=0.1,
-            max_args=2,
-        )
+        model = actor_critic(len(vocab), 5)
         sample = model.act(batch)
         self.assertIsInstance(sample, ActionSample)
         self.assertEqual(sample.tactic_action.shape, (2,))
@@ -518,14 +466,7 @@ class ActorCriticTests(unittest.TestCase):
 
     def test_act_greedy_is_deterministic(self) -> None:
         batch, vocab = self._build_tiny_batch()
-        model = ActorCriticWithArgsClassifier(
-            num_node_labels=len(vocab),
-            num_tactics=5,
-            hidden_dim=16,
-            num_layers=2,
-            dropout=0.1,
-            max_args=2,
-        )
+        model = actor_critic(len(vocab), 5)
         model.eval()
         with torch.no_grad():
             a1 = model.act(batch, greedy=True)

@@ -7,10 +7,9 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
+from .architectures import EncoderOutput, StateGraphEncoder
 from .argument_selector import ArgumentSelector, resolve_premise_mask
 from .labels import get_tactic_arity
-from .model import GraphSAGEStateClassifier
-from .pyg import NODE_TYPE_TO_ID
 from .reporting import console_print
 
 
@@ -84,25 +83,14 @@ class ActorCriticWithArgsClassifier(nn.Module):
     def __init__(
         self,
         *,
-        num_node_labels: int,
+        encoder: StateGraphEncoder,
         num_tactics: int,
-        num_node_types: int = len(NODE_TYPE_TO_ID),
-        hidden_dim: int = 128,
-        num_layers: int = 4,
         dropout: float = 0.2,
-        use_node_type: bool = True,
         max_args: int = 3,
     ):
         super().__init__()
-        self.backbone = GraphSAGEStateClassifier(
-            num_node_labels=num_node_labels,
-            num_tactics=num_tactics,
-            num_node_types=num_node_types,
-            hidden_dim=hidden_dim,
-            num_layers=num_layers,
-            dropout=dropout,
-            use_node_type=use_node_type,
-        )
+        hidden_dim = encoder.output_dim
+        self.encoder = encoder
         self.actor = ActorHead(hidden_dim, num_tactics, dropout)
         self.critic = CriticHead(hidden_dim, dropout)
         self.tactic_embedding = nn.Embedding(num_tactics, hidden_dim)
@@ -110,14 +98,16 @@ class ActorCriticWithArgsClassifier(nn.Module):
         self.max_args = max_args
         self.hidden_dim = hidden_dim
 
-    # ---- convenience accessors for the backbone ----
-    @property
-    def label_embedding(self) -> nn.Embedding:
-        return self.backbone.label_embedding
+    def encode_graph(self, data) -> EncoderOutput:
+        return self.encoder(data)
 
-    @property
-    def node_type_embedding(self) -> nn.Embedding | None:
-        return self.backbone.node_type_embedding
+    def predict_tactics(
+        self,
+        encoded: EncoderOutput,
+        *,
+        tactic_mask: Tensor | None = None,
+    ) -> Tensor:
+        return self.actor(encoded.state_embeddings, mask=tactic_mask)
 
     def encode(
         self,
@@ -131,9 +121,10 @@ class ActorCriticWithArgsClassifier(nn.Module):
         ``tactic_logits`` — [B, num_tactics] (masked to legal tactics if ``tactic_mask``
         is given); ``values`` — [B, 1].
         """
-        node_embeddings = self.backbone.encode_nodes(data)  # [total_nodes, H]
-        state_emb = self.backbone.readout(node_embeddings, data)  # [B, H]
-        tactic_logits = self.actor(state_emb, mask=tactic_mask)  # [B, num_tactics]
+        encoded = self.encode_graph(data)
+        node_embeddings = encoded.node_embeddings  # [total_nodes, H]
+        state_emb = encoded.state_embeddings  # [B, H]
+        tactic_logits = self.predict_tactics(encoded, tactic_mask=tactic_mask)
         values = self.critic(state_emb)  # [B, 1]
         return node_embeddings, state_emb, tactic_logits, values
 
@@ -318,60 +309,80 @@ class ActorCriticWithArgsClassifier(nn.Module):
         return tactic_logits, values, arg_logits_list
 
 
-def init_actor_from_supervised(model: ActorCriticWithArgsClassifier) -> None:
-    """Copy backbone.classifier weights/biases into the actor's inherited ``base`` layer.
+def init_actor_from_supervised(
+    model: ActorCriticWithArgsClassifier,
+    tactic_classifier: nn.Linear,
+) -> None:
+    """Copy a pointer tactic classifier into the actor's inherited base layer.
 
     After this call ``actor(h) ≡ classifier(h)`` because the residual branch is
     zero at initialization.
     """
+    if model.actor.base.weight.shape != tactic_classifier.weight.shape:
+        raise ValueError(
+            "Pointer tactic classifier shape does not match the actor base: "
+            f"{tuple(tactic_classifier.weight.shape)} != "
+            f"{tuple(model.actor.base.weight.shape)}."
+        )
     with torch.no_grad():
-        model.actor.base.weight.copy_(model.backbone.classifier.weight)
-        if model.backbone.classifier.bias is not None:
-            model.actor.base.bias.copy_(model.backbone.classifier.bias)
+        model.actor.base.weight.copy_(tactic_classifier.weight)
+        if tactic_classifier.bias is not None:
+            model.actor.base.bias.copy_(tactic_classifier.bias)
 
 
 def load_from_pointer_checkpoint(
     model: ActorCriticWithArgsClassifier,
     checkpoint_path: str | Path,
     device: torch.device,
+    *,
+    node_vocab: dict[str, int],
+    tactic_vocab: dict[str, int],
 ) -> None:
     """Load TacticWithArgsClassifier checkpoint weights into ActorCriticWithArgsClassifier.
 
-    Raises ``ValueError`` on any intended-transfer key whose checkpoint shape differs
-    from the model's — ``load_state_dict(strict=False)`` would otherwise drop such keys
-    silently (e.g. a hidden_dim mismatch between checkpoint and config), leaving the
-    model at random init while reporting a successful warm-start.
+    The pointer is reconstructed from its version-2 manifest, including vocabulary
+    fingerprint validation. The complete normalized model specification must equal the
+    actor-critic specification before any component is copied.
     """
+    from .checkpointing import build_model_from_checkpoint
+
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    state_dict = checkpoint.get("model_state_dict", checkpoint)
-
-    # We will build a new state dict compatible with ActorCriticWithArgsClassifier
-    new_state_dict = {}
-    for k, v in state_dict.items():
-        if k.startswith("backbone."):
-            new_state_dict[k] = v
-        elif k.startswith("tactic_embedding."):
-            new_state_dict[k] = v
-        elif k.startswith("argument_selector."):
-            new_state_dict[k] = v
-
-    # Guard: a shape-mismatched key is dropped by strict=False without appearing in
-    # missing_keys, so diff shapes explicitly before loading.
-    model_sd = model.state_dict()
-    mismatched = [
-        (k, tuple(v.shape), tuple(model_sd[k].shape))
-        for k, v in new_state_dict.items()
-        if k in model_sd and v.shape != model_sd[k].shape
-    ]
-    if mismatched:
+    pointer_model, _, pointer_spec = build_model_from_checkpoint(
+        checkpoint,
+        node_vocab=node_vocab,
+        tactic_vocab=tactic_vocab,
+        expected_model_kind="tactic_with_args",
+    )
+    if pointer_spec != model.model_spec:
+        mismatches = [
+            f"{field}: pointer={getattr(pointer_spec, field)!r}, "
+            f"actor_critic={getattr(model.model_spec, field)!r}"
+            for field in (
+                "architecture",
+                "hidden_dim",
+                "dropout",
+                "encoder",
+                "use_node_type",
+                "max_args",
+            )
+            if getattr(pointer_spec, field) != getattr(model.model_spec, field)
+        ]
         raise ValueError(
-            "Warm-start shape mismatch (hidden_dim disagreement between checkpoint "
-            f"and model config?): {mismatched}"
+            "Pointer and actor-critic model specifications differ: "
+            + "; ".join(mismatches)
         )
 
-    result = model.load_state_dict(new_state_dict, strict=False)
-    console_print(
-        f"Warm-start: loaded {len(new_state_dict)} tensors from pointer checkpoint; "
-        f"missing={len(result.missing_keys)} unexpected={len(result.unexpected_keys)}"
-    )
-    init_actor_from_supervised(model)
+    try:
+        model.encoder.load_state_dict(pointer_model.encoder.state_dict(), strict=True)
+        model.tactic_embedding.load_state_dict(
+            pointer_model.tactic_embedding.state_dict(),
+            strict=True,
+        )
+        model.argument_selector.load_state_dict(
+            pointer_model.argument_selector.state_dict(),
+            strict=True,
+        )
+    except RuntimeError as exc:
+        raise ValueError(f"Pointer warm-start component mismatch: {exc}") from exc
+    init_actor_from_supervised(model, pointer_model.tactic_classifier)
+    console_print(f"Warm-start: loaded pointer components from {checkpoint_path}")

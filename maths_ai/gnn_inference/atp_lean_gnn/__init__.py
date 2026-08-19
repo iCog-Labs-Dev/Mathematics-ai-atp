@@ -1,10 +1,10 @@
 from .argument_selector import (
     ArgumentSelector,
     TacticWithArgsClassifier,
-    TacticWithArgsConfig,
     compute_combined_loss,
     resolve_arg_targets_to_padded,
 )
+from .architectures import EncoderOutput, GATv2Encoder, GraphSAGEEncoder, StateGraphEncoder
 from .argument_training import (
     evaluate_model_with_args,
     train_one_epoch_with_args,
@@ -30,7 +30,8 @@ from .labels import (
     parse_tactic_arguments,
 )
 from .lemma_index import LemmaIndex, LemmaIndexConfig
-from .model import GraphSAGEClassifierConfig, GraphSAGEStateClassifier
+from .model import SupervisedTacticClassifier
+from .model_spec import ModelSpec
 from .preparation import PreparedExample, prepare_example
 from .premise_pool import CandidatePool, build_unified_pools
 from .premise_scoring import PremiseScorer, PremiseScorerConfig, compute_premise_ranking_loss
@@ -66,15 +67,17 @@ __all__ = [
     "DEMO_STATE",
     "DatasetRow",
     "EMPTY_TACTIC",
+    "EncoderOutput",
+    "GATv2Encoder",
     "GraphNode",
-    "GraphSAGEClassifierConfig",
-    "GraphSAGEStateClassifier",
+    "GraphSAGEEncoder",
     "GraphStats",
     "Hypothesis",
     "InferencePipeline",
     "LemmaIndex",
     "LemmaIndexConfig",
     "LemmaRecord",
+    "ModelSpec",
     "NODE_TYPE_TO_ID",
     "ParserAuditConfig",
     "PreparedExample",
@@ -87,7 +90,8 @@ __all__ = [
     "SplitReport",
     "TACTIC_ARITY",
     "TacticWithArgsClassifier",
-    "TacticWithArgsConfig",
+    "StateGraphEncoder",
+    "SupervisedTacticClassifier",
     "TrainingLoopConfig",
     "UNKNOWN_TACTIC",
     "analyze_saved_run",
@@ -139,4 +143,3 @@ __all__ = [
     "visualize_dag",
     "write_dag_json",
 ]
-

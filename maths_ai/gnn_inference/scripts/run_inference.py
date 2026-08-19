@@ -16,8 +16,9 @@ if __package__ in {None, ""}:
 from atp_lean_gnn.cli import DEMO_STATE
 from atp_lean_gnn.inference import InferencePipeline
 from atp_lean_gnn.lemma_index import LemmaIndex
-from atp_lean_gnn.training import load_prepared_metadata, load_baseline_config, build_model
-from atp_lean_gnn.premise_scoring import PremiseScorer
+from atp_lean_gnn.training import load_pointer_config, load_prepared_metadata
+from atp_lean_gnn.checkpointing import build_model_from_checkpoint
+from atp_lean_gnn.premise_scoring import PremiseScorer, load_scorer_checkpoint
 from atp_lean_gnn.lemma_corpus import load_lemma_corpus
 
 
@@ -42,51 +43,32 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: config file not found: {config_path}")
         return 1
 
-    config = load_baseline_config(config_path)
+    config = load_pointer_config(config_path)
     metadata = load_prepared_metadata(config.prepared_root)
 
-    # Build and load model
-    from atp_lean_gnn.argument_selector import TacticWithArgsClassifier
-    
-    model = TacticWithArgsClassifier(
-        num_node_labels=len(metadata.node_vocab),
-        num_tactics=len(metadata.tactic_vocab),
-        hidden_dim=config.model.hidden_dim,
-        num_layers=config.model.num_layers,
-        dropout=config.model.dropout,
-        use_node_type=config.use_node_type,
-        max_args=getattr(config, "max_args", 3),
-    )
-    
+    # Build and load the exact pointer model recorded by the checkpoint manifest.
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
-    state_dict = ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt
-    
-    # Adjust state dict keys if they come from a pure baseline (GraphSAGEStateClassifier)
-    # The pure baseline keys don't have the "backbone." prefix.
-    adjusted_state_dict = {}
-    for k, v in state_dict.items():
-        if not k.startswith("backbone.") and not k.startswith("tactic_embedding.") and not k.startswith("argument_selector."):
-            adjusted_state_dict[f"backbone.{k}"] = v
-        else:
-            adjusted_state_dict[k] = v
-            
-    model.load_state_dict(adjusted_state_dict, strict=False)
+    model, checkpoint_manifest, checkpoint_spec = build_model_from_checkpoint(
+        ckpt,
+        node_vocab=metadata.node_vocab,
+        tactic_vocab=metadata.tactic_vocab,
+        expected_model_kind="tactic_with_args",
+    )
     model = model.to(device)
 
     # Build scorer and load trained weights
-    scorer = PremiseScorer(hidden_dim=config.model.hidden_dim, mode=args.scorer_mode).to(device)
+    scorer = PremiseScorer(hidden_dim=checkpoint_spec.hidden_dim, mode=args.scorer_mode).to(device)
+    expected_fingerprint = str(checkpoint_manifest["encoder_fingerprint"])
     if args.scorer_checkpoint:
         scorer_ckpt_path = Path(args.scorer_checkpoint)
         if scorer_ckpt_path.exists():
             scorer_ckpt = torch.load(scorer_ckpt_path, map_location=device, weights_only=False)
-            # Checkpoints from train_scorer save under 'scorer_state_dict'
-            if "scorer_state_dict" in scorer_ckpt:
-                scorer.load_state_dict(scorer_ckpt["scorer_state_dict"])
-                print(f"Loaded trained scorer weights from {scorer_ckpt_path}")
-            else:
-                # Fallback: the file itself may be a raw state dict
-                scorer.load_state_dict(scorer_ckpt)
-                print(f"Loaded scorer weights (raw state dict) from {scorer_ckpt_path}")
+            load_scorer_checkpoint(
+                scorer,
+                scorer_ckpt,
+                expected_encoder_fingerprint=expected_fingerprint,
+            )
+            print(f"Loaded trained scorer weights from {scorer_ckpt_path}")
         else:
             print(f"WARNING: scorer checkpoint not found at {scorer_ckpt_path} — using random weights.")
     else:
@@ -98,6 +80,7 @@ def main(argv: list[str] | None = None) -> int:
         index_path = Path(args.index_path)
         if index_path.exists():
             lemma_index = LemmaIndex.load(index_path)
+            lemma_index.validate_encoder_fingerprint(expected_fingerprint)
             print(f"Loaded index with {len(lemma_index.lemma_ids)} lemmas.")
         else:
             print(f"WARNING: index path {index_path} not found.")
@@ -106,11 +89,12 @@ def main(argv: list[str] | None = None) -> int:
         # Create an empty index as fallback
         import faiss
         import numpy as np
-        d = config.model.hidden_dim
+        d = checkpoint_spec.hidden_dim
         lemma_index = LemmaIndex(
             index=faiss.IndexFlatL2(d),
             lemma_ids=[],
-            lemma_vectors=np.empty((0, d), dtype=np.float32)
+            lemma_vectors=np.empty((0, d), dtype=np.float32),
+            encoder_fingerprint=expected_fingerprint,
         )
 
     lemma_corpus = None
