@@ -36,6 +36,15 @@ class NodeStatus:
     EXPANDED = "expanded"  # has ≥1 outgoing edge, outcome still undetermined
     SOLVED = "solved"      # ≥1 outgoing edge is fully solved (OR-success)
     DEAD = "dead"          # exhausted candidates and every edge is dead (AND-failure)
+    UNELABORATED = "unelaborated"  # Lean could not construct this state
+
+
+class TerminationReason:
+    """Why a node stopped being searchable; only EXHAUSTED is failure evidence."""
+    EXHAUSTED = "exhausted"
+    UNELABORATED = "unelaborated"
+    GLOBAL_BUDGET = "global_budget"
+    INFRASTRUCTURE_FAILURE = "infrastructure_failure"
 
 
 class EdgeStatus:
@@ -69,6 +78,7 @@ class ProofNode:
     combined_rank: float = 0.0
     exhausted: bool = False
     note: Optional[str] = None
+    termination_reason: Optional[str] = None
     """Free-text annotation for terminal states the graph can't infer on its
     own — e.g. why a node was force-marked dead (cycle, depth limit, no
     candidates) — useful for inspecting/visualizing a finished search."""
@@ -100,6 +110,7 @@ class ProofNode:
             "stv": None if self.stv is None else {"strength": self.stv.strength, "confidence": self.stv.confidence},
             "combined_rank": self.combined_rank,
             "note": self.note,
+            "termination_reason": self.termination_reason,
         }
 
 
@@ -258,6 +269,7 @@ class ProofHypergraph:
                 child = self.nodes[child_id]
                 child.status = NodeStatus.DEAD
                 child.exhausted = True
+                child.termination_reason = TerminationReason.EXHAUSTED
                 child.note = "cycle: identical to an ancestor goal"
             child_ids.append(child_id)
 
@@ -284,9 +296,32 @@ class ProofHypergraph:
         """
         node = self.nodes[node_id]
         node.exhausted = True
+        node.termination_reason = TerminationReason.EXHAUSTED
         if note:
             node.note = note
         self._propagate(node_id)
+
+    def mark_node_unelaborated(self, node_id: int, *, note: Optional[str] = None) -> None:
+        """Record a Lean elaboration failure without turning it into a proof failure."""
+        node = self.nodes[node_id]
+        node.status = NodeStatus.UNELABORATED
+        node.termination_reason = TerminationReason.UNELABORATED
+        if note:
+            node.note = note
+
+    def mark_node_infrastructure_failed(self, node_id: int, *, note: Optional[str] = None) -> None:
+        """Record backend failure as unknown evidence, not a failed proof state."""
+        node = self.nodes[node_id]
+        node.status = NodeStatus.UNELABORATED
+        node.termination_reason = TerminationReason.INFRASTRUCTURE_FAILURE
+        if note:
+            node.note = note
+
+    def mark_global_truncation(self, *, note: str = "global search budget reached") -> None:
+        """Annotate work left open when a global search budget interrupts the run."""
+        for node in self.frontier():
+            node.termination_reason = TerminationReason.GLOBAL_BUDGET
+            node.note = note
 
      
     # Queries

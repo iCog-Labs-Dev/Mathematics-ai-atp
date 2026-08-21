@@ -78,14 +78,14 @@ class SearchHarvestTests(unittest.TestCase):
         g, edge = self._and_graph()
         a_id, b_id = edge.child_ids
 
-        # Both subgoals open ⇒ product(0,0) = 0.
-        self.assertEqual(backup_values(g)[g.root_id], 0.0)
+        # Open subgoals are not failure evidence.
+        self.assertFalse(backup_values(g)[g.root_id].known)
 
-        # Solve A only ⇒ A=1, B=0 ⇒ product = 0 (AND: all must close).
+        # Solve A only: B remains unknown, so the AND-edge remains unknown.
         g.add_edge(a_id, _tac(), ranked_subgoals=[])
         vals = backup_values(g)
         self.assertEqual(vals[a_id], 1.0)
-        self.assertEqual(vals[g.root_id], 0.0)
+        self.assertFalse(vals[g.root_id].known)
 
         # Solve B ⇒ product(1,1) = 1 and root propagates to SOLVED.
         g.add_edge(b_id, _tac(), ranked_subgoals=[])
@@ -97,9 +97,22 @@ class SearchHarvestTests(unittest.TestCase):
     def test_backup_min_combine(self) -> None:
         g, edge = self._and_graph()
         a_id, _ = edge.child_ids
-        g.add_edge(a_id, _tac(), ranked_subgoals=[])  # A solved (1), B unresolved (0)
+        g.add_edge(a_id, _tac(), ranked_subgoals=[])  # A solved, B unresolved
         vals = backup_values(g, HarvestConfig(and_combine="min"))
-        self.assertEqual(vals[g.root_id], 0.0)  # min(1, 0)
+        self.assertFalse(vals[g.root_id].known)
+
+    def test_known_dead_child_beats_unknown_sibling(self) -> None:
+        g, edge = self._and_graph()
+        a_id, _ = edge.child_ids
+        g.mark_node_exhausted(a_id, note="local candidate policy exhausted")
+        g.mark_node_exhausted(g.root_id, note="local candidate policy exhausted")
+        vals = backup_values(g)
+        self.assertEqual(vals[a_id], 0.0)
+        self.assertEqual(vals[g.root_id], 0.0)
+
+    def test_unknown_child_omits_transition(self) -> None:
+        g, edge = self._and_graph()
+        self.assertEqual(extract_transitions(g, edge_ids=[edge.id]), [])
 
     def test_extract_transitions_fields(self) -> None:
         g, edge = self._and_graph()
@@ -120,10 +133,10 @@ class SearchHarvestTests(unittest.TestCase):
 
     def test_edge_ids_filter(self) -> None:
         g, edge = self._and_graph()
-        # Only harvest the root edge (on-policy selection).
+        # The edge filter selects the root edge, but unresolved children make
+        # its return unknown, so issue #24 correctly omits it from harvest.
         transitions = extract_transitions(g, edge_ids=[edge.id])
-        self.assertEqual(len(transitions), 1)
-        self.assertEqual(transitions[0].node_id, g.root_id)
+        self.assertEqual(transitions, [])
 
 
 if __name__ == "__main__":

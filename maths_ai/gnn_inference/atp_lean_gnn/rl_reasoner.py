@@ -199,6 +199,12 @@ class RLHybridReasoner(HybridReasoner):
         self._pending = {}
         self._pending_goal = None
 
+    def _on_unelaborated(self, goal: Goal) -> None:
+        # Samples were drawn before Lean attempted to reconstruct the state, but
+        # were never executed.  They are not rejected actions and carry no signal.
+        self._pending = {}
+        self._pending_goal = None
+
     # ------------------------------------------------------------------
     # Per-search result (refinement 6)
     # ------------------------------------------------------------------

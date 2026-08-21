@@ -302,12 +302,12 @@ class PLNDisabledTests(unittest.TestCase):
         self.assertIsNone(reasoner.dts_sampler)
 
     def test_subgoal_nodes_have_none_stv_in_executor_order(self):
-        """With PLN off, subgoals carry stv=None and are kept in Lean's order, capped."""
+        """With PLN off, all Lean subgoals are retained in executor order."""
         # Build an executor that returns two subgoals for the root, then QED on each.
         root_goal = Goal(expression=GOAL_EXPR, hypotheses=HYPS)
         sg1 = Goal(expression="p", hypotheses=HYPS)
         sg2 = Goal(expression="True", hypotheses=[])
-        sg3 = Goal(expression="False", hypotheses=[])  # third — should be capped
+        sg3 = Goal(expression="False", hypotheses=[])
 
         class _TwoSubgoalThenQEDExecutor:
             """First apply: returns two subgoals; subsequent applies: QED."""
@@ -333,9 +333,8 @@ class PLNDisabledTests(unittest.TestCase):
         ]
         self.assertTrue(all(stv is None for stv in child_stvs),
                         f"expected all stv=None, got {child_stvs}")
-        # Verify cap: at most top_k_subgoals=2 children per edge.
-        for edge in result.graph.edges.values():
-            self.assertLessEqual(len(edge.child_ids), 2)
+        # top_k_subgoals may rank expansion but cannot discard obligations.
+        self.assertEqual(len(next(iter(result.graph.edges.values())).child_ids), 3)
 
     def test_no_pln_fallback_qed_on_total_rejection(self):
         """With PLN off, a fully-rejected node is exhausted, not fake-closed."""

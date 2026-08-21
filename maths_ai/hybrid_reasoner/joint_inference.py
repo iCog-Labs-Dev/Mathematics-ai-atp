@@ -466,6 +466,9 @@ class HybridReasoner:
             print(f"\n=== Loop {loop_count}: expanding node {node.id} (depth {node.depth}) | goal: {node.goal.expression} ===")
             await self._expand(graph, node)
 
+        if not graph.is_solved() and not graph.is_exhausted() and len(graph.nodes) >= self.max_nodes:
+            graph.mark_global_truncation(note=f"global node budget ({self.max_nodes}) reached")
+
         return graph
 
     async def _restart_server(self) -> None:
@@ -555,6 +558,9 @@ class HybridReasoner:
         """
         return graph.add_edge(node.id, tactic, ranked_subgoals=ranked_subgoals)
 
+    def _on_unelaborated(self, goal: Goal) -> None:
+        """Collection hook; RL sampling overrides this to discard unexecuted actions."""
+
     async def _expand(self, graph: ProofHypergraph, node: ProofNode) -> None:
         """Try each of the GNN's top-k tactics on ``node`` and link whatever
         survives (executor success) into the hypergraph as new hyperedges.
@@ -573,8 +579,14 @@ class HybridReasoner:
         try:
             state = await self._start_state(node.goal)
         except (ServerError, ParseError) as exc:
-            console_print(f"  [Node {node.id} SKIP] goal elaboration failed: {exc}")
-            graph.mark_node_exhausted(node.id, note=f"elaboration error: {exc}")
+            infrastructure_failed = _server_is_dead(self.server)
+            label = "infrastructure" if infrastructure_failed else "goal elaboration"
+            console_print(f"  [Node {node.id} SKIP] {label} failed: {exc}")
+            self._on_unelaborated(node.goal)
+            if infrastructure_failed:
+                graph.mark_node_infrastructure_failed(node.id, note=f"server error: {exc}")
+            else:
+                graph.mark_node_unelaborated(node.id, note=f"elaboration error: {exc}")
             return
         any_applied = False
 
@@ -601,7 +613,9 @@ class HybridReasoner:
                 print(f"  [PLN Done] ranked {len(ranked)} subgoal(s)")
                 for i, rs in enumerate(ranked):
                     print(f"    subgoal {i}: {rs.goal.expression} | stv=({rs.stv.strength:.3f}, {rs.stv.confidence:.3f}) | combined_rank={rs.combined_rank:.4f}")
-                chosen = ranked[: self.top_k_subgoals]
+                # Ranking controls expansion order only.  Every Lean subgoal is a
+                # required AND-obligation and must remain on the edge.
+                chosen = ranked
                 self._link(
                     graph,
                     node,
@@ -609,10 +623,11 @@ class HybridReasoner:
                     ranked_subgoals=[(candidate.goal, candidate.stv) for candidate in chosen],
                 )
             else:
-                # PLN disabled: keep Lean's executor order, cap at top_k_subgoals,
+                # PLN disabled: keep Lean's executor order.  top_k_subgoals is a
+                # ranking/expansion hint, never permission to drop obligations.
                 # set stv=None so potential() returns 0 and local_score degrades to
                 # gnn_probability alone.
-                chosen = [(g, None) for g in outcome.subgoals[: self.top_k_subgoals]]
+                chosen = [(g, None) for g in outcome.subgoals]
                 self._link(graph, node, tactic, ranked_subgoals=chosen)
 
         if not any_applied and self.use_pln:
@@ -634,10 +649,7 @@ class HybridReasoner:
                 print(f"  [PLN Fallback] DTS recorded observation: score={stv.score:.3f}")
 
             print(f"  [PLN Fallback] final STV=({stv.strength:.3f}, {stv.confidence:.3f})  score={stv.score:.3f}  is_fallback={pln_result.is_fallback}")
-            if stv.score >= 0.9:
-                print(f"  [PLN Fallback] high confidence — closing node {node.id} as solved!")
-                graph.add_edge(node.id, TacticCandidate(tactic_name="PLN_fallback", arguments=[], probability=1.0), ranked_subgoals=[])
-                return
+            # PLN is a ranking/reward heuristic, never Lean-confirmed closure.
 
         note = None if any_applied else "executor rejected every candidate tactic"
         if note:

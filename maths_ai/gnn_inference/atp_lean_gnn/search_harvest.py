@@ -7,17 +7,18 @@ actor (shaped reward + bootstrapped successor value). The actor advantage
 ``Â = return − V_pred(s)`` is finished in the training loop, where the critic's prediction at
 collection time is known.
 
-Value backup (one-sided provability signal, per the approaches doc):
-  * SOLVED node                → 1.0
-  * DEAD node                  → 0.0
-  * interior node (OR over tactics): ``max_edge AND-combine(children)``
-  * AND-combine (all subgoals must close): product (default) or min of child values
-  * unexpanded / unresolved leaf → 0.0 (not yet shown provable — keeps PLN out of the target)
+Value backup carries both a value and evidence validity:
+  * Lean-confirmed SOLVED node → known 1.0
+  * locally exhausted failure  → known 0.0
+  * globally truncated, unexpanded, or unelaborated → UNKNOWN
+  * AND edges fail on one known-zero child, succeed only when every child is known-one
+  * OR nodes succeed on one known-one edge; zero needs local exhaustion of every edge
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 from maths_ai.data_models.proof_components import Goal, TacticCandidate
 from maths_ai.hybrid_reasoner.hypergraph import (
@@ -32,7 +33,18 @@ from .pln_reward import RewardConfig, edge_shaped_reward
 @dataclass(frozen=True)
 class HarvestConfig:
     and_combine: str = "product"  # "product" or "min"
-    unresolved_leaf_value: float = 0.0
+
+
+@dataclass(frozen=True)
+class BackupValue:
+    """A backed-up value plus whether the search observed valid evidence for it."""
+    value: Optional[float]
+    known: bool
+
+    def __eq__(self, other):
+        if isinstance(other, (float, int)):
+            return self.known and self.value == float(other)
+        return super().__eq__(other)
 
 
 @dataclass
@@ -43,58 +55,71 @@ class HarvestedTransition:
     tactic: TacticCandidate    # action a = (tactic, args)
     reward: float              # shaped per-edge reward r'  (r_term + γΦ(s')−Φ(s))
     children_value: float      # AND-combined backup value of the edge's subgoals (bootstrap)
-    value_target: float        # AND-OR backup value of s  (critic regression target)
+    value_target: Optional[float]  # unique parent-state critic target, if known
     return_: float             # reward + γ·children_value  (actor target return)
     edge_id: int = -1          # source hyperedge — the on-policy join key to EdgeAction
 
 
-def _and_combine(values: list[float], cfg: HarvestConfig) -> float:
+def _and_combine(values: list[BackupValue], cfg: HarvestConfig) -> BackupValue:
     if not values:
-        return 1.0  # no subgoals ⇒ branch closed (QED)
+        return BackupValue(1.0, True)  # Lean-confirmed childless edge
+    # A single known failed obligation proves an AND-edge cannot succeed.
+    if any(v.known and v.value == 0.0 for v in values):
+        return BackupValue(0.0, True)
+    if not all(v.known for v in values):
+        return BackupValue(None, False)
     if cfg.and_combine == "min":
-        return min(values)
+        return BackupValue(min(v.value for v in values), True)
     product = 1.0
     for v in values:
-        product *= v
-    return product
+        product *= v.value
+    return BackupValue(product, True)
 
 
 def backup_values(
     graph: ProofHypergraph,
     cfg: HarvestConfig | None = None,
-) -> dict[int, float]:
+) -> dict[int, BackupValue]:
     """Compute the AND-OR value backup for every node (memoized, cycle-safe)."""
     cfg = cfg or HarvestConfig()
-    memo: dict[int, float] = {}
+    memo: dict[int, BackupValue] = {}
     in_progress: set[int] = set()
 
-    def value(node_id: int) -> float:
+    def value(node_id: int) -> BackupValue:
         if node_id in memo:
             return memo[node_id]
         if node_id in in_progress:
             # Cycle (a subgoal identical to an ancestor): treat as unresolved.
-            return cfg.unresolved_leaf_value
+            return BackupValue(None, False)
         node = graph.nodes[node_id]
         if node.status == NodeStatus.SOLVED:
-            memo[node_id] = 1.0
-            return 1.0
+            memo[node_id] = BackupValue(1.0, True)
+            return memo[node_id]
         if node.status == NodeStatus.DEAD:
-            memo[node_id] = 0.0
-            return 0.0
+            memo[node_id] = BackupValue(0.0, True)
+            return memo[node_id]
 
         in_progress.add(node_id)
-        edge_values: list[float] = []
+        edge_values: list[BackupValue] = []
         for edge_id in node.outgoing_edge_ids:
             edge = graph.edges[edge_id]
             if edge.status == EdgeStatus.DEAD:
-                edge_values.append(0.0)
+                edge_values.append(BackupValue(0.0, True))
                 continue
             child_values = [value(cid) for cid in edge.child_ids]
             edge_values.append(_and_combine(child_values, cfg))
         in_progress.discard(node_id)
 
-        # OR over tactics; an unexpanded interior node (no edges) is unresolved.
-        val = max(edge_values) if edge_values else cfg.unresolved_leaf_value
+        # OR: any Lean-confirmed solution proves success.  A zero is valid only
+        # after the node's local candidate policy was fully exhausted.
+        if any(v.known and v.value == 1.0 for v in edge_values):
+            val = BackupValue(1.0, True)
+        elif node.exhausted and edge_values and all(v.known and v.value == 0.0 for v in edge_values):
+            val = BackupValue(0.0, True)
+        elif node.exhausted and not edge_values:
+            val = BackupValue(0.0, True)
+        else:
+            val = BackupValue(None, False)
         memo[node_id] = val
         return val
 
@@ -121,13 +146,22 @@ def extract_transitions(
 
     chosen = edge_ids if edge_ids is not None else list(graph.edges.keys())
     transitions: list[HarvestedTransition] = []
+    critic_harvested: set[int] = set()
     for edge_id in chosen:
         edge = graph.edges[edge_id]
         parent = graph.nodes[edge.source_id]
         reward = edge_shaped_reward(edge, graph, reward_cfg)
-        child_values = [values[cid] for cid in edge.child_ids]
-        children_value = _and_combine(child_values, harvest_cfg)
+        children = _and_combine([values[cid] for cid in edge.child_ids], harvest_cfg)
+        # A policy-gradient return depending on unknown evidence is omitted.
+        if not children.known:
+            continue
+        children_value = children.value
         return_ = reward + reward_cfg.gamma * children_value
+        parent_value = values[parent.id]
+        value_target = None
+        if parent_value.known and parent.id not in critic_harvested:
+            value_target = parent_value.value
+            critic_harvested.add(parent.id)
         transitions.append(
             HarvestedTransition(
                 node_id=parent.id,
@@ -135,7 +169,7 @@ def extract_transitions(
                 tactic=edge.tactic,
                 reward=reward,
                 children_value=children_value,
-                value_target=values[parent.id],
+                value_target=value_target,
                 return_=return_,
                 edge_id=edge_id,
             )

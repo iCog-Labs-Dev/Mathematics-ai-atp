@@ -157,6 +157,7 @@ def compute_transition_loss(
     action_ids: list[int] = []
     returns: list[float] = []
     value_targets: list[float] = []
+    critic_rows: list[int] = []
     for t in transitions:
         tid = tactic_to_id.get(t.tactic.tactic_name)
         if tid is None:
@@ -164,7 +165,9 @@ def compute_transition_loss(
         datas.append(featurize(t.goal))
         action_ids.append(tid)
         returns.append(t.return_)
-        value_targets.append(t.value_target)
+        if t.value_target is not None:
+            critic_rows.append(len(datas) - 1)
+            value_targets.append(t.value_target)
 
     if not datas:
         return None
@@ -179,7 +182,6 @@ def compute_transition_loss(
 
     actions = torch.tensor(action_ids, dtype=torch.long, device=device)
     returns_t = torch.tensor(returns, dtype=torch.float32, device=device)
-    value_targets_t = torch.tensor(value_targets, dtype=torch.float32, device=device)
     value_pred = values.squeeze(-1)
 
     # Advantage: AND-OR-backed return minus the critic baseline (detached), normalized.
@@ -190,7 +192,13 @@ def compute_transition_loss(
     selected_logp = log_probs.gather(1, actions.unsqueeze(1)).squeeze(1)
     actor_loss = -(selected_logp * advantages).mean()
 
-    critic_loss = compute_critic_loss(values, value_targets_t)
+    if critic_rows:
+        value_targets_t = torch.tensor(value_targets, dtype=torch.float32, device=device)
+        critic_loss = compute_critic_loss(values[critic_rows], value_targets_t)
+        mean_value_target = float(value_targets_t.mean().item())
+    else:
+        critic_loss = values.sum() * 0.0
+        mean_value_target = 0.0
     entropy = compute_entropy_bonus(tactic_logits)
 
     total = actor_loss + critic_weight * critic_loss - entropy_weight * entropy
@@ -209,7 +217,7 @@ def compute_transition_loss(
         "bc_loss": bc_val,
         "total_loss": float(total.item()),
         "mean_return": float(returns_t.mean().item()),
-        "mean_value_target": float(value_targets_t.mean().item()),
+        "mean_value_target": mean_value_target,
         "num_transitions": float(len(datas)),
         "update_node_count": float(node_count),
         "update_edge_count": float(edge_count),
@@ -258,7 +266,8 @@ def compute_onpolicy_loss(
     multiplicities: list[float] = []
     returns: list[float] = []
     is_success: list[bool] = []
-    value_targets: list[float] = []  # aligned with success rows only
+    value_targets: list[float] = []
+    critic_rows: list[int] = []
 
     for t in transitions:
         action = edge_actions.get(t.edge_id)
@@ -270,7 +279,9 @@ def compute_onpolicy_loss(
         multiplicities.append(float(action.multiplicity))
         returns.append(t.return_)
         is_success.append(True)
-        value_targets.append(t.value_target)
+        if t.value_target is not None:
+            critic_rows.append(len(datas) - 1)
+            value_targets.append(t.value_target)
 
     failure_return = reward_cfg.terminal_failure - reward_cfg.step_penalty
     for f in failures:
@@ -320,9 +331,9 @@ def compute_onpolicy_loss(
 
     # Critic: regress the AND-OR backup on success rows only (a failed ACTION says
     # nothing about the STATE's value).
-    if success_t.any():
+    if critic_rows:
         value_targets_t = torch.tensor(value_targets, dtype=torch.float32, device=device)
-        critic_loss = compute_critic_loss(values[success_t].unsqueeze(-1), value_targets_t)
+        critic_loss = compute_critic_loss(values[critic_rows], value_targets_t)
     else:
         critic_loss = values.sum() * 0.0
 
