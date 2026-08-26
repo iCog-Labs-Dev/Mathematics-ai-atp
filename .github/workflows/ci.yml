@@ -3,28 +3,30 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true    
+  cancel-in-progress: true
 
 permissions:
-  contents: read 
+  contents: read
 
 jobs:
   test:
-    runs-on: ubuntu-latest 
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code # checking out the ubuntu machine is empty 
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11  
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-   
-      - name: Install uv 
+
+      - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
@@ -41,9 +43,25 @@ jobs:
           lake --version
 
       - name: Install dependencies
-        run: uv sync --no-dev 
-        
-      - name: Install project 
-        run: uv pip install -e . --no-deps 
+        run: uv sync --no-dev
+
+      - name: Install project
+        run: uv pip install -e . --no-deps
+
       - name: Run tests
-        run: uv run pytest maths_ai -v --tb=short
+             - name: Run tests
+        run: uv run pytest maths_ai/gnn_inference/tests maths_ai/pln_inference/metta/tests -v --tb=short
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t maths-ai:test .
+
+      - name: Test Docker image
+        run: docker run --rm maths-ai:test

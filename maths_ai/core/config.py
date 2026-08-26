@@ -39,21 +39,46 @@ DTS_STATE_DIR = ROOT_DIR / "dts_state"
 DTS_STATE_FILE = DTS_STATE_DIR / "thompson_sampler_state.json"
 DTS_DEFAULT_C = 100.0
 DTS_DEFAULT_SEED = None
+
+def _path_from_env(name: str, default: Path) -> Path:
+    """Return a path from an environment variable or use the default."""
+    value = os.getenv(name)
+    return Path(value) if value else default
+
 @dataclass(frozen=True)
 class Settings:
-    # app_name: str = "APP_NAME"
-    # version: str = APP_VERSION
-    # env: str = ENV
-    # debug: bool = DEBUG
-
     root_dir: Path = ROOT_DIR
     data_dir: Path = DATA_DIR
     models_dir: Path = MODELS_DIR
     logs_dir: Path = LOGS_DIR
     proof_depth: int = 20
+
+    # Inference model configuration.
+    argument_selection_run: Path = _path_from_env(
+        "MATHS_AI_ARGUMENT_SELECTION_RUN",
+        ROOT_DIR / "gnn_inference" / "runs" / "pointer_gnn" / "best_run",
+    )
+
+    premise_selection_run: Path = _path_from_env(
+        "MATHS_AI_PREMISE_SELECTION_RUN",
+        ROOT_DIR / "gnn_inference" / "runs" / "premise_gnn" / "best_run",
+    )
+
+    # Inference corpus configuration.
+    lemma_index_path: Path = _path_from_env(
+        "MATHS_AI_LEMMA_INDEX",
+        ROOT_DIR / "gnn_inference" / "runs" / "lemma_index_v1",
+    )
+
+    lemma_corpus_path: Path = _path_from_env(
+        "MATHS_AI_LEMMA_CORPUS",
+        ROOT_DIR / "gnn_inference" / "runs" / "lemma_corpus_v1" / "lemmas.jsonl",
+    )
+
     dts_state_dir: Path = DTS_STATE_DIR
     dts_state_file: Path = DTS_STATE_FILE
     dts_default_c: float = DTS_DEFAULT_C
     dts_default_seed: int = DTS_DEFAULT_SEED
+
 
 settings = Settings()

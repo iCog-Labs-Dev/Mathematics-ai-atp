@@ -518,8 +518,8 @@ async def main(
             hybrid_reasoner.dts_sampler.save_to(str(dts_state_output))
         server._close()
 if __name__ == "__main__":
-    _argument_selection_run = settings.root_dir / "gnn_inference" / "runs" / "pointer_gnn" / "best_run"
-    _premise_selection_run = settings.root_dir / "gnn_inference" / "runs" / "premise_gnn" / "best_run"
+    _argument_selection_run = settings.argument_selection_run
+    _premise_selection_run = settings.premise_selection_run
     _depth_limit = settings.proof_depth
     args_parser = argparse.ArgumentParser()
     args_parser.add_argument("--goal_statement", type=str, default="forall (p q: Prop), Or p q -> Or q p")
@@ -567,8 +567,8 @@ if __name__ == "__main__":
         config_path=_argument_selection_run / "config.json",
         tactic_model_path=_argument_selection_run / "best.pt",
         argument_model_path=_premise_selection_run / "best.pt",
-        index_path=settings.root_dir / "gnn_inference" / "runs" / "lemma_index_v1",
-        corpus_path=settings.root_dir / "gnn_inference" / "runs" / "lemma_corpus_v1" / "lemmas.jsonl",
+        index_path=settings.lemma_index_path,
+        corpus_path=settings.lemma_corpus_path,
         goal_statement=args.goal_statement,
         hypotheses=args.hypotheses.split(",") if args.hypotheses else None,
         depth_limit=_depth_limit,
