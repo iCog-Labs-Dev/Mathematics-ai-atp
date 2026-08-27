@@ -199,6 +199,22 @@ class ActorCriticTests(unittest.TestCase):
         # mean_advantage reports the RAW (pre-normalization) advantage, here ~0.
         self.assertAlmostEqual(metrics["mean_advantage"], 0.0, places=5)
 
+    def test_advantage_normalization_singleton_batch_is_finite(self) -> None:
+        tactic_logits = torch.randn(1, 5)
+        value_estimates = torch.tensor([[0.5]], dtype=torch.float32)
+        returns = torch.tensor([0.0], dtype=torch.float32)
+        total, metrics = compute_actor_critic_combined_loss(
+            tactic_logits=tactic_logits,
+            value_estimates=value_estimates,
+            arg_logits_list=[],
+            actions=torch.tensor([1], dtype=torch.long),
+            returns=returns,
+            selected_arg_indices=[],
+            success_mask=torch.zeros(1, dtype=torch.bool),
+        )
+        self.assertTrue(torch.isfinite(total))
+        self.assertTrue(all(torch.isfinite(torch.tensor(value)) for value in metrics.values()))
+
     def test_gradient_flow_and_advantage_detached(self) -> None:
         batch, vocab = self._build_tiny_batch()
         model = actor_critic(len(vocab), 5)

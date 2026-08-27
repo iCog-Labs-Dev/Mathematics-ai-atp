@@ -120,9 +120,11 @@ def compute_actor_critic_combined_loss(
     # Raw advantage (detached — a fixed credit weight, not a differentiable function).
     raw_advantages = returns - value_estimates.squeeze(-1).detach()
     # Normalize per batch for the actor only, to bound policy-gradient variance. The
-    # critic still regresses the unnormalized returns below. The +1e-8 guards the
-    # zero-variance / single-example case.
-    advantages = (raw_advantages - raw_advantages.mean()) / (raw_advantages.std() + 1e-8)
+    # critic still regresses the unnormalized returns below. Use the population
+    # standard deviation so singleton batches have a defined zero variance.
+    advantages = (
+        raw_advantages - raw_advantages.mean()
+    ) / (raw_advantages.std(unbiased=False) + 1e-8)
 
     actor_loss = compute_actor_loss(tactic_logits, actions, advantages)
     critic_loss = compute_critic_loss(value_estimates, returns)
