@@ -1,4 +1,4 @@
-"""Convert audited version-1 GNN checkpoints to the version-2 manifest format."""
+"""Convert audited legacy GNN checkpoints to the version-3 manifest format."""
 
 from __future__ import annotations
 
@@ -18,13 +18,18 @@ if __package__ in {None, ""}:
     if repo_root_str not in sys.path:
         sys.path.insert(0, repo_root_str)
 
-from maths_ai.gnn_inference.atp_lean_gnn.checkpointing import checkpoint_payload
+from maths_ai.gnn_inference.atp_lean_gnn.checkpointing import (
+    checkpoint_payload,
+    vocabulary_fingerprint,
+)
 from maths_ai.gnn_inference.atp_lean_gnn.model_factory import (
     build_actor_critic_model,
     build_pointer_model,
     build_supervised_tactic_model,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.model_spec import ModelSpec
+from maths_ai.gnn_inference.atp_lean_gnn.graph_contract import GraphRepresentationSpec
+from maths_ai.gnn_inference.atp_lean_gnn.training import load_prepared_metadata
 
 
 LAYOUT_MODEL_KINDS = {
@@ -65,7 +70,7 @@ def _load_vocab(path: Path) -> dict[str, int]:
 def _model_spec_from_legacy_config(
     config: Mapping[str, object],
     *,
-    layout: str,
+    layout: str | None,
 ) -> ModelSpec:
     raw_model = config.get("model", {})
     if not isinstance(raw_model, Mapping):
@@ -237,13 +242,59 @@ def migrate_checkpoint(
     layout: str,
     node_vocab: Mapping[str, int],
     tactic_vocab: Mapping[str, int],
+    graph_representation: GraphRepresentationSpec,
 ) -> dict[str, object]:
-    if "manifest" in checkpoint:
-        raise ValueError("Checkpoint already contains a manifest; migration is not required.")
+    manifest = checkpoint.get("manifest")
+    if isinstance(manifest, Mapping):
+        version = int(manifest.get("checkpoint_format_version", -1))
+        if version == 3:
+            raise ValueError("Checkpoint already uses version 3; migration is not required.")
+        if version != 2:
+            raise ValueError(f"Unsupported source checkpoint format version {version}.")
+        model_kind = str(manifest.get("model_kind", ""))
+        if model_kind not in MODEL_BUILDERS:
+            raise ValueError(f"Unknown checkpoint model kind '{model_kind}'.")
+        model_spec_payload = manifest.get("model_spec")
+        if not isinstance(model_spec_payload, Mapping):
+            raise ValueError("Version-2 checkpoint manifest is missing 'model_spec'.")
+        model_spec = ModelSpec.from_dict(model_spec_payload)
+        if manifest.get("node_vocab_fingerprint") != vocabulary_fingerprint(node_vocab):
+            raise ValueError("Version-2 checkpoint node vocabulary does not match prepared metadata.")
+        if manifest.get("tactic_vocab_fingerprint") != vocabulary_fingerprint(tactic_vocab):
+            raise ValueError("Version-2 checkpoint tactic vocabulary does not match prepared metadata.")
+        model = MODEL_BUILDERS[model_kind](
+            model_spec=model_spec,
+            num_node_labels=len(node_vocab),
+            num_tactics=len(tactic_vocab),
+        )
+        state_dict = checkpoint.get("model_state_dict")
+        if not isinstance(state_dict, Mapping):
+            raise ValueError("Version-2 checkpoint is missing 'model_state_dict'.")
+        model.load_state_dict(state_dict, strict=True)
+        retained_state = {
+            str(key): value
+            for key, value in checkpoint.items()
+            if key not in {"manifest", "model_state_dict", "migration"}
+        }
+        return checkpoint_payload(
+            model_kind=model_kind,
+            model_spec=model_spec,
+            node_vocab=node_vocab,
+            tactic_vocab=tactic_vocab,
+            model=model,
+            graph_representation=graph_representation,
+            **retained_state,
+            migration={
+                "source_format_version": 2,
+                "graph_representation_source": "validated prepared metadata",
+            },
+        )
     state_dict = checkpoint.get("model_state_dict")
     if not isinstance(state_dict, Mapping):
         raise ValueError("Legacy checkpoint is missing 'model_state_dict'.")
 
+    if layout is None:
+        raise ValueError("Manifest-free checkpoints require --layout.")
     model_kind = LAYOUT_MODEL_KINDS.get(layout)
     if model_kind is None:
         raise ValueError(f"Unsupported legacy checkpoint layout '{layout}'.")
@@ -280,6 +331,7 @@ def migrate_checkpoint(
         node_vocab=node_vocab,
         tactic_vocab=tactic_vocab,
         model=model,
+        graph_representation=graph_representation,
         **retained_state,
         migration={
             "source_format_version": 1,
@@ -293,33 +345,20 @@ def migrate_checkpoint(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Migrate an audited version-1 model checkpoint to version 2."
+        description="Migrate an audited legacy model checkpoint to version 3."
     )
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--prepared-root", type=Path)
-    parser.add_argument("--node-vocab", type=Path)
-    parser.add_argument("--tactic-vocab", type=Path)
+    parser.add_argument("--prepared-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--layout", choices=sorted(LAYOUT_MODEL_KINDS), required=True)
+    parser.add_argument("--layout", choices=sorted(LAYOUT_MODEL_KINDS))
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
     config = _read_json(args.config)
-    prepared_root = args.prepared_root
-    if prepared_root is None and "prepared_root" in config:
-        prepared_root = Path(str(config["prepared_root"]))
-    node_vocab_path = args.node_vocab
-    tactic_vocab_path = args.tactic_vocab
-    if prepared_root is not None:
-        node_vocab_path = node_vocab_path or prepared_root / "vocab" / "node_vocab.json"
-        tactic_vocab_path = tactic_vocab_path or prepared_root / "vocab" / "tactic_vocab.json"
-    if node_vocab_path is None or tactic_vocab_path is None:
-        raise ValueError(
-            "Provide --prepared-root or both --node-vocab and --tactic-vocab."
-        )
+    metadata = load_prepared_metadata(args.prepared_root)
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     if not isinstance(checkpoint, Mapping):
@@ -328,12 +367,13 @@ def main(argv: list[str] | None = None) -> int:
         checkpoint=checkpoint,
         legacy_config=config,
         layout=args.layout,
-        node_vocab=_load_vocab(node_vocab_path),
-        tactic_vocab=_load_vocab(tactic_vocab_path),
+        node_vocab=metadata.node_vocab,
+        tactic_vocab=metadata.tactic_vocab,
+        graph_representation=metadata.graph_representation,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     torch.save(migrated, args.output)
-    print(f"Wrote version-2 checkpoint to {args.output}")
+    print(f"Wrote version-3 checkpoint to {args.output}")
     return 0
 
 

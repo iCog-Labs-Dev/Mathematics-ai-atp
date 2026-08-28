@@ -6,6 +6,8 @@ from maths_ai.gnn_inference.atp_lean_gnn.lemma_index import LemmaIndex
 from maths_ai.gnn_inference.atp_lean_gnn.argument_selector import TacticWithArgsClassifier
 from maths_ai.gnn_inference.atp_lean_gnn.actor_critic import ActorCriticWithArgsClassifier
 from maths_ai.gnn_inference.atp_lean_gnn.lemma_corpus import LemmaRecord
+from maths_ai.hybrid_reasoner.pantograph_env import PantographEnv
+from maths_ai.hybrid_reasoner.pantograph_model_sexpr import create_model_sexpr_server
 
 
 class GNNPredictor:
@@ -20,7 +22,7 @@ class GNNPredictor:
         k: int = 500,
         lemma_corpus: dict[int, LemmaRecord] | None = None,
         *,
-        pantograph_project_path: str = "maths_ai/lean_mathlib",
+        pantograph_env: PantographEnv,
     ):
         self.tactic_model = tactic_model
         self.argument_model = argument_model
@@ -36,15 +38,7 @@ class GNNPredictor:
         )
         self.device = device
 
-        # Initialize Pantograph server for S-expression extraction
-        from maths_ai.gnn_inference.atp_lean_gnn.graph import patch_pantograph_for_sexp
-        from pantograph.server import Server
-        patch_pantograph_for_sexp()
-        self._pantograph_server = Server.create(
-            project_path=pantograph_project_path,
-            imports=["Init"],
-            options={"printExprAST": True},
-        )
+        self.pantograph_env = pantograph_env
 
     @torch.no_grad()
     def predict_tactics_with_arguments(self, goal_expression: str, top_k: int = 3):
@@ -60,21 +54,16 @@ class GNNPredictor:
         import asyncio
         
         async def _predict():
-            server = await self._pantograph_server
-            goal = await server.goal_start_async(goal_expression)
-            result = self.pipeline.predict_from_goal_state(goal, top_k=top_k)
-            return result.top_tactic_predictions
+            server = await create_model_sexpr_server(self.pantograph_env)
+            try:
+                goal = await server.goal_start_async(goal_expression)
+                goal = await server.goal_tactic_async(goal, "skip")
+                result = self.pipeline.predict_from_goal_state(goal, top_k=top_k)
+                return result.top_tactic_predictions
+            finally:
+                server._close()
         
         return asyncio.run(_predict())
 
     def close(self):
-        """Clean up Pantograph server."""
-        import asyncio
-        if hasattr(self, '_pantograph_server'):
-            async def _close():
-                try:
-                    server = await self._pantograph_server
-                    server._close()
-                except RuntimeError:
-                    pass  # Already awaited/closed
-            asyncio.run(_close())
+        """Compatibility no-op; prediction sessions close after each request."""

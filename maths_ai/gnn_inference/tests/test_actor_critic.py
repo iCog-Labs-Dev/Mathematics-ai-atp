@@ -32,6 +32,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.reward import MockRewardSource
 from maths_ai.gnn_inference.atp_lean_gnn.argument_selector import TacticWithArgsClassifier
 from maths_ai.gnn_inference.tests.model_helpers import actor_critic, pointer
 from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
+from maths_ai.gnn_inference.atp_lean_gnn.graph_contract import MODEL_SEXPR_GRAPH_SPEC
 
 
 class ActorCriticTests(unittest.TestCase):
@@ -326,6 +327,7 @@ class ActorCriticTests(unittest.TestCase):
                     node_vocab=vocab,
                     tactic_vocab=tactic_vocab,
                     model=model_ptr,
+                    graph_representation=MODEL_SEXPR_GRAPH_SPEC,
                 ),
                 ckpt_path,
             )
@@ -338,6 +340,7 @@ class ActorCriticTests(unittest.TestCase):
                 torch.device("cpu"),
                 node_vocab=vocab,
                 tactic_vocab=tactic_vocab,
+                graph_representation=MODEL_SEXPR_GRAPH_SPEC,
             )
 
             self.assertTrue(torch.allclose(
@@ -366,6 +369,7 @@ class ActorCriticTests(unittest.TestCase):
                     node_vocab=vocab,
                     tactic_vocab=tactic_vocab,
                     model=model_ptr,
+                    graph_representation=MODEL_SEXPR_GRAPH_SPEC,
                 ),
                 ckpt_path,
             )
@@ -379,6 +383,7 @@ class ActorCriticTests(unittest.TestCase):
                     torch.device("cpu"),
                     node_vocab=vocab,
                     tactic_vocab=tactic_vocab,
+                    graph_representation=MODEL_SEXPR_GRAPH_SPEC,
                 )
 
     def test_mock_reward_source(self) -> None:

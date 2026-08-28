@@ -68,15 +68,8 @@ class EdgeStatus:
 
 
 def _state_key(goal: Goal) -> str:
-    """Concrete (non-normalized) fingerprint used for cycle detection.
-
-    Mirrors the translator's "exact cache" recommendation: compare
-    rendered/concrete formulas (not alpha-normalized ones), because
-    structurally-identical states with different concrete names are
-    different proof obligations and must not collapse together.
-    """
-    hyps = "||".join(sorted(h.strip() for h in goal.hypotheses))
-    return f"{goal.expression.strip()}::{hyps}"
+    """Stable identity including the normalized target and ordered local context."""
+    return goal.state_fingerprint()
 
 
 @dataclass

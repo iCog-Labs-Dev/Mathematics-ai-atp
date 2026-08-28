@@ -84,6 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         ckpt,
         node_vocab=metadata.node_vocab,
         tactic_vocab=metadata.tactic_vocab,
+        graph_representation=metadata.graph_representation,
         expected_model_kind="tactic_with_args",
     )
     lemma_index.validate_encoder_fingerprint(str(checkpoint_manifest["encoder_fingerprint"]))

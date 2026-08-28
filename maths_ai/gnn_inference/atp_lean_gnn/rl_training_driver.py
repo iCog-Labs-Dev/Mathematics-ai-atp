@@ -24,17 +24,20 @@ from typing import Any, Optional
 import torch
 from torch.optim import AdamW
 
-from maths_ai.data_models.proof_components import Goal
+from maths_ai.data_models.proof_components import LeanGoalSeed
 from maths_ai.hybrid_reasoner.pantograph_env import PantographEnv
+from maths_ai.hybrid_reasoner.pantograph_model_sexpr import create_model_sexpr_server
 
 from .actor_critic import ActorCriticWithArgsClassifier
 from .checkpointing import build_model_from_checkpoint, checkpoint_payload
+from .graph_contract import GraphRepresentationSpec, require_graph_representation
 from .dataset import iter_dataset_rows
 from .pln_reward import RewardConfig
 from .pln_rl_training import make_dag_featurizer, train_step_onpolicy
 from .reporting import console_print
 from .rl_reasoner import RLHybridReasoner, RLSearchResult
 from .state import parse_state
+from .training import load_prepared_metadata
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +49,7 @@ from .state import parse_state
 class RLTrainingConfig:
     """Configuration for the RL training driver (flat JSON, ``from_json`` below).
 
-    ``warmstart_checkpoint`` is a version-2, self-describing supervised
+    ``warmstart_checkpoint`` is a version-3, self-describing supervised
     actor-critic checkpoint. Its manifest owns the encoder architecture.
     """
 
@@ -131,6 +134,8 @@ class RLTrainingConfig:
             payload = json.load(f)
         kwargs: dict[str, Any] = {}
         for key, value in payload.items():
+            if key == "graph_representation":
+                continue
             if key in cls._PATH_FIELDS and value is not None:
                 kwargs[key] = Path(value)
             else:
@@ -185,7 +190,7 @@ def pantograph_env(cfg: RLTrainingConfig) -> PantographEnv:
 
 @dataclass
 class TheoremItem:
-    goal: Goal
+    goal: LeanGoalSeed
     tactic_label: str  # ground-truth tactic from the dataset row ("" in file mode)
     size: int
 
@@ -197,19 +202,17 @@ class TheoremItem:
 _METAVARIABLE_RE = re.compile(r"\?m\.\d+|\?[a-zA-Z_][a-zA-Z0-9_]*\b")
 
 
-def _has_metavariable(goal: Goal) -> bool:
+def _has_metavariable(goal: LeanGoalSeed) -> bool:
     """True when the goal or any hypothesis mentions an unassigned metavariable."""
     if _METAVARIABLE_RE.search(goal.expression):
         return True
     return any(_METAVARIABLE_RE.search(hypothesis) for hypothesis in goal.hypotheses)
 
 
-def _row_state_to_goal(state_str: str) -> Goal:
-    """Dataset row's pretty-printed state → ``Goal`` via the SAME parser the
-    featurizer uses (``parse_state``), so pool goals and rollout goals agree on
-    hypothesis splitting."""
+def _row_state_to_goal(state_str: str) -> LeanGoalSeed:
+    """Convert one dataset proof-state string into an unelaborated theorem seed."""
     parsed = parse_state(state_str)
-    return Goal(
+    return LeanGoalSeed(
         expression=parsed.goal,
         hypotheses=[f"{h.name} : {h.type_expr}" for h in parsed.hypotheses],
     )
@@ -262,7 +265,9 @@ def build_theorem_pool(cfg: RLTrainingConfig) -> TheoremPool:
                 if not line:
                     continue
                 row = json.loads(line)
-                goal = Goal(expression=row["goal"], hypotheses=row.get("hypotheses", []))
+                goal = LeanGoalSeed(
+                    expression=row["goal"], hypotheses=row.get("hypotheses", [])
+                )
                 size = len(goal.expression) + sum(len(h) for h in goal.hypotheses)
                 if size > cfg.max_state_chars:
                     dropped += 1
@@ -387,6 +392,7 @@ def save_checkpoint(
     anneal_rounds_done: int = 0,
     node_vocab: dict[str, int],
     tactic_vocab: dict[str, int],
+    graph_representation: GraphRepresentationSpec,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
@@ -396,6 +402,7 @@ def save_checkpoint(
             node_vocab=node_vocab,
             tactic_vocab=tactic_vocab,
             model=model,
+            graph_representation=graph_representation,
             optimizer_state_dict=optimizer.state_dict(),
             round=round_idx,
             curriculum_size=curriculum_size,
@@ -456,19 +463,6 @@ def _resolve_device(device: str) -> torch.device:
     return torch.device(device)
 
 
-def _load_vocabs(prepared_root: Path) -> tuple[dict[str, int], dict[str, int]]:
-    node_vocab_path = prepared_root / "vocab" / "node_vocab.json"
-    tactic_vocab_path = prepared_root / "vocab" / "tactic_vocab.json"
-    for p in (node_vocab_path, tactic_vocab_path):
-        if not p.exists():
-            raise FileNotFoundError(f"Missing vocab file: {p}")
-    with open(node_vocab_path) as f:
-        node_vocab = {str(k): int(v) for k, v in json.load(f).items()}
-    with open(tactic_vocab_path) as f:
-        tactic_vocab = {str(k): int(v) for k, v in json.load(f).items()}
-    return node_vocab, tactic_vocab
-
-
 def _create_run_dir(run_root: Path) -> Path:
     run_root.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -489,7 +483,7 @@ async def _create_live_reasoner(
     """Create the live search reasoner from the complete RL search config."""
     from maths_ai.hybrid_reasoner.joint_inference import PantographExecutor
 
-    server = await env.create_server()
+    server = await create_model_sexpr_server(env)
     return RLHybridReasoner(
         model=model,
         node_vocab=node_vocab,
@@ -518,7 +512,9 @@ async def run_rl_training(
     both default to the live Pantograph path and the configured data source.
     """
     device = _resolve_device(cfg.device)
-    node_vocab, tactic_vocab = _load_vocabs(cfg.prepared_root)
+    metadata = load_prepared_metadata(cfg.prepared_root)
+    require_graph_representation(metadata.graph_representation)
+    node_vocab, tactic_vocab = metadata.node_vocab, metadata.tactic_vocab
 
     # The checkpoint manifest owns the complete actor-critic architecture.
     checkpoint = torch.load(cfg.warmstart_checkpoint, map_location=device, weights_only=False)
@@ -526,6 +522,7 @@ async def run_rl_training(
         checkpoint,
         node_vocab=node_vocab,
         tactic_vocab=tactic_vocab,
+        graph_representation=metadata.graph_representation,
         expected_model_kind="actor_critic_with_args",
     )
     model = model.to(device)
@@ -548,6 +545,7 @@ async def run_rl_training(
             state,
             node_vocab=node_vocab,
             tactic_vocab=tactic_vocab,
+            graph_representation=metadata.graph_representation,
             expected_model_kind="actor_critic_with_args",
         )
         if resumed_spec != warmstart_spec:
@@ -564,7 +562,9 @@ async def run_rl_training(
     else:
         run_dir = _create_run_dir(cfg.run_root)
         with open(run_dir / "config.json", "w") as f:
-            json.dump(cfg.to_dict(), f, indent=2)
+            run_config = cfg.to_dict()
+            run_config["graph_representation"] = metadata.graph_representation.to_dict()
+            json.dump(run_config, f, indent=2)
     metrics_path = run_dir / "metrics.jsonl"
     console_print(f"Run dir: {run_dir}")
 
@@ -644,6 +644,10 @@ async def run_rl_training(
                 "num_transitions": 0.0,
                 "num_critic_samples": 0.0,
                 "num_failures": 0.0,
+                "unknown_label_count": 0.0,
+                "structural_unknown_label_count": 0.0,
+                "semantic_unknown_label_count": 0.0,
+                "total_label_count": 0.0,
                 "optimizer_step": 0.0,
             }
 
@@ -707,6 +711,7 @@ async def run_rl_training(
                 model, optimizer, round_idx, pool.curriculum_size, best_proof_rate,
                 run_dir / "last.pt", anneal_rounds_done=anneal_rounds_done,
                 node_vocab=node_vocab, tactic_vocab=tactic_vocab,
+                graph_representation=metadata.graph_representation,
             )
 
         if cfg.eval_every > 0 and (round_idx + 1) % cfg.eval_every == 0 and pool.eval_items:
@@ -722,6 +727,7 @@ async def run_rl_training(
                     model, optimizer, round_idx, pool.curriculum_size, best_proof_rate,
                     run_dir / "best.pt", anneal_rounds_done=anneal_rounds_done,
                     node_vocab=node_vocab, tactic_vocab=tactic_vocab,
+                    graph_representation=metadata.graph_representation,
                 )
                 console_print(f"  New best proof rate {best_proof_rate:.3f} → best.pt")
 
@@ -730,6 +736,7 @@ async def run_rl_training(
         model, optimizer, cfg.num_rounds - 1, pool.curriculum_size, best_proof_rate,
         run_dir / "last.pt", anneal_rounds_done=anneal_rounds_done,
         node_vocab=node_vocab, tactic_vocab=tactic_vocab,
+        graph_representation=metadata.graph_representation,
     )
     return last_metrics
 
@@ -787,12 +794,15 @@ def driver_main(argv: list[str] | None = None) -> int:
             console_print(f"Pantograph environment: {env.describe()}")
 
             device = _resolve_device(cfg.device)
-            node_vocab, tactic_vocab = _load_vocabs(cfg.prepared_root)
+            metadata = load_prepared_metadata(cfg.prepared_root)
+            require_graph_representation(metadata.graph_representation)
+            node_vocab, tactic_vocab = metadata.node_vocab, metadata.tactic_vocab
             checkpoint = torch.load(cfg.warmstart_checkpoint, map_location=device, weights_only=False)
             model, _, _ = build_model_from_checkpoint(
                 checkpoint,
                 node_vocab=node_vocab,
                 tactic_vocab=tactic_vocab,
+                graph_representation=metadata.graph_representation,
                 expected_model_kind="actor_critic_with_args",
             )
             model = model.to(device)

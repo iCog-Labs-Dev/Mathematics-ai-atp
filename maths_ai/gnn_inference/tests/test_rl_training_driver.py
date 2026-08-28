@@ -11,14 +11,14 @@ import torch
 from pantograph.server import ServerError
 from torch.optim import AdamW
 
-from maths_ai.data_models.proof_components import Goal, STV
+from maths_ai.data_models.proof_components import LeanGoalSeed, STV
 from maths_ai.hybrid_reasoner.hypergraph import TacticOutcome
 from maths_ai.pln_inference.model import PLNResult
 
 from maths_ai.gnn_inference.atp_lean_gnn.actor_critic import ActorCriticWithArgsClassifier
 from maths_ai.gnn_inference.atp_lean_gnn.checkpointing import checkpoint_payload
-from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
-from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import goal_to_state
+from maths_ai.gnn_inference.atp_lean_gnn.graph import model_goal_to_dag
+from maths_ai.gnn_inference.atp_lean_gnn.graph_contract import MODEL_SEXPR_GRAPH_SPEC
 from maths_ai.gnn_inference.atp_lean_gnn.pyg import build_vocab
 from maths_ai.gnn_inference.atp_lean_gnn.rl_reasoner import RLHybridReasoner
 from maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver import (
@@ -34,6 +34,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver import (
     run_rl_training,
     save_checkpoint,
 )
+from maths_ai.gnn_inference.tests.model_helpers import pantograph_goal, structured_goal
 
 
 # ---------------------------------------------------------------------------
@@ -42,10 +43,14 @@ from maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver import (
 
 
 class _FakeGoalState:
-    goals: list = []
+    def __init__(self):
+        self.goals = [pantograph_goal(structured_goal(GOAL_EXPR, HYPS))]
 
 
 class _FakeServer:
+    def __init__(self):
+        self.proc = object()
+
     async def goal_start_async(self, expression):
         return _FakeGoalState()
 
@@ -133,14 +138,14 @@ class _DeadServerReasoner:
         return await self._inner.prove(goal, hypotheses=hypotheses, greedy=greedy)
 
 
-TACTIC_VOCAB = {"trivial": 0, "intro": 1, "exact": 2}
+TACTIC_VOCAB = {"trivial": 0, "intro": 1, "exact": 2, "<UNK_TACTIC>": 3}
 GOAL_EXPR = "p → p"
 HYPS = ["p : Prop"]
 
 
 def _build_node_vocab():
-    goal = Goal(expression=GOAL_EXPR, hypotheses=HYPS)
-    return build_vocab([proof_state_to_dag(goal_to_state(goal))])
+    goal = structured_goal(GOAL_EXPR, HYPS)
+    return build_vocab([model_goal_to_dag(goal)])
 
 
 def _make_model(node_vocab):
@@ -164,7 +169,11 @@ def _make_reasoner(model, node_vocab, executor, *, top_k=3):
 
 def _items(n: int) -> list[TheoremItem]:
     return [
-        TheoremItem(goal=Goal(expression=GOAL_EXPR, hypotheses=HYPS), tactic_label="intro", size=10 + i)
+        TheoremItem(
+            goal=LeanGoalSeed(expression=GOAL_EXPR, hypotheses=HYPS),
+            tactic_label="intro",
+            size=10 + i,
+        )
         for i in range(n)
     ]
 
@@ -178,6 +187,17 @@ def _write_config(tmp: Path, **overrides) -> RLTrainingConfig:
         json.dump(node_vocab, f)
     with open(vocab_dir / "tactic_vocab.json", "w") as f:
         json.dump(TACTIC_VOCAB, f)
+    metadata_dir = tmp / "prepared" / "metadata"
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    with open(metadata_dir / "graph_representation.json", "w") as f:
+        json.dump(MODEL_SEXPR_GRAPH_SPEC.to_dict(), f)
+    for split in ("train", "val", "test"):
+        pyg_dir = tmp / "prepared" / split / "pyg"
+        pyg_dir.mkdir(parents=True, exist_ok=True)
+        manifest_dir = tmp / "prepared" / "manifests"
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        with open(manifest_dir / f"{split}.json", "w") as f:
+            json.dump({"artifact_paths": {"pyg_dir": f"{split}/pyg"}}, f)
 
     torch.manual_seed(0)
     model = _make_model(node_vocab)
@@ -189,6 +209,7 @@ def _write_config(tmp: Path, **overrides) -> RLTrainingConfig:
             node_vocab=node_vocab,
             tactic_vocab=TACTIC_VOCAB,
             model=model,
+            graph_representation=MODEL_SEXPR_GRAPH_SPEC,
         ),
         ckpt,
     )
@@ -467,7 +488,7 @@ class DeadRoundTests(unittest.TestCase):
             self.assertEqual([r["bc_weight"] for r in rows], [0.5, 0.5])
             self.assertEqual([r["anneal_rounds_done"] for r in rows], [0, 0])
 
-    def test_unknown_only_results_do_not_advance_the_anneal(self):
+    def test_unelaborated_roots_do_not_advance_the_anneal(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             cfg = _write_config(tmp, num_rounds=2, bc_anneal_rounds=10)
@@ -481,7 +502,8 @@ class DeadRoundTests(unittest.TestCase):
             )
             run_dir = next((tmp / "runs").iterdir())
             rows = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text().splitlines()]
-            self.assertEqual([row["collected"] for row in rows], [2.0, 2.0])
+            self.assertEqual([row["collected"] for row in rows], [0.0, 0.0])
+            self.assertEqual([row["searches_failed"] for row in rows], [2.0, 2.0])
             self.assertEqual([row["optimizer_step"] for row in rows], [0.0, 0.0])
             self.assertEqual([row["anneal_rounds_done"] for row in rows], [0, 0])
 
@@ -660,6 +682,10 @@ class PLNKillSwitchConfigTests(unittest.TestCase):
                 patch(
                     "maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver.pantograph_env",
                     return_value=_EvalEnv(),
+                ),
+                patch(
+                    "maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver.create_model_sexpr_server",
+                    new=lambda env: env.create_server(),
                 ),
                 patch(
                     "maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver.build_theorem_pool",

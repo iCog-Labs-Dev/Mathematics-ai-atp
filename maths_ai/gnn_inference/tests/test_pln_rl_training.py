@@ -5,13 +5,13 @@ import unittest
 import torch
 from torch.optim import AdamW
 
-from maths_ai.data_models.proof_components import Goal, STV, TacticCandidate
+from maths_ai.data_models.proof_components import STV, TacticCandidate
 from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph, NodeStatus
 
-from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
+from maths_ai.gnn_inference.atp_lean_gnn.graph import model_goal_to_dag
 from maths_ai.gnn_inference.atp_lean_gnn.pyg import build_vocab
 from maths_ai.gnn_inference.atp_lean_gnn.actor_critic import ActorCriticWithArgsClassifier
-from maths_ai.gnn_inference.tests.model_helpers import actor_critic
+from maths_ai.gnn_inference.tests.model_helpers import actor_critic, structured_goal
 from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import (
     make_featurizer,
     train_step,
@@ -35,13 +35,16 @@ class PLNRLTrainingTests(unittest.TestCase):
     SUB_B = "n : Nat\n⊢ Odd n"
 
     def _solved_and_graph(self):
-        g = ProofHypergraph(Goal(expression=self.ROOT, hypotheses=[]))
+        root = structured_goal(self.ROOT)
+        sub_a = structured_goal(self.SUB_A)
+        sub_b = structured_goal(self.SUB_B)
+        g = ProofHypergraph(root)
         edge = g.add_edge(
             g.root_id,
             _tac(),
             ranked_subgoals=[
-                (Goal(expression=self.SUB_A, hypotheses=[]), STV(strength=0.6, confidence=1.0)),
-                (Goal(expression=self.SUB_B, hypotheses=[]), STV(strength=0.4, confidence=1.0)),
+                (sub_a, STV(strength=0.6, confidence=1.0)),
+                (sub_b, STV(strength=0.4, confidence=1.0)),
             ],
         )
         a_id, b_id = edge.child_ids
@@ -51,7 +54,7 @@ class PLNRLTrainingTests(unittest.TestCase):
 
     def _setup(self):
         g = self._solved_and_graph()
-        dags = [proof_state_to_dag(s) for s in (self.ROOT, self.SUB_A, self.SUB_B)]
+        dags = [model_goal_to_dag(structured_goal(s)) for s in (self.ROOT, self.SUB_A, self.SUB_B)]
         vocab = build_vocab(dags)
         featurize = make_featurizer(vocab)
         model = actor_critic(len(vocab), 3)

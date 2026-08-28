@@ -28,7 +28,7 @@ pointer best.pt
 matching supervised actor-critic config
             |
             v
-actor-critic best.pt with a version-2 manifest
+actor-critic best.pt with a version-3 manifest and graph contract
             |
             | RL reconstructs the model described by the manifest
             v
@@ -37,12 +37,12 @@ RL best.pt
 
 The RL config does not contain `architecture`, `hidden_dim`, `num_layers`, `dropout`,
 `use_node_type`, `max_args`, `heads`, or `readout`. It also does not accept a source
-directory containing model code. The version-2 warm-start checkpoint is the single
+directory containing model code. The version-3 warm-start checkpoint is the single
 source of truth for the actor encoder and its associated policy components.
 
 This design keeps an RL run reproducible: the checkpoint records the normalized model
-specification, architecture version, vocabulary fingerprints, and a fingerprint of the
-trained encoder weights.
+specification, architecture version, graph-representation contract, vocabulary
+fingerprints, and a fingerprint of the trained encoder weights.
 
 ## 2. Select an architecture and readout
 
@@ -133,10 +133,11 @@ RL. In particular, use the same files at:
 ```text
 <prepared-root>/vocab/node_vocab.json
 <prepared-root>/vocab/tactic_vocab.json
+<prepared-root>/metadata/graph_representation.json
 ```
 
 The integer assignments in these vocabularies determine the rows of the model's
-embedding and classifier tables. Version-2 loaders compare fingerprints of the complete
+embedding and classifier tables. Version-3 loaders compare fingerprints of the complete
 mappings, so equal vocabulary sizes with different assignments are rejected.
 
 The repository may contain the symlink
@@ -155,6 +156,7 @@ maths_ai/gnn_inference/runs/actor_critic_gatv2_state_mean_attention/<run>/best.p
 maths_ai/gnn_inference/artifacts/prepared/v1/
     vocab/node_vocab.json
     vocab/tactic_vocab.json
+    metadata/graph_representation.json
     train/pyg/...
     val/pyg/...
     test/pyg/...
@@ -210,29 +212,31 @@ curl https://elan.lean-lang.org/elan-init.sh -sSf | sh
 source ~/.elan/env
 ```
 
-For goals that use Mathlib notation or declarations, set `source_root` to a compiled
-Lake project containing Mathlib. A server started without `source_root` imports core
-Lean only and cannot elaborate notation such as `ℕ`.
+Live RL requires the pinned model-S-expression Pantograph fork and its matching Mathlib
+environment. Provision both with:
+
+```bash
+uv run python -m maths_ai.gnn_inference.scripts.setup_sexpr_environment
+```
+
+The command prints the exact values for `--source-root` and `--pantograph-repl`. The
+environment pins Lean `v4.10.0-rc1`, Mathlib commit
+`29dcec074de168ac2bf835a77ef68bbe069194c5`, and Pantograph commit
+`73781c2d58456e4bf369dadd4a501e1b78a0b177`.
 
 You may set the environment in `configs/rl_actor_critic.json`:
 
 ```json
 "source_root": "/abs/path/to/mathlib-lake-project",
-"pantograph_repl": null,
+"pantograph_repl": "/abs/path/to/Pantograph/.lake/build/bin/repl",
 "pantograph_imports": null,
 "server_timeout_s": 120
 ```
 
-With `source_root` set and `pantograph_imports` left as `null`, the driver imports
-`Init,Mathlib`. An explicit `pantograph_repl` must use the same Lean toolchain as the
-Lake project. Command-line values override the corresponding config values:
-
-```bash
-uv run python -m maths_ai.gnn_inference.scripts.rl_smoke \
-  --source-root /abs/path/to/mathlib-lake-project
-```
-
-If a custom REPL is required:
+With `pantograph_imports` left as `null`, the driver imports `Init,Mathlib`. Both paths
+are required. Startup requests `printExprModelAST`, patches PyPantograph's narrow parser,
+and runs a live capability probe before loading theorem searches. Command-line values
+override the corresponding config values:
 
 ```bash
 uv run python -m maths_ai.gnn_inference.scripts.rl_smoke \
@@ -337,7 +341,18 @@ RL is the actor-critic run's `best.pt`.
 
 ## 8. Inspect or migrate the checkpoint
 
-All runtime loaders require checkpoint format version 2. Inspect an actor-critic
+All runtime loaders require checkpoint format version 3. Existing normalized
+model-S-expression prepared artifacts must first receive validated representation
+metadata:
+
+```bash
+uv run python -m maths_ai.gnn_inference.scripts.migrate_prepared_graph_contract \
+  --prepared-root maths_ai/gnn_inference/artifacts/prepared/v1 \
+  --target-contract maths_ai/gnn_inference/configs/model_sexpr_graph_contract.json
+```
+
+The command samples cached PyG graphs and requires the four-child structured local
+schema before writing `metadata/graph_representation.json`. Inspect an actor-critic
 checkpoint before starting a long RL run:
 
 ```bash
@@ -346,13 +361,14 @@ uv run python -c "import pprint, torch; checkpoint = torch.load('maths_ai/gnn_in
 
 Confirm that the manifest contains:
 
-- `checkpoint_format_version: 2`;
+- `checkpoint_format_version: 3`;
 - `model_kind: actor_critic_with_args`;
+- `graph_representation` equal to the prepared metadata contract;
 - the expected `model_spec`, including the GATv2 readout when applicable;
 - `node_vocab_fingerprint` and `tactic_vocab_fingerprint`;
 - `encoder_fingerprint`.
 
-Runtime loaders reject version-1 checkpoints and bare state dictionaries. Migrate an
+Runtime loaders reject older checkpoints and bare state dictionaries. Migrate an
 audited GraphSAGE actor-critic checkpoint offline with:
 
 ```bash
@@ -383,9 +399,11 @@ uv run python -m maths_ai.gnn_inference.scripts.migrate_model_checkpoint \
   --output runs/migrated_gatv2_pointer/best.pt
 ```
 
-Migration remaps only the listed, audited layouts. It builds the current model, loads
-all remapped parameters strictly, verifies public model outputs on a fixed batch, and
-writes a version-2 manifest. There is no legacy GATv2 actor-critic migration layout; use
+Version-2 checkpoints already containing a manifest use the same command without
+`--layout`. Migration reads the graph contract from the validated prepared root; it does
+not infer it from weights or labels. Manifest-free migration remaps only the listed,
+audited layouts, loads all parameters strictly, verifies public model outputs on a fixed
+batch, and writes a version-3 manifest. There is no legacy GATv2 actor-critic migration layout; use
 a matching pointer checkpoint to train a current actor-critic checkpoint first.
 
 ## 9. Configure and launch RL
@@ -398,6 +416,7 @@ Edit `maths_ai/gnn_inference/configs/rl_actor_critic.json`:
 "run_root": "runs/rl_actor_critic",
 "device": "auto",
 "source_root": "/abs/path/to/mathlib-lake-project",
+"pantograph_repl": "/abs/path/to/Pantograph/.lake/build/bin/repl",
 "use_pln": false
 ```
 
@@ -553,8 +572,11 @@ reject mismatched fingerprints rather than using incompatible embeddings.
 | Error or symptom | Mechanism | Required action |
 |---|---|---|
 | missing `vocab/node_vocab.json` | `prepared_root` does not identify a complete prepared dataset | point all phases at the real prepared root |
+| missing `metadata/graph_representation.json` | prepared artifacts predate the representation contract | run `migrate_prepared_graph_contract` against the explicit target contract |
 | sidecar is missing `edges_forward` or `edges_bidirectional` | prepared data predates edge-mode-aware graph budgets | regenerate the prepared dataset |
-| checkpoint has no version-2 manifest | a version-1 checkpoint or bare state dictionary was supplied | run the audited offline migration, or retrain when no migration layout exists |
+| checkpoint has no version-3 manifest | an older checkpoint or bare state dictionary was supplied | run the audited offline migration, or retrain when no migration layout exists |
+| graph representation mismatch | checkpoint and prepared artifacts were built by different graph contracts | use the matching prepared root and migrate the checkpoint from that validated root |
+| model S-expression capability probe fails | the supplied REPL is upstream Pantograph, the options are unsupported, or required payload fields are absent | use the pinned setup script output and rebuild that exact environment |
 | checkpoint model kind is `tactic_with_args` | a pointer checkpoint was supplied directly to RL | train the matching supervised actor-critic first |
 | pointer and actor-critic model specifications differ | architecture, readout, dimensions, or another normalized model field does not match | use matching presets and identical complete `model` blocks |
 | vocabulary fingerprint does not match | the prepared vocabulary mapping differs from the checkpoint's mapping | use the prepared dataset that created the checkpoint |
@@ -571,5 +593,6 @@ For an environment and integration diagnostic after these checks, run:
 ```bash
 uv run python -m pytest maths_ai/gnn_inference/tests/ -q
 uv run python -m maths_ai.gnn_inference.scripts.rl_smoke \
-  --source-root /abs/path/to/mathlib-lake-project
+  --source-root /abs/path/to/mathlib-lake-project \
+  --pantograph-repl /abs/path/to/Pantograph/.lake/build/bin/repl
 ```

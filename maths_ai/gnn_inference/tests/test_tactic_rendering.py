@@ -16,7 +16,7 @@ import unittest
 
 from pantograph.server import ServerError
 
-from maths_ai.data_models.proof_components import Goal, TacticCandidate
+from maths_ai.data_models.proof_components import Goal, GoalLocal, LeanGoalSeed, TacticCandidate
 from maths_ai.hybrid_reasoner.joint_inference import (
     HybridReasoner,
     PantographExecutor,
@@ -69,6 +69,7 @@ class RenderTacticCommandTests(unittest.TestCase):
 
     def test_names_with_lean_punctuation_are_usable_rules(self):
         self.assertEqual(render_tactic_command(_tactic("rw", "h'")), "rw [h']")
+        self.assertEqual(render_tactic_command(_tactic("rw", "α")), "rw [α]")
         self.assertEqual(render_tactic_command(_tactic("rw", "Nat.factorial_succ")),
                          "rw [Nat.factorial_succ]")
 
@@ -170,6 +171,7 @@ def _reasoner(server, env) -> HybridReasoner:
     reasoner.server = server
     reasoner.executor = PantographExecutor(server)
     reasoner._env = env
+    reasoner._create_server = env.create_server
     return reasoner
 
 
@@ -193,16 +195,16 @@ class RestartDiscriminationTests(unittest.TestCase):
         env = _FakeEnv(_HealthyServer)
         reasoner = _reasoner(server, env)
         with self.assertRaises(ServerError):
-            asyncio.run(reasoner._start_state(Goal(expression="p → p", hypotheses=[])))
+            asyncio.run(reasoner._start_state(LeanGoalSeed(expression="p → p")))
         self.assertEqual(env.restarts, 0)
 
     def test_crashed_server_triggers_restart_and_retry(self):
         healthy = _HealthyServer()
         env = _FakeEnv(lambda: healthy)
         reasoner = _reasoner(_CrashableServer(dies=True), env)
-        state = asyncio.run(reasoner._start_state(Goal(expression="p → p", hypotheses=[])))
+        state = asyncio.run(reasoner._start_state(LeanGoalSeed(expression="p → p")))
         self.assertEqual(env.restarts, 1)
-        self.assertEqual(state, "goal-state")
+        self.assertEqual(state, "goal-state+skip")
         self.assertIs(reasoner.server, healthy)
 
     def test_restart_reinstalls_server_on_the_executor(self):
@@ -210,7 +212,7 @@ class RestartDiscriminationTests(unittest.TestCase):
         healthy = _HealthyServer()
         env = _FakeEnv(lambda: healthy)
         reasoner = _reasoner(_CrashableServer(dies=True), env)
-        asyncio.run(reasoner._start_state(Goal(expression="p → p", hypotheses=[])))
+        asyncio.run(reasoner._start_state(LeanGoalSeed(expression="p → p")))
         self.assertIs(reasoner.executor.server, healthy)
 
     def test_assertion_error_from_reaped_process_triggers_restart(self):
@@ -218,24 +220,59 @@ class RestartDiscriminationTests(unittest.TestCase):
         server = _CrashableServer(dies=False, error=AssertionError("Server not running."))
         env = _FakeEnv(_HealthyServer)
         reasoner = _reasoner(server, env)
-        asyncio.run(reasoner._start_state(Goal(expression="p → p", hypotheses=[])))
+        asyncio.run(reasoner._start_state(LeanGoalSeed(expression="p → p")))
         self.assertEqual(env.restarts, 1)
 
     def test_broken_pipe_triggers_restart(self):
         server = _CrashableServer(dies=False, error=BrokenPipeError())
         env = _FakeEnv(_HealthyServer)
         reasoner = _reasoner(server, env)
-        asyncio.run(reasoner._start_state(Goal(expression="p → p", hypotheses=[])))
+        asyncio.run(reasoner._start_state(LeanGoalSeed(expression="p → p")))
         self.assertEqual(env.restarts, 1)
 
     def test_hypotheses_are_quantified_then_introduced(self):
         healthy = _HealthyServer()
         reasoner = _reasoner(healthy, _FakeEnv(lambda: healthy))
         state = asyncio.run(
-            reasoner._start_state(Goal(expression="q ∨ p", hypotheses=["p : Prop", "h : p ∨ q"]))
+            reasoner._start_state(
+                LeanGoalSeed(expression="q ∨ p", hypotheses=["p : Prop", "h : p ∨ q"])
+            )
         )
         self.assertEqual(healthy.started, ["∀ (p : Prop), ∀ (h : p ∨ q), q ∨ p"])
         self.assertEqual(state, "goal-state+intro p h")
+
+    def test_structured_replay_preserves_binder_roles_and_local_let(self):
+        healthy = _HealthyServer()
+        reasoner = _reasoner(healthy, _FakeEnv(lambda: healthy))
+        goal = Goal(
+            expression="x = x",
+            goal_model_sexp="(:app (:c Eq) (:fv FV2) (:fv FV2))",
+            locals=[
+                GoalLocal(
+                    user_name="α", context_index=0, binder_role=":implicit",
+                    type_pp="Type", type_model_sexp="(:sort 1)",
+                ),
+                GoalLocal(
+                    user_name="inst", context_index=1, binder_role=":instImplicit",
+                    is_instance=True, type_pp="Inhabited α",
+                    type_model_sexp="(:app (:c Inhabited) (:fv FV0))",
+                ),
+                GoalLocal(
+                    user_name="x", context_index=2, binder_role=":explicit",
+                    is_let=True, type_pp="α", type_model_sexp="(:fv FV0)",
+                    value_pp="default", value_model_sexp="(:c default)",
+                ),
+            ],
+            model_sexp_version=1,
+        )
+
+        state = asyncio.run(reasoner._start_state(goal))
+
+        self.assertEqual(
+            healthy.started,
+            ["∀ {α : Type}, ∀ [inst : Inhabited α], let x : α := default; x = x"],
+        )
+        self.assertEqual(state, "goal-state+intro α inst x")
 
 
 if __name__ == "__main__":

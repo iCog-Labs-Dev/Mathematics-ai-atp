@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,6 +36,7 @@ from .preparation import (
 from .labels import build_tactic_vocab, encode_tactic_name
 from .lemma_corpus import load_lemma_name_index
 from .pyg import build_vocab_from_labels, dag_to_pyg
+from .graph_contract import MODEL_SEXPR_GRAPH_SPEC, TEXT_GRAPH_SPEC
 from .reporting import console_print
 
 
@@ -361,6 +363,15 @@ def run_preprocessing(config: PreprocessConfig) -> dict[str, object]:
     prepare_output_root(output_root, splits=list(config.splits), force=config.force)
     write_vocab(output_root, name="node_vocab.json", vocab=node_vocab)
     write_vocab(output_root, name="tactic_vocab.json", vocab=tactic_vocab)
+    graph_representation = (
+        MODEL_SEXPR_GRAPH_SPEC if config.use_sexpr else TEXT_GRAPH_SPEC
+    )
+    graph_representation_path = output_root / "metadata" / "graph_representation.json"
+    graph_representation_path.parent.mkdir(parents=True, exist_ok=True)
+    graph_representation_path.write_text(
+        json.dumps(graph_representation.to_dict(), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
 
     split_reports: dict[str, SplitReport] = {}
     manifests: dict[str, dict[str, object]] = {}
@@ -399,6 +410,7 @@ def run_preprocessing(config: PreprocessConfig) -> dict[str, object]:
 
     console_print(f"\n  Wrote node vocab     : {output_root / 'vocab' / 'node_vocab.json'}")
     console_print(f"  Wrote tactic vocab   : {output_root / 'vocab' / 'tactic_vocab.json'}")
+    console_print(f"  Wrote graph contract : {graph_representation_path}")
     console_print(f"  Wrote JSON summary   : {summary_json_path}")
     console_print(f"  Wrote Markdown summary: {summary_md_path}")
 

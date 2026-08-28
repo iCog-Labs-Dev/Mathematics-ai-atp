@@ -35,6 +35,7 @@ from .reporting import console_print
 from .actor_critic import ActorCriticWithArgsClassifier, load_from_pointer_checkpoint
 from .actor_critic_training import build_param_groups, train_one_epoch_actor_critic, evaluate_model_actor_critic
 from .checkpointing import checkpoint_payload, validate_checkpoint_manifest
+from .graph_contract import GraphRepresentationSpec
 from .reward import MockRewardSource
 from .training_safety import require_finite_loss, resolve_amp_dtype
 
@@ -397,6 +398,7 @@ class PreparedMetadata:
     node_vocab: dict[str, int]
     tactic_vocab: dict[str, int]
     manifests: dict[str, dict[str, object]]
+    graph_representation: GraphRepresentationSpec
     state_label_id: int
     unknown_tactic_id: int
 
@@ -506,13 +508,21 @@ def load_prepared_metadata(prepared_root: str | Path) -> PreparedMetadata:
 
     node_vocab_path = root / "vocab" / "node_vocab.json"
     tactic_vocab_path = root / "vocab" / "tactic_vocab.json"
-    missing_paths = [path for path in (node_vocab_path, tactic_vocab_path) if not path.exists()]
+    graph_representation_path = root / "metadata" / "graph_representation.json"
+    missing_paths = [
+        path
+        for path in (node_vocab_path, tactic_vocab_path, graph_representation_path)
+        if not path.exists()
+    ]
     if missing_paths:
         missing_text = ", ".join(str(path) for path in missing_paths)
         raise FileNotFoundError(f"Prepared dataset is missing required vocab files: {missing_text}")
 
     node_vocab = {str(key): int(value) for key, value in _read_json(node_vocab_path).items()}
     tactic_vocab = {str(key): int(value) for key, value in _read_json(tactic_vocab_path).items()}
+    graph_representation = GraphRepresentationSpec.from_dict(
+        _read_json(graph_representation_path)
+    )
 
     if "State" not in node_vocab:
         raise ValueError(
@@ -545,6 +555,7 @@ def load_prepared_metadata(prepared_root: str | Path) -> PreparedMetadata:
         node_vocab=node_vocab,
         tactic_vocab=tactic_vocab,
         manifests=manifests,
+        graph_representation=graph_representation,
         state_label_id=node_vocab["State"],
         unknown_tactic_id=tactic_vocab[UNKNOWN_TACTIC],
     )
@@ -1210,6 +1221,15 @@ def _create_run_dir(run_root: Path) -> Path:
     return candidate
 
 
+def _run_config_payload(
+    config: BaselineConfig | PointerConfig | ActorCriticConfig,
+    metadata: PreparedMetadata,
+) -> dict[str, object]:
+    payload = config.to_dict()
+    payload["graph_representation"] = metadata.graph_representation.to_dict()
+    return payload
+
+
 def _save_checkpoint(
     path: Path,
     *,
@@ -1233,8 +1253,9 @@ def _save_checkpoint(
             node_vocab=metadata.node_vocab,
             tactic_vocab=metadata.tactic_vocab,
             model=model,
+            graph_representation=metadata.graph_representation,
             epoch=epoch,
-            config=config.to_dict(),
+            config=_run_config_payload(config, metadata),
             optimizer_state_dict=optimizer.state_dict(),
             val_metrics=val_metrics,
         ),
@@ -1258,6 +1279,7 @@ def _load_checkpoint(
         checkpoint,
         node_vocab=metadata.node_vocab,
         tactic_vocab=metadata.tactic_vocab,
+        graph_representation=metadata.graph_representation,
         expected_model_kind=expected_model_kind,
     )
     if checkpoint_spec != expected_model_spec:
@@ -1282,7 +1304,9 @@ def train_baseline(
     datasets, loaders = build_dataloaders(metadata, config, required_fields=REQUIRED_DATA_FIELDS)
     if resume_run_dir is None:
         run_dir = _create_run_dir(config.run_root)
-        config_path = _write_json(run_dir / "config.json", config.to_dict())
+        config_path = _write_json(
+            run_dir / "config.json", _run_config_payload(config, metadata)
+        )
         start_epoch = 1
         best_epoch = 0
         best_val_top1 = -1.0
@@ -1524,7 +1548,9 @@ def train_pointer(
     
     if resume_run_dir is None:
         run_dir = _create_run_dir(config.run_root)
-        config_path = _write_json(run_dir / "config.json", config.to_dict())
+        config_path = _write_json(
+            run_dir / "config.json", _run_config_payload(config, metadata)
+        )
         start_epoch = 1
         best_epoch = 0
         best_val_loss = float("inf")
@@ -1772,7 +1798,9 @@ def train_actor_critic(
 
     if resume_run_dir is None:
         run_dir = _create_run_dir(config.run_root)
-        config_path = _write_json(run_dir / "config.json", config.to_dict())
+        config_path = _write_json(
+            run_dir / "config.json", _run_config_payload(config, metadata)
+        )
         start_epoch = 1
         best_epoch = 0
         best_val_loss = float("inf")
@@ -1803,6 +1831,7 @@ def train_actor_critic(
             device,
             node_vocab=metadata.node_vocab,
             tactic_vocab=metadata.tactic_vocab,
+            graph_representation=metadata.graph_representation,
         )
 
     param_groups = build_param_groups(model, config.training.learning_rate, config.arg_lr_multiplier)

@@ -12,7 +12,15 @@ from time import perf_counter
 from typing import Dict, List, Optional
 from pantograph.server import Server, GoalState, ServerError, ParseError
 
-from maths_ai.data_models.proof_components import Goal, RankedSubgoal, STV, TacticCandidate
+from maths_ai.data_models.proof_components import (
+    Goal,
+    GoalReplaySpec,
+    LeanGoalSeed,
+    RankedSubgoal,
+    STV,
+    TacticCandidate,
+    seed_replay_spec,
+)
 from maths_ai.gnn_inference.inference_engine import GNNModelEngine
 from maths_ai.pln_inference.model import PLNInference
 from maths_ai.pln_inference.metta.translator.translator_modules.runner import DynamicThompsonSampler
@@ -26,6 +34,10 @@ from maths_ai.hybrid_reasoner.hypergraph import (
     TacticOutcome,
 )
 from maths_ai.hybrid_reasoner.pantograph_env import PantographEnv
+from maths_ai.hybrid_reasoner.pantograph_model_sexpr import (
+    create_model_sexpr_server,
+    pantograph_state_to_goals,
+)
 from maths_ai.core.config import settings
 from maths_ai.gnn_inference.atp_lean_gnn.reporting import console_print
 
@@ -33,7 +45,14 @@ _INACCESSIBLE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_']*✝[⁰-⁹¹²³]*"
 
 # A Lean identifier usable as a rewrite rule or simp lemma: hypothesis names and
 # dotted lemma names, but not terms like `↑13` or `?m.2235`.
-_LEAN_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_'.!?]*$")
+
+
+def _is_lean_identifier(value: str) -> bool:
+    parts = value.split(".")
+    return bool(parts) and all(
+        bool(core := part.rstrip("'!?")) and core.isidentifier()
+        for part in parts
+    )
 
 # Tactics whose arguments must be a bracketed list. `rw h` is a parse error at the
 # column where `[` was expected; the rule list is `rw [h]`. With no arguments these
@@ -87,7 +106,7 @@ def render_tactic_command(tactic: TacticCandidate) -> Optional[str]:
         # A rewrite rule must be a name Lean can look up. The policy samples nodes
         # from the goal's own graph, so a draw can land on a term like `↑13`, which
         # is a valid expression but not a rule.
-        rules = [arg for arg in arguments if _LEAN_IDENT_RE.match(arg)]
+        rules = [arg for arg in arguments if _is_lean_identifier(arg)]
         if rules:
             return f"{name} [{', '.join(rules)}]"
         if name in _BRACKET_REQUIRED_TACTICS:
@@ -99,7 +118,7 @@ def render_tactic_command(tactic: TacticCandidate) -> Optional[str]:
     return " ".join([name, *arguments])
 
 
-def _sanitize_inaccessible_names(goal: Goal) -> Goal:
+def _sanitize_replay_spec(spec: GoalReplaySpec) -> GoalReplaySpec:
     """Replace Lean's "inaccessible name" tokens (e.g. ``p✝``, printed for a
     binder shadowed by a later one — see ``intro p q p``) with fresh plain
     identifiers.
@@ -110,10 +129,10 @@ def _sanitize_inaccessible_names(goal: Goal) -> Goal:
     every hypothesis keeps the goal semantically identical while making it
     parseable again.
     """
-    text = " ".join([goal.expression, *goal.hypotheses])
+    text = " ".join([spec.expression, *spec.local_names])
     tokens = sorted(set(_INACCESSIBLE_NAME_RE.findall(text)))
     if not tokens:
-        return goal
+        return spec
 
     existing_names = set(re.findall(r"[A-Za-z_][A-Za-z0-9_']*", text))
     rename: Dict[str, str] = {}
@@ -126,10 +145,12 @@ def _sanitize_inaccessible_names(goal: Goal) -> Goal:
     def substitute(value: str) -> str:
         return _INACCESSIBLE_NAME_RE.sub(lambda m: rename[m.group(0)], value)
 
-    return Goal(
-        expression=substitute(goal.expression),
-        hypotheses=[substitute(h) for h in goal.hypotheses],
+    return GoalReplaySpec(
+        expression=substitute(spec.expression),
+        local_names=tuple(substitute(name) for name in spec.local_names),
     )
+
+
 def plot_hypergraph(graph: ProofHypergraph) -> None:
     """Utility to visualize the proof hypergraph with Graphviz (for debugging
     and analysis).
@@ -152,6 +173,8 @@ def plot_hypergraph(graph: ProofHypergraph) -> None:
         dot.edge(str(parent_id), str(child_ids[0]), label=tactic_label)
 
     dot.render("proof_hypergraph", format="png", cleanup=True)
+
+
 class PantographExecutor(TacticExecutor):
     """Real executor: applies predicted tactics to actual Lean states via the
     Pantograph API.
@@ -175,9 +198,8 @@ class PantographExecutor(TacticExecutor):
         Returns:
             ``TacticOutcome(success=True, subgoals=...)`` with the
             resulting subgoals (empty ⇒ this branch is fully discharged),
-            translated from Pantograph's ``Goal``s into
-            ``maths_ai`` ``Goal``s (``expression`` = the goal's target,
-            ``hypotheses`` = its local variables rendered as ``name : type``).
+            decoded into canonical ``maths_ai`` goals containing pretty Lean text,
+            normalized model S-expressions, ordered locals, and a separate case tag.
             On a Lean-side error (the tactic doesn't apply), returns
             ``TacticOutcome(success=False, error=...)``.
         """
@@ -205,10 +227,7 @@ class PantographExecutor(TacticExecutor):
                 raise
             return TacticOutcome(success=False, subgoals=[], error=str(e))
 
-        subgoals = [
-            Goal(expression=str(g.target), hypotheses=[str(v) for v in g.variables])
-            for g in new_state.goals
-        ]
+        subgoals = pantograph_state_to_goals(new_state)
         return TacticOutcome(success=True, subgoals=subgoals, error=None)
 
 
@@ -250,9 +269,8 @@ class HybridReasoner:
         env: PantographEnv | None = None,
     ) -> None:
         self.use_pln = use_pln
-        # The environment the server runs in, kept so a post-crash restart lands in
-        # the SAME environment the initial server was started in. An all-default
-        # PantographEnv reproduces a bare `Server.create()`.
+        # The environment the server runs in, kept so a post-crash restart validates
+        # the same model-S-expression contract as the initial server.
         self._env = env or PantographEnv()
         self.gnn_engine = self._build_gnn_engine(
             config_path=config_path,
@@ -260,6 +278,7 @@ class HybridReasoner:
             argument_model_path=argument_model_path,
             index_path=index_path,
             corpus_path=corpus_path,
+            pantograph_env=self._env,
         )
         self.atomic_tactics = {}
 
@@ -304,6 +323,8 @@ class HybridReasoner:
         self.top_k_tactics = top_k_tactics
         self.max_depth = max_depth
         self.max_nodes = max_nodes
+        self._cached_root_state: GoalState | None = None
+        self._cached_root_fingerprint: str | None = None
 
     # GNN side
     def _build_gnn_engine(
@@ -475,7 +496,11 @@ class HybridReasoner:
         safeguards. Cycle detection (a subgoal identical to one of its own
         ancestors) is handled inside ``ProofHypergraph.add_edge``.
         """
-        graph = ProofHypergraph(Goal(expression=goal, hypotheses=hypotheses or []))
+        seed = LeanGoalSeed(expression=goal, hypotheses=hypotheses or [])
+        root_state, root_goal = await self._materialize_goal(seed)
+        graph = ProofHypergraph(root_goal)
+        self._cached_root_state = root_state
+        self._cached_root_fingerprint = root_goal.state_fingerprint()
         loop_count = 0
 
         #Running through the loop untill the theorem is solved or the depth_limit is reached
@@ -525,32 +550,28 @@ class HybridReasoner:
         """
         self.server._close()
         elapsed = perf_counter()
-        self.server = await self._env.create_server()
+        self.server = await self._create_server()
         self.executor.server = self.server
         console_print(
             f"  [Server] pantograph restarted after crash "
             f"in {perf_counter() - elapsed:.1f}s ({self._env.describe()})"
         )
 
-    async def _start_state(self, goal: Goal) -> GoalState:
-        """Reconstruct a Lean goal state for ``goal``, including its local
-        hypotheses.
+    async def _create_server(self) -> Server:
+        """Create and validate the server required by the graph representation."""
+        return await create_model_sexpr_server(self._env)
 
-        ``goal_start_async`` parses its argument as a closed, context-free
-        target, but a subgoal's ``expression`` may reference names declared
-        in ``goal.hypotheses`` (e.g. ``h`` in ``q ∨ p`` after introducing
-        ``h : p ∨ q``). To recover the same context, universally quantify
-        over the hypotheses in the start expression and immediately
-        ``intro`` them back — this reproduces the exact state the executor
-        handed back when the subgoal was discovered.
+    async def _start_state(self, goal: Goal | LeanGoalSeed) -> GoalState:
+        """Replay a theorem seed or canonical goal and force state serialization.
+
+        Structured goals preserve explicit, implicit, instance, and local-let
+        declarations. Text seeds use explicit binders for their first elaboration.
         """
-        goal = _sanitize_inaccessible_names(goal)
-        expression = goal.expression
-        for hypothesis in reversed(goal.hypotheses):
-            expression = f"∀ ({hypothesis}), {expression}"
+        replay = goal.replay_spec() if isinstance(goal, Goal) else seed_replay_spec(goal)
+        replay = _sanitize_replay_spec(replay)
 
         try:
-            return await self._goal_state_for(expression, goal)
+            return await self._goal_state_for(replay)
         except (BrokenPipeError, ConnectionResetError, EOFError):
             # The pipe itself broke on the write side.
             await self._restart_server()
@@ -568,15 +589,26 @@ class HybridReasoner:
                 raise
             await self._restart_server()
 
-        return await self._goal_state_for(expression, goal)
+        return await self._goal_state_for(replay)
 
-    async def _goal_state_for(self, expression: str, goal: Goal) -> GoalState:
-        """Start ``expression`` and re-``intro`` ``goal``'s hypotheses."""
-        state = await self.server.goal_start_async(expression)
-        if goal.hypotheses:
-            names = " ".join(hypothesis.split(":", 1)[0].strip() for hypothesis in goal.hypotheses)
-            state = await self.server.goal_tactic_async(state, f"intro {names}")
+    async def _goal_state_for(self, replay: GoalReplaySpec) -> GoalState:
+        """Start closed replay source and force a serialized Pantograph response."""
+        state = await self.server.goal_start_async(replay.expression)
+        tactic = f"intro {' '.join(replay.local_names)}" if replay.local_names else "skip"
+        state = await self.server.goal_tactic_async(state, tactic)
         return state
+
+    async def _materialize_goal(
+        self, goal: Goal | LeanGoalSeed
+    ) -> tuple[GoalState, Goal]:
+        """Reconstruct one Lean state and decode its synchronized execution/model views."""
+        state = await self._start_state(goal)
+        goals = pantograph_state_to_goals(state)
+        if len(goals) != 1:
+            raise ValueError(
+                f"Replaying one search node produced {len(goals)} Pantograph goals."
+            )
+        return state, goals[0]
 
     def _link(
         self,
@@ -613,20 +645,20 @@ class HybridReasoner:
             self._on_expansion_complete(node, ExpansionResult.DEPTH_LIMIT)
             return
 
-        sanitized = _sanitize_inaccessible_names(node.goal)
-        print(f"  [GNN Input] goal={sanitized.expression}  hyps={sanitized.hypotheses}")
-        candidates = self.predict_next_tactic(sanitized)
-        if not candidates:
-            graph.mark_node_exhausted(
-                node.id,
-                reason=NodeClosureReason.NO_CANDIDATES,
-                note="GNN returned no viable tactic",
-            )
-            self._on_expansion_complete(node, ExpansionResult.NO_CANDIDATES)
-            return
-
         try:
-            state = await self._start_state(node.goal)
+            fingerprint = node.goal.state_fingerprint()
+            if (
+                node.id == graph.root_id
+                and self._cached_root_state is not None
+                and self._cached_root_fingerprint == fingerprint
+            ):
+                state = self._cached_root_state
+                materialized = node.goal
+                self._cached_root_state = None
+                self._cached_root_fingerprint = None
+            else:
+                state, materialized = await self._materialize_goal(node.goal)
+            node.goal = materialized
         except (ServerError, ParseError) as exc:
             if _server_is_dead(self.server):
                 console_print(f"  [Node {node.id} ABORT] Pantograph unavailable: {exc}")
@@ -640,6 +672,16 @@ class HybridReasoner:
                 console_print(f"  [Node {node.id} SKIP] goal elaboration failed: {exc}")
                 graph.mark_node_unelaborated(node.id, note=f"elaboration error: {exc}")
                 self._on_expansion_complete(node, ExpansionResult.ELABORATION_ERROR)
+            return
+        print(f"  [GNN Input] goal={node.goal.expression}  hyps={node.goal.hypotheses}")
+        candidates = self.predict_next_tactic(node.goal)
+        if not candidates:
+            graph.mark_node_exhausted(
+                node.id,
+                reason=NodeClosureReason.NO_CANDIDATES,
+                note="GNN returned no viable tactic",
+            )
+            self._on_expansion_complete(node, ExpansionResult.NO_CANDIDATES)
             return
         any_applied = False
 
@@ -738,24 +780,17 @@ async def main(
     dts_c: float = None,
     dts_random_seed: Optional[int] = None,
     top_k_tactics: int = 3,
+    source_root: Path,
+    pantograph_repl: Path,
 ) -> None:
-    # Use the Mathlib project if one exists, so the server can elaborate goals
-    # that mention Mathlib notation and lemmas. Falling back to a bare environment
-    # keeps core-only runs working.
-    env = PantographEnv()
-    mathlib_project = settings.root_dir / "lean_mathlib"
-    if (mathlib_project / "lakefile.lean").exists():
-        env = PantographEnv(
-            source_root=mathlib_project,
-            imports=("Init", "Mathlib"),
-        )
-        console_print(f"  Using Mathlib project: {mathlib_project}")
-    else:
-        console_print("  No Mathlib project found. Only core Lean theorems supported.")
-        console_print(f"  To enable Mathlib: cd {mathlib_project} && lake update && lake build")
+    env = PantographEnv(
+        source_root=source_root,
+        pantograph_repl=pantograph_repl,
+        imports=("Init", "Mathlib"),
+    )
     env.verify()
 
-    server = await env.create_server()
+    server = await create_model_sexpr_server(env)
     
     # Auto-load DTS state from default location if not specified
     if dts_state_input is None and settings.dts_state_file.exists():
@@ -790,6 +825,7 @@ async def main(
         dts_sampler=dts_sampler,
         dts_c=dts_c,
         dts_random_seed=dts_random_seed,
+        env=env,
     )
     print("Goal:")
     print(repr(goal_statement))
@@ -865,6 +901,8 @@ if __name__ == "__main__":
         default=3,
         help="Number of top tactic candidates to try per node (default: 3).",
     )
+    args_parser.add_argument("--source-root", type=Path, required=True)
+    args_parser.add_argument("--pantograph-repl", type=Path, required=True)
     args = args_parser.parse_args()
 
     asyncio.run(main(
@@ -881,4 +919,6 @@ if __name__ == "__main__":
         dts_c=args.dts_c,
         dts_random_seed=args.dts_random_seed,
         top_k_tactics=args.top_k_tactics,
+        source_root=args.source_root,
+        pantograph_repl=args.pantograph_repl,
     ))

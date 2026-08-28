@@ -20,6 +20,10 @@ from maths_ai.gnn_inference.atp_lean_gnn.model_factory import (
     build_supervised_tactic_model,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.model_spec import ModelSpec
+from maths_ai.gnn_inference.atp_lean_gnn.graph_contract import (
+    MODEL_SEXPR_GRAPH_SPEC,
+    TEXT_GRAPH_SPEC,
+)
 from maths_ai.gnn_inference.atp_lean_gnn.training_safety import require_finite_loss
 from maths_ai.gnn_inference.scripts.migrate_model_checkpoint import migrate_checkpoint
 
@@ -188,16 +192,27 @@ class ModelCompositionTests(unittest.TestCase):
             node_vocab=node_vocab,
             tactic_vocab=tactic_vocab,
             model=model,
+            graph_representation=MODEL_SEXPR_GRAPH_SPEC,
         )
         restored, manifest, restored_spec = build_model_from_checkpoint(
             checkpoint,
             node_vocab=node_vocab,
             tactic_vocab=tactic_vocab,
+            graph_representation=MODEL_SEXPR_GRAPH_SPEC,
             expected_model_kind="tactic_with_args",
         )
         self.assertEqual(manifest["model_kind"], "tactic_with_args")
         self.assertEqual(restored_spec, spec)
         self.assertEqual(restored.state_dict().keys(), model.state_dict().keys())
+
+        with self.assertRaisesRegex(ValueError, "Graph representation mismatch"):
+            build_model_from_checkpoint(
+                checkpoint,
+                node_vocab=node_vocab,
+                tactic_vocab=tactic_vocab,
+                graph_representation=TEXT_GRAPH_SPEC,
+                expected_model_kind="tactic_with_args",
+            )
 
     def test_audited_version_one_layouts_migrate_strictly(self) -> None:
         node_vocab = {"a": 0, "b": 1, "c": 2}
@@ -274,11 +289,13 @@ class ModelCompositionTests(unittest.TestCase):
                     layout=layout,
                     node_vocab=node_vocab,
                     tactic_vocab=tactic_vocab,
+                    graph_representation=MODEL_SEXPR_GRAPH_SPEC,
                 )
                 restored, manifest, restored_spec = build_model_from_checkpoint(
                     migrated,
                     node_vocab=node_vocab,
                     tactic_vocab=tactic_vocab,
+                    graph_representation=MODEL_SEXPR_GRAPH_SPEC,
                     expected_model_kind=model_kind,
                 )
                 self.assertEqual(restored_spec, spec)

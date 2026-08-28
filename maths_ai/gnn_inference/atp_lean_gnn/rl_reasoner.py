@@ -34,7 +34,7 @@ from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph, ProofNode
 from maths_ai.hybrid_reasoner.joint_inference import ExpansionResult, HybridReasoner
 
 from .actor_critic import ActorCriticWithArgsClassifier
-from .inference import _resolve_local_node_name
+from .inference import _local_names_by_fv_label, _resolve_local_node_name
 from .pln_rl_training import EdgeAction, FailureRecord, make_dag_featurizer
 
 
@@ -51,7 +51,7 @@ class RLSearchResult:
 
 
 def _fingerprint(goal: Goal, tactic_name: str, arguments: tuple[str, ...]) -> tuple:
-    return (goal.expression, tuple(goal.hypotheses), tactic_name, arguments)
+    return (goal.state_fingerprint(), tactic_name, arguments)
 
 
 class RLHybridReasoner(HybridReasoner):
@@ -89,6 +89,7 @@ class RLHybridReasoner(HybridReasoner):
 
         # Per-search stashes, reset by prove(); _pending is per-node (flushed by _expand).
         self._pending: Dict[tuple, EdgeAction] = {}
+        self._unplayable_actions: List[EdgeAction] = []
         self._pending_goal: Optional[Goal] = None
         self._result: Optional[RLSearchResult] = None
         # Argmax proposals (evaluation) vs. i.i.d. sampling (training); set per prove().
@@ -115,11 +116,13 @@ class RLHybridReasoner(HybridReasoner):
         If ``self._greedy`` is True (set by ``prove(greedy=True)``), draw k argmax
         actions instead of sampling — used for evaluation.
         """
-        if self._pending:
+        if self._pending or self._unplayable_actions:
             raise RuntimeError("Previous expansion left pending actions unsettled")
         self._pending_goal = sub_goal
 
         dag, data = self.dag_featurize(sub_goal)
+        local_names = _local_names_by_fv_label(dag)
+        graph_fingerprint = str(data.graph_fingerprint)
         batch = Batch.from_data_list([data]).to(self.device)
 
         candidates: List[TacticCandidate] = []
@@ -127,8 +130,11 @@ class RLHybridReasoner(HybridReasoner):
         with torch.no_grad():
             for _ in range(self.top_k_tactics):
                 sample = self.model.act(batch, id_to_tactic=self.id_to_tactic, greedy=self._greedy)
-                candidate, action = self._decode(sample, dag)
+                candidate, action = self._decode(
+                    sample, dag, local_names, graph_fingerprint
+                )
                 if candidate is None:
+                    self._unplayable_actions.append(action)
                     continue
                 key = _fingerprint(sub_goal, candidate.tactic_name, tuple(candidate.arguments))
                 existing = self._pending.get(key)
@@ -137,39 +143,56 @@ class RLHybridReasoner(HybridReasoner):
                         tactic_id=existing.tactic_id,
                         arg_indices=existing.arg_indices,
                         multiplicity=existing.multiplicity + 1,
+                        graph_fingerprint=existing.graph_fingerprint,
                     )
                 else:
                     self._pending[key] = action
                     candidates.append(candidate)
         return candidates
 
-    def _decode(self, sample, dag) -> tuple[Optional[TacticCandidate], Optional[EdgeAction]]:
+    def _decode(
+        self,
+        sample,
+        dag,
+        local_names: dict[str, str],
+        graph_fingerprint: str,
+    ) -> tuple[Optional[TacticCandidate], EdgeAction]:
         """Turn one batch-size-1 ``ActionSample`` into ``(TacticCandidate, EdgeAction)``.
 
         Tactic: ``tactic_id → name`` via the inverted tactic vocab; an id outside the
-        vocab (or the ``<UNK>`` family) is unplayable — drop the draw. Arguments: each
+        vocab (or the ``<UNK>`` family) is unplayable. Arguments: each
         sampled index is a padded per-graph position; at batch size 1 that equals the
         node's offset in ``dag.nodes`` (``dag_to_pyg`` preserves node order), so render
-        it with ``_resolve_local_node_name``. Out-of-range indices (padding) are dropped
-        from the argument list but KEPT in ``arg_indices`` — the recompute must evaluate
-        the log-prob of what was actually sampled, and ``forced_step`` zeroes invalid rows.
+        it with ``_resolve_local_node_name``. Unplayable draws retain their complete
+        integer action and graph fingerprint as rejected-action training records.
         """
         tactic_id = int(sample.tactic_action[0])
+        arg_indices = tuple(int(a[0]) for a in sample.arg_actions)
+        action = EdgeAction(
+            tactic_id=tactic_id,
+            arg_indices=arg_indices,
+            multiplicity=1,
+            graph_fingerprint=graph_fingerprint,
+        )
         tactic_name = self.id_to_tactic.get(tactic_id)
         if tactic_name is None or tactic_name.startswith("<"):
-            return None, None
+            return None, action
 
-        arg_indices = tuple(int(a[0]) for a in sample.arg_actions)
         arguments: List[str] = []
         for idx in arg_indices:
-            if 0 <= idx < len(dag.nodes):
-                arguments.append(_resolve_local_node_name(dag.nodes[idx], dag))
+            if not 0 <= idx < len(dag.nodes):
+                return None, action
+            try:
+                arguments.append(
+                    _resolve_local_node_name(dag.nodes[idx], dag, local_names)
+                )
+            except ValueError:
+                return None, action
 
         probability = float(math.exp(float(sample.tactic_logp[0])))
         candidate = TacticCandidate(
             tactic_name=tactic_name, arguments=arguments, probability=probability
         )
-        action = EdgeAction(tactic_id=tactic_id, arg_indices=arg_indices, multiplicity=1)
         return candidate, action
 
     # ------------------------------------------------------------------
@@ -179,8 +202,6 @@ class RLHybridReasoner(HybridReasoner):
     def _link(self, graph: ProofHypergraph, node: ProofNode, tactic: TacticCandidate, ranked_subgoals: list):
         edge = super()._link(graph, node, tactic, ranked_subgoals)
         key = _fingerprint(node.goal, tactic.tactic_name, tuple(tactic.arguments))
-        # node.goal must match the fingerprint's goal: predict_next_tactic fingerprinted
-        # the SANITIZED goal, so try that too.
         action = self._pending.pop(key, None)
         if action is None and self._pending_goal is not None:
             key = _fingerprint(self._pending_goal, tactic.tactic_name, tuple(tactic.arguments))
@@ -191,20 +212,22 @@ class RLHybridReasoner(HybridReasoner):
 
     def _flush_pending(self) -> None:
         """Convert still-pending samples (executor-rejected) into failure records."""
-        if self._pending and self._pending_goal is not None and self._result is not None:
-            for action in self._pending.values():
+        if self._pending_goal is not None and self._result is not None:
+            for action in [*self._pending.values(), *self._unplayable_actions]:
                 self._result.failure_actions.append(
                     FailureRecord(goal=self._pending_goal, action=action)
                 )
         self._pending = {}
+        self._unplayable_actions = []
         self._pending_goal = None
 
     def _discard_pending(self) -> None:
         self._pending = {}
+        self._unplayable_actions = []
         self._pending_goal = None
 
     def _on_expansion_complete(self, node: ProofNode, result: str) -> None:
-        if result == ExpansionResult.TACTICS_EXECUTED:
+        if result in {ExpansionResult.TACTICS_EXECUTED, ExpansionResult.NO_CANDIDATES}:
             self._flush_pending()
         else:
             self._discard_pending()
@@ -230,6 +253,7 @@ class RLHybridReasoner(HybridReasoner):
         stash still fills, but the caller ignores it (no gradient step follows an eval).
         """
         self._pending = {}
+        self._unplayable_actions = []
         self._pending_goal = None
         self._greedy = greedy
         self._result = RLSearchResult(graph=None)  # graph attached after the base search

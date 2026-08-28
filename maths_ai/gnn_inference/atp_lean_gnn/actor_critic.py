@@ -9,6 +9,7 @@ from torch import Tensor, nn
 
 from .architectures import EncoderOutput, StateGraphEncoder
 from .argument_selector import ArgumentSelector, resolve_premise_mask
+from .graph_contract import GraphRepresentationSpec
 from .labels import get_tactic_arity
 from .reporting import console_print
 
@@ -337,12 +338,13 @@ def load_from_pointer_checkpoint(
     *,
     node_vocab: dict[str, int],
     tactic_vocab: dict[str, int],
+    graph_representation: GraphRepresentationSpec,
 ) -> None:
     """Load TacticWithArgsClassifier checkpoint weights into ActorCriticWithArgsClassifier.
 
-    The pointer is reconstructed from its version-2 manifest, including vocabulary
-    fingerprint validation. The complete normalized model specification must equal the
-    actor-critic specification before any component is copied.
+    The pointer is reconstructed from its version-3 manifest, including graph and
+    vocabulary contract validation. The complete normalized model specification must
+    equal the actor-critic specification before any component is copied.
     """
     from .checkpointing import build_model_from_checkpoint
 
@@ -351,6 +353,7 @@ def load_from_pointer_checkpoint(
         checkpoint,
         node_vocab=node_vocab,
         tactic_vocab=tactic_vocab,
+        graph_representation=graph_representation,
         expected_model_kind="tactic_with_args",
     )
     if pointer_spec != model.model_spec:
