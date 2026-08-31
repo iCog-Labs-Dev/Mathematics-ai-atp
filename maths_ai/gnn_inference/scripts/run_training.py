@@ -490,6 +490,7 @@ def run_scorer(config: dict[str, Any]) -> dict[str, Any]:
         ckpt,
         node_vocab=metadata.node_vocab,
         tactic_vocab=metadata.tactic_vocab,
+        graph_representation=metadata.graph_representation,
         expected_model_kind="tactic_with_args",
     )
     if lemma_index is not None:

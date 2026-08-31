@@ -9,6 +9,7 @@ import torch
 from torch import nn
 
 from .architectures import architecture_definition
+from .graph_contract import GraphRepresentationSpec, require_graph_representation
 from .model_factory import (
     build_actor_critic_model,
     build_pointer_model,
@@ -17,7 +18,7 @@ from .model_factory import (
 from .model_spec import ModelSpec
 
 
-CHECKPOINT_FORMAT_VERSION = 2
+CHECKPOINT_FORMAT_VERSION = 3
 MODEL_BUILDERS = {
     "supervised_tactic": build_supervised_tactic_model,
     "tactic_with_args": build_pointer_model,
@@ -73,6 +74,7 @@ def build_checkpoint_manifest(
     node_vocab: Mapping[str, int],
     tactic_vocab: Mapping[str, int],
     model: nn.Module,
+    graph_representation: GraphRepresentationSpec,
 ) -> dict[str, object]:
     if model_kind not in MODEL_BUILDERS:
         raise ValueError(f"Unknown model kind '{model_kind}'.")
@@ -84,6 +86,7 @@ def build_checkpoint_manifest(
         "model_kind": model_kind,
         "model_spec": model_spec.to_dict(),
         "architecture_version": definition.version,
+        "graph_representation": graph_representation.to_dict(),
         "node_vocab_fingerprint": vocabulary_fingerprint(node_vocab),
         "tactic_vocab_fingerprint": vocabulary_fingerprint(tactic_vocab),
         "encoder_fingerprint": encoder_fingerprint(
@@ -102,6 +105,7 @@ def checkpoint_payload(
     node_vocab: Mapping[str, int],
     tactic_vocab: Mapping[str, int],
     model: nn.Module,
+    graph_representation: GraphRepresentationSpec,
     **training_state: object,
 ) -> dict[str, object]:
     return {
@@ -111,6 +115,7 @@ def checkpoint_payload(
             node_vocab=node_vocab,
             tactic_vocab=tactic_vocab,
             model=model,
+            graph_representation=graph_representation,
         ),
         "model_state_dict": model.state_dict(),
         **training_state,
@@ -122,12 +127,13 @@ def validate_checkpoint_manifest(
     *,
     node_vocab: Mapping[str, int],
     tactic_vocab: Mapping[str, int],
+    graph_representation: GraphRepresentationSpec,
     expected_model_kind: str | None = None,
 ) -> tuple[dict[str, object], ModelSpec]:
     manifest = checkpoint.get("manifest")
     if not isinstance(manifest, dict):
         raise ValueError(
-            "Checkpoint has no version-2 manifest. Migrate it with "
+            "Checkpoint has no version-3 manifest. Migrate it with "
             "scripts/migrate_model_checkpoint.py before loading."
         )
     if int(manifest.get("checkpoint_format_version", -1)) != CHECKPOINT_FORMAT_VERSION:
@@ -142,6 +148,14 @@ def validate_checkpoint_manifest(
         raise ValueError(
             f"Checkpoint model kind is '{model_kind}', expected '{expected_model_kind}'."
         )
+
+    representation_payload = manifest.get("graph_representation")
+    if not isinstance(representation_payload, Mapping):
+        raise ValueError("Checkpoint manifest is missing 'graph_representation'.")
+    checkpoint_representation = GraphRepresentationSpec.from_dict(
+        representation_payload
+    )
+    require_graph_representation(checkpoint_representation, graph_representation)
 
     model_spec_payload = manifest.get("model_spec")
     if not isinstance(model_spec_payload, Mapping):
@@ -168,12 +182,14 @@ def build_model_from_checkpoint(
     *,
     node_vocab: Mapping[str, int],
     tactic_vocab: Mapping[str, int],
+    graph_representation: GraphRepresentationSpec,
     expected_model_kind: str | None = None,
 ) -> tuple[nn.Module, dict[str, object], ModelSpec]:
     manifest, model_spec = validate_checkpoint_manifest(
         checkpoint,
         node_vocab=node_vocab,
         tactic_vocab=tactic_vocab,
+        graph_representation=graph_representation,
         expected_model_kind=expected_model_kind,
     )
     model_kind = str(manifest["model_kind"])

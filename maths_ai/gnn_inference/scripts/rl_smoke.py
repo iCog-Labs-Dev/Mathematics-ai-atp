@@ -30,17 +30,20 @@ from pathlib import Path
 import torch
 from torch.optim import AdamW
 
-from maths_ai.data_models.proof_components import Goal
+from maths_ai.data_models.proof_components import LeanGoalSeed, seed_replay_spec
 from maths_ai.hybrid_reasoner.joint_inference import PantographExecutor
 from maths_ai.hybrid_reasoner.pantograph_env import PantographEnv
+from maths_ai.hybrid_reasoner.pantograph_model_sexpr import (
+    create_model_sexpr_server,
+    pantograph_state_to_goals,
+)
 
 from maths_ai.gnn_inference.atp_lean_gnn.actor_critic import ActorCriticWithArgsClassifier
 from maths_ai.gnn_inference.atp_lean_gnn.model_factory import build_actor_critic_model
 from maths_ai.gnn_inference.atp_lean_gnn.model_spec import ModelSpec
-from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
+from maths_ai.gnn_inference.atp_lean_gnn.graph import model_goal_to_dag
 from maths_ai.gnn_inference.atp_lean_gnn.pln_reward import RewardConfig
 from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import (
-    goal_to_state,
     train_step_onpolicy,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.pyg import build_vocab
@@ -88,16 +91,19 @@ def build_model(node_vocab: dict[str, int]) -> ActorCriticWithArgsClassifier:
 async def run_smoke(env: PantographEnv) -> None:
     torch.manual_seed(0)
 
-    seed = Goal(expression=SEED_GOAL, hypotheses=SEED_HYPS)
-    node_vocab = build_vocab([proof_state_to_dag(goal_to_state(seed))])
-    model = build_model(node_vocab)
-
-    # env.create_server() binds the subprocess pipes to THIS event loop; the sync
-    # Server() constructor would bind them to its own internal loop and every later
-    # await from asyncio.run's loop would fail with "attached to a different loop".
     env.verify()
     print(f"[rl_smoke] starting Pantograph server: {env.describe()}")
-    server = await env.create_server()
+    server = await create_model_sexpr_server(env)
+    replay = seed_replay_spec(LeanGoalSeed(expression=SEED_GOAL, hypotheses=SEED_HYPS))
+    seed_state = await server.goal_start_async(replay.expression)
+    seed_state = await server.goal_tactic_async(
+        seed_state, f"intro {' '.join(replay.local_names)}"
+    )
+    goals = pantograph_state_to_goals(seed_state)
+    if len(goals) != 1:
+        raise RuntimeError(f"Smoke seed serialized into {len(goals)} goals.")
+    node_vocab = build_vocab([model_goal_to_dag(goals[0])])
+    model = build_model(node_vocab)
     executor = PantographExecutor(server)
 
     reasoner = RLHybridReasoner(
@@ -138,18 +144,17 @@ async def run_smoke(env: PantographEnv) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Live smoke test for the on-policy RL loop")
-    parser.add_argument("--source-root", type=str, default=None,
-                        help="Lake project root whose compiled .olean artifacts the REPL "
-                             "should see (default: core Lean only)")
-    parser.add_argument("--pantograph-repl", type=str, default=None,
-                        help="Pantograph REPL binary to run instead of the bundled one")
+    parser.add_argument("--source-root", type=str, required=True,
+                        help="Pinned Mathlib Lake project root")
+    parser.add_argument("--pantograph-repl", type=str, required=True,
+                        help="Pinned model-S-expression Pantograph REPL binary")
     args = parser.parse_args()
 
-    source_root = Path(args.source_root) if args.source_root else None
+    source_root = Path(args.source_root)
     env = PantographEnv(
         source_root=source_root,
-        pantograph_repl=Path(args.pantograph_repl) if args.pantograph_repl else None,
-        imports=("Init", "Mathlib") if source_root else ("Init",),
+        pantograph_repl=Path(args.pantograph_repl),
+        imports=("Init", "Mathlib"),
     )
     asyncio.run(run_smoke(env))
 

@@ -32,11 +32,17 @@ PLN involvement is controlled by `use_pln` in the config (default `true`). Set t
 
 ## 1. Checkpoint file format
 
-The RL driver requires a version-2 checkpoint manifest. It reconstructs the encoder and
-heads from the manifest, validates the model kind and node/tactic vocabulary fingerprints,
-and refuses version-1 or bare state-dict resume files. Use
-`scripts/migrate_model_checkpoint.py` to create a version-2 warm start; migration drops
-old optimizer/replay state because validity provenance cannot be reconstructed.
+The RL driver requires a version-3 checkpoint manifest. It reconstructs the encoder and
+heads from the manifest, validates the model kind, node/tactic vocabulary fingerprints,
+and the normalized model-S-expression graph contract. Use
+`scripts/migrate_model_checkpoint.py` to create a version-3 model warm start; migration
+drops old optimizer and replay state because validity provenance and normalized graph
+identity cannot be reconstructed from text-only queues.
+
+The live RL representation is `lean-model-sexp-v2`, declared in
+`configs/model_sexpr_graph_contract.json`. The prepared dataset must contain
+`metadata/graph_representation.json` with the same contract. Runtime loading rejects a
+missing or mismatched contract instead of inferring one from tensor shapes or labels.
 
 The expected file is:
 
@@ -61,12 +67,14 @@ RL run checkpoints written by the HTPS-enabled driver contain additional keys:
 | Key | Contents | Missing = |
 |---|---|---|
 | `optimizer_htps_state_dict` | Adam moment state for the decoupled imitation/critic step | resume rejected |
-| `tactic_queue` | list of `(goal, hypotheses, tactic_id, arg_indices)` tuples | resume rejected |
-| `critic_queue` | list of `(node_id, goal, hypotheses, target, source)` tuples | resume rejected |
-| `rl_target_schema_version` | validity-aware replay schema version | resume rejected |
+| `tactic_queue` | structured canonical goals, graph fingerprints, tactic and argument indices | resume rejected |
+| `critic_queue` | structured canonical goals, graph fingerprints, targets, and provenance | resume rejected |
+| `graph_representation` | normalized model-S-expression graph contract | resume rejected |
+| `rl_target_schema_version` | validity-aware replay schema version (`3`) | resume rejected |
 
-Pre-validity checkpoints do not resume. Start a fresh RL run with the migrated model
-warm start and empty validity-aware queues.
+Pre-version-3 checkpoints may be used as model warm starts after an audited prepared-data
+migration, but text-only HTPS queues cannot be exact-resumed. Start fresh optimizers and
+empty validity-aware queues for those runs.
 
 ## 2. Where to copy the files on the server
 
@@ -117,23 +125,19 @@ uv run python -c "import torch; print(torch.cuda.is_available(), torch.version.c
 
 ### 3.2 Lean / Pantograph
 
-PyPantograph needs a Lean 4 toolchain (`elan`/`lake`) on PATH:
+Live RL uses the repository's strict model-S-expression server factory. It requires a
+Lake project, a custom `pantograph-repl` built against that project, and the `Mathlib`
+import. Use the setup helper to verify the pair and print the exact config flags:
 
 ```bash
-curl https://elan.lean-lang.org/elan-init.sh -sSf | sh   # installs to ~/.elan
-source ~/.elan/env
-uv run python -c "
-import asyncio
-from pantograph.server import Server
-async def main():
-    s = await Server.create()
-    st = await s.goal_start_async('forall (p : Prop), p -> p')
-    print('pantograph OK:', st.goals[0].target)
-asyncio.run(main())
-"
+uv run python maths_ai/gnn_inference/scripts/setup_sexpr_environment.py \
+  --source-root /abs/path/to/lean_mathlib \
+  --pantograph-repl /abs/path/to/lean_mathlib/.lake/build/bin/pantograph-repl
 ```
 
-The first `Server.create()` may compile Lean core — minutes, one-time.
+The helper checks the custom REPL, `Mathlib` environment, and model-S-expression capability
+before a training run. The first build may compile Lean core and Mathlib, which can take
+several minutes.
 
 ### 3.3 petta (PLN) — required only when `use_pln=true`
 
@@ -231,11 +235,20 @@ with working defaults.
 "warmstart_checkpoint": "runs/actor_critic_gnn/<timestamp>/best.pt",
 "prepared_root": "/abs/path/artifacts/prepared/v1",
 "run_root": "runs/rl_actor_critic",
-"device": "auto"
+"device": "auto",
+"source_root": "/abs/path/to/lean_mathlib",
+"pantograph_repl": "/abs/path/to/lean_mathlib/.lake/build/bin/pantograph-repl"
 ```
 
 Do not add an architecture block to the RL config. GraphSAGE or GATv2, including its
-readout, comes from the version-2 warm-start manifest.
+readout, comes from the version-3 warm-start manifest.
+
+`source_root` is the Lake project whose toolchain and Mathlib environment the live server
+loads. `pantograph_repl` is the custom REPL binary built for that same environment. Both
+are required for live RL; the strict server factory validates them, imports `Mathlib`, and
+runs a capability probe on startup and after every restart. The probe exercises explicit
+and instance locals and checks normalized `FV{i}` identities. A Python client or REPL from
+another Lean/Mathlib pair is a protocol mismatch even when the executable starts.
 
 **Search mode:**
 
@@ -262,6 +275,11 @@ one batch before backup. `puct_c` is the exploration constant in the PUCT score
 `Q + c·P·sqrt(total)/(1 + N + VL)`. Validation runs at config construction: an
 explicit budget under `"legacy"` and a missing `num_simulations` under `"puct"` both
 raise `ValueError` before any Lean server starts.
+
+Each PUCT leaf is serialized through Pantograph before the batched policy forward. If a
+server restart occurs while a leaf batch is being executed, every materialized state from
+the old server epoch is discarded. Those leaves are replayed under the new epoch and their
+actions are resampled; stale actions are not recorded as executor failures.
 
 The visit counters have separate meanings. `N` counts every completed traversal, including
 an `UNKNOWN` result caused by an unelaborated node or infrastructure failure. `N_v` counts
@@ -385,6 +403,9 @@ When the decoupled HTPS step is enabled, additional columns appear once the queu
 | `critic_queue_len` | Current size of the soft-critic replay queue |
 | `tactic_imitation_loss` | Cross-entropy on proof-edge tactics + arguments (decoupled step) |
 | `critic_soft_loss` | MSE of critic head vs. valid status/root/soft-Q targets (decoupled step) |
+| `unknown_label_count` | Total graph labels mapped to `<UNK>` during the update |
+| `structural_unknown_label_count` | Unknown graph-schema labels; nonzero values fail the update |
+| `semantic_unknown_label_count` | Unknown Lean content labels mapped to `<UNK>` |
 
 With `selection_policy="puct"`, also watch that `visit_stats.N > 0` on edges in the
 saved graphs — a consistently zero visit count means the simulation loop is not
@@ -434,5 +455,5 @@ uv run python maths_ai/gnn_inference/scripts/rl_train.py \
 | `ValueError: selection_policy='puct' requires num_simulations` | `"puct"` set without a simulation budget | add `"num_simulations": <int>` |
 | `RuntimeError: rank_subgoals requires PLN; ... use_pln=False` | `rank_subgoals` called directly on a `use_pln=False` reasoner | this is a guard, not a config error; indicates a code path that expects PLN was reached — check that the calling code respects the flag |
 | every PLN result `is_fallback=True` | petta not found (only relevant when `use_pln=true`) | install petta / set `PETTA_BIN`; or switch to `"use_pln": false` |
-| `Server.create()` hangs or errors | no Lean toolchain | install elan, `source ~/.elan/env` |
+| strict Pantograph server creation fails | missing or mismatched `source_root`, `pantograph_repl`, Lean toolchain, or `Mathlib` import | run `setup_sexpr_environment.py` with the same paths and rebuild the custom REPL |
 | `ModuleNotFoundError: datasets` | streaming dep not installed | `uv add datasets` |

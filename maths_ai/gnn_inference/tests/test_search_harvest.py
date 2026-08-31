@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from maths_ai.data_models.proof_components import Goal, STV, TacticCandidate
+from maths_ai.data_models.proof_components import STV, TacticCandidate
 from maths_ai.hybrid_reasoner.hypergraph import (
     BackupSource,
     BackupValidity,
@@ -13,7 +13,9 @@ from maths_ai.hybrid_reasoner.hypergraph import (
     SearchEndReason,
 )
 from maths_ai.hybrid_reasoner.joint_inference import HybridReasoner, _Simulation
+from maths_ai.gnn_inference.atp_lean_gnn.graph import dag_fingerprint, model_goal_to_dag
 from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import EdgeAction
+from maths_ai.gnn_inference.tests.model_helpers import structured_goal
 from maths_ai.gnn_inference.atp_lean_gnn.search_harvest import (
     HarvestConfig,
     compute_backups,
@@ -31,13 +33,21 @@ def stv() -> STV:
     return STV(strength=0.5, confidence=1.0)
 
 
+def goal(expression: str):
+    return structured_goal(expression, ["h : Prop"])
+
+
+def fingerprint(goal_obj) -> str:
+    return str(dag_fingerprint(model_goal_to_dag(goal_obj)))
+
+
 class ValidityHarvestTests(unittest.TestCase):
     def test_solved_and_unknown_and_edge_is_unknown(self):
-        graph = ProofHypergraph(Goal(expression="P", hypotheses=[]))
+        graph = ProofHypergraph(goal("P"))
         edge = graph.add_edge(
             graph.root_id,
             tac(),
-            [(Goal(expression="A", hypotheses=[]), stv()), (Goal(expression="B", hypotheses=[]), stv())],
+            [(goal("A"), stv()), (goal("B"), stv())],
         )
         graph.add_edge(edge.child_ids[0], tac("qed"), [])
         graph.nodes[edge.child_ids[1]].closure_reason = NodeClosureReason.ELABORATION_ERROR
@@ -50,11 +60,11 @@ class ValidityHarvestTests(unittest.TestCase):
         self.assertEqual(transitions[0].edge_id, 1)
 
     def test_known_zero_dominates_unknown_child_on_and_edge(self):
-        graph = ProofHypergraph(Goal(expression="P", hypotheses=[]))
+        graph = ProofHypergraph(goal("P"))
         edge = graph.add_edge(
             graph.root_id,
             tac(),
-            [(Goal(expression="A", hypotheses=[]), stv()), (Goal(expression="B", hypotheses=[]), stv())],
+            [(goal("A"), stv()), (goal("B"), stv())],
         )
         failed_edge = graph.add_edge(edge.child_ids[0], tac("fail"), [])
         failed_edge.status = EdgeStatus.DEAD
@@ -67,11 +77,11 @@ class ValidityHarvestTests(unittest.TestCase):
         self.assertEqual(outcome, outcome.valid(0.0, BackupSource.SEARCH_FAILURE))
 
     def test_solved_alternative_dominates_unknown_parent(self):
-        graph = ProofHypergraph(Goal(expression="P", hypotheses=[]))
+        graph = ProofHypergraph(goal("P"))
         solved = graph.add_edge(graph.root_id, tac("qed", 0.9), [])
         unknown = graph.add_edge(
             graph.root_id, tac("unknown", 0.1),
-            [(Goal(expression="A", hypotheses=[]), stv())],
+            [(goal("A"), stv())],
         )
         graph.nodes[unknown.child_ids[0]].status = NodeStatus.DEAD
         graph.nodes[unknown.child_ids[0]].closure_reason = NodeClosureReason.ELABORATION_ERROR
@@ -81,12 +91,12 @@ class ValidityHarvestTests(unittest.TestCase):
         self.assertEqual(extract_transitions(graph)[0].edge_id, solved.id)
 
     def test_failed_alternative_does_not_dominate_unknown_parent(self):
-        graph = ProofHypergraph(Goal(expression="P", hypotheses=[]))
+        graph = ProofHypergraph(goal("P"))
         failed = graph.add_edge(
-            graph.root_id, tac("failed"), [(Goal(expression="A", hypotheses=[]), stv())]
+            graph.root_id, tac("failed"), [(goal("A"), stv())]
         )
         unknown = graph.add_edge(
-            graph.root_id, tac("unknown"), [(Goal(expression="B", hypotheses=[]), stv())]
+            graph.root_id, tac("unknown"), [(goal("B"), stv())]
         )
         graph.nodes[failed.child_ids[0]].status = NodeStatus.DEAD
         graph.nodes[failed.child_ids[0]].closure_reason = NodeClosureReason.CANDIDATES_EXHAUSTED
@@ -96,9 +106,9 @@ class ValidityHarvestTests(unittest.TestCase):
         self.assertEqual(target.validity, BackupValidity.UNKNOWN)
 
     def test_unknown_simulation_counts_work_without_numeric_backup(self):
-        graph = ProofHypergraph(Goal(expression="P", hypotheses=[]))
+        graph = ProofHypergraph(goal("P"))
         edge = graph.add_edge(
-            graph.root_id, tac(), [(Goal(expression="A", hypotheses=[]), stv())]
+            graph.root_id, tac(), [(goal("A"), stv())]
         )
         child = graph.nodes[edge.child_ids[0]]
         child.status = NodeStatus.DEAD
@@ -116,7 +126,7 @@ class ValidityHarvestTests(unittest.TestCase):
         self.assertEqual(edge.visit_stats.virtual_loss, 0)
 
     def test_clean_root_budget_failure_is_root_only(self):
-        graph = ProofHypergraph(Goal(expression="P", hypotheses=[]))
+        graph = ProofHypergraph(goal("P"))
         graph.end_reason = SearchEndReason.NUM_SIMULATIONS
         graph.nodes[graph.root_id].status = NodeStatus.EXPANDED
         tables = compute_backups(graph)
@@ -124,26 +134,28 @@ class ValidityHarvestTests(unittest.TestCase):
         self.assertEqual(extract_critic_samples(graph)[0].node_id, graph.root_id)
 
     def test_critic_source_and_unique_nodes(self):
-        graph = ProofHypergraph(Goal(expression="P", hypotheses=[]))
+        graph = ProofHypergraph(goal("P"))
         graph.add_edge(graph.root_id, tac(), [])
         samples = extract_critic_samples(graph)
         self.assertEqual(len(samples), 1)
         self.assertEqual(samples[0].source, BackupSource.LEAN_STATUS)
 
     def test_all_subgoals_are_retained(self):
-        graph = ProofHypergraph(Goal(expression="P", hypotheses=[]))
+        graph = ProofHypergraph(goal("P"))
         edge = graph.add_edge(
             graph.root_id,
             tac(),
-            [(Goal(expression=str(i), hypotheses=[]), stv()) for i in range(5)],
+            [(goal(str(i)), stv()) for i in range(5)],
         )
         self.assertEqual(len(edge.child_ids), 5)
 
     def test_minimal_tree_requires_structural_solution(self):
-        graph = ProofHypergraph(Goal(expression="P", hypotheses=[]))
+        graph = ProofHypergraph(goal("P"))
         edge = graph.add_edge(graph.root_id, tac(), [])
         samples = extract_minimal_hypertree(
-            graph, {edge.id: EdgeAction(tactic_id=1)}, mine_all_solved_nodes=False
+            graph,
+            {edge.id: EdgeAction(tactic_id=1, graph_fingerprint=fingerprint(graph.root.goal))},
+            mine_all_solved_nodes=False,
         )
         self.assertEqual(len(samples), 1)
 

@@ -27,13 +27,16 @@ from typing import Any, Optional
 import torch
 from torch.optim import AdamW
 
-from maths_ai.data_models.proof_components import Goal
+from maths_ai.data_models.proof_components import Goal, LeanGoalSeed
 from maths_ai.hybrid_reasoner.pantograph_env import PantographEnv
+from maths_ai.hybrid_reasoner.pantograph_model_sexpr import create_model_sexpr_server
 from maths_ai.hybrid_reasoner.hypergraph import BackupSource
 from maths_ai.hybrid_reasoner.selection_policy import resolve_search_params
 
 from .actor_critic import ActorCriticWithArgsClassifier
 from .checkpointing import build_model_from_checkpoint, checkpoint_payload
+from .graph_contract import GraphRepresentationSpec, require_graph_representation
+from .graph import dag_fingerprint, model_goal_to_dag
 from .dataset import iter_dataset_rows
 from .pln_reward import RewardConfig
 from .pln_rl_training import make_dag_featurizer, train_step_htps_style, train_step_onpolicy
@@ -46,6 +49,7 @@ from .search_harvest import (
     extract_minimal_hypertree,
 )
 from .state import parse_state
+from .training import load_prepared_metadata
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +61,7 @@ from .state import parse_state
 class RLTrainingConfig:
     """Configuration for the RL training driver (flat JSON, ``from_json`` below).
 
-    ``warmstart_checkpoint`` is a version-2, self-describing supervised
+    ``warmstart_checkpoint`` is a version-3, self-describing supervised
     actor-critic checkpoint. Its manifest owns the encoder architecture.
     """
 
@@ -169,6 +173,8 @@ class RLTrainingConfig:
             payload = json.load(f)
         kwargs: dict[str, Any] = {}
         for key, value in payload.items():
+            if key == "graph_representation":
+                continue
             if key in cls._PATH_FIELDS and value is not None:
                 kwargs[key] = Path(value)
             else:
@@ -222,17 +228,15 @@ def search_settings(cfg: RLTrainingConfig) -> dict[str, object]:
 
 @dataclass
 class TheoremItem:
-    goal: Goal
+    goal: LeanGoalSeed
     tactic_label: str  # ground-truth tactic from the dataset row ("" in file mode)
     size: int
 
 
-def _row_state_to_goal(state_str: str) -> Goal:
-    """Dataset row's pretty-printed state → ``Goal`` via the SAME parser the
-    featurizer uses (``parse_state``), so pool goals and rollout goals agree on
-    hypothesis splitting."""
+def _row_state_to_goal(state_str: str) -> LeanGoalSeed:
+    """Convert a dataset proof-state string into an unelaborated theorem seed."""
     parsed = parse_state(state_str)
-    return Goal(
+    return LeanGoalSeed(
         expression=parsed.goal,
         hypotheses=[f"{h.name} : {h.type_expr}" for h in parsed.hypotheses],
     )
@@ -285,7 +289,9 @@ def build_theorem_pool(cfg: RLTrainingConfig) -> TheoremPool:
                 if not line:
                     continue
                 row = json.loads(line)
-                goal = Goal(expression=row["goal"], hypotheses=row.get("hypotheses", []))
+                goal = LeanGoalSeed(
+                    expression=row["goal"], hypotheses=row.get("hypotheses", [])
+                )
                 size = len(goal.expression) + sum(len(h) for h in goal.hypotheses)
                 if size > cfg.max_state_chars:
                     dropped += 1
@@ -413,18 +419,17 @@ def save_checkpoint(
     critic_queue: "deque[CriticSample] | None" = None,
     node_vocab: dict[str, int],
     tactic_vocab: dict[str, int],
+    graph_representation: GraphRepresentationSpec,
     saved_search_settings: dict[str, object],
 ) -> None:
     """Write the resume state (Decision 1.4: optimizer-htps + queues included).
 
-    Queue samples are serialized as plain tuples of strings/ints/floats, not
-    pickled dataclass instances. Runtime loading still requires a version-2
-    manifest; pre-manifest checkpoints must go through the explicit migration
-    command.
+    Queue samples are serialized as structured dictionaries. Their canonical
+    goals and graph fingerprints are required for exact replay alignment.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     training_state = {
-        "rl_target_schema_version": 2,
+        "rl_target_schema_version": 3,
         "optimizer_state_dict": optimizer.state_dict(),
         "round": round_idx,
         "curriculum_size": curriculum_size,
@@ -439,18 +444,30 @@ def save_checkpoint(
         node_vocab=node_vocab,
         tactic_vocab=tactic_vocab,
         model=model,
+        graph_representation=graph_representation,
         **training_state,
     )
     if optimizer_htps is not None:
         payload["optimizer_htps_state_dict"] = optimizer_htps.state_dict()
     if tactic_queue is not None:
         payload["tactic_queue"] = [
-            (s.goal, tuple(s.hypotheses), s.tactic_id, tuple(s.arg_indices))
+            {
+                "goal": s.goal.model_dump(mode="json"),
+                "graph_fingerprint": s.graph_fingerprint,
+                "tactic_id": s.tactic_id,
+                "arg_indices": list(s.arg_indices),
+            }
             for s in tactic_queue
         ]
     if critic_queue is not None:
         payload["critic_queue"] = [
-            (s.node_id, s.goal, tuple(s.hypotheses), s.target, s.source.value)
+            {
+                "node_id": s.node_id,
+                "goal": s.goal.model_dump(mode="json"),
+                "graph_fingerprint": s.graph_fingerprint,
+                "target": s.target,
+                "source": s.source.value,
+            }
             for s in critic_queue
         ]
     torch.save(payload, path)
@@ -503,19 +520,6 @@ def _resolve_device(device: str) -> torch.device:
     return torch.device(device)
 
 
-def _load_vocabs(prepared_root: Path) -> tuple[dict[str, int], dict[str, int]]:
-    node_vocab_path = prepared_root / "vocab" / "node_vocab.json"
-    tactic_vocab_path = prepared_root / "vocab" / "tactic_vocab.json"
-    for p in (node_vocab_path, tactic_vocab_path):
-        if not p.exists():
-            raise FileNotFoundError(f"Missing vocab file: {p}")
-    with open(node_vocab_path) as f:
-        node_vocab = {str(k): int(v) for k, v in json.load(f).items()}
-    with open(tactic_vocab_path) as f:
-        tactic_vocab = {str(k): int(v) for k, v in json.load(f).items()}
-    return node_vocab, tactic_vocab
-
-
 def _create_run_dir(run_root: Path) -> Path:
     run_root.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -538,13 +542,16 @@ async def run_rl_training(
     both default to the live Pantograph path and the configured data source.
     """
     device = _resolve_device(cfg.device)
-    node_vocab, tactic_vocab = _load_vocabs(cfg.prepared_root)
+    metadata = load_prepared_metadata(cfg.prepared_root)
+    require_graph_representation(metadata.graph_representation)
+    node_vocab, tactic_vocab = metadata.node_vocab, metadata.tactic_vocab
 
     checkpoint = torch.load(cfg.warmstart_checkpoint, map_location=device, weights_only=False)
     model, _manifest, model_spec = build_model_from_checkpoint(
         checkpoint,
         node_vocab=node_vocab,
         tactic_vocab=tactic_vocab,
+        graph_representation=metadata.graph_representation,
         expected_model_kind="actor_critic_with_args",
     )
     model = model.to(device)
@@ -577,10 +584,11 @@ async def run_rl_training(
         if not last_path.exists():
             raise FileNotFoundError(f"Resume requested but {last_path} does not exist")
         state = torch.load(last_path, map_location=device, weights_only=False)
-        if state.get("rl_target_schema_version") != 2:
+        if state.get("rl_target_schema_version") != 3:
             raise ValueError(
-                "This checkpoint predates validity-aware RL targets and cannot be resumed. "
-                "Use its model checkpoint as a warm start for a fresh RL run."
+                "This checkpoint lacks canonical model-S-expression replay queues and "
+                "cannot be resumed exactly. Use its model checkpoint as a warm start "
+                "for a fresh RL run."
             )
         if state.get("search_settings") != search_settings(cfg):
             raise ValueError(
@@ -591,6 +599,7 @@ async def run_rl_training(
             state,
             node_vocab=node_vocab,
             tactic_vocab=tactic_vocab,
+            graph_representation=metadata.graph_representation,
             expected_model_kind="actor_critic_with_args",
         )
         if resume_spec != model_spec:
@@ -603,20 +612,33 @@ async def run_rl_training(
         optimizer_htps.load_state_dict(state["optimizer_htps_state_dict"])
         tactic_queue.extend(
             TacticImitationSample(
-                goal=g, hypotheses=tuple(h), tactic_id=int(tid), arg_indices=tuple(args)
+                goal=Goal.model_validate(row["goal"]),
+                graph_fingerprint=str(row["graph_fingerprint"]),
+                tactic_id=int(row["tactic_id"]),
+                arg_indices=tuple(int(value) for value in row["arg_indices"]),
             )
-            for g, h, tid, args in state.get("tactic_queue", [])
+            for row in state.get("tactic_queue", [])
         )
         critic_queue.extend(
             CriticSample(
-                node_id=int(node_id),
-                goal=goal,
-                hypotheses=tuple(hypotheses),
-                target=float(target),
-                source=BackupSource(source),
+                node_id=int(row["node_id"]),
+                goal=Goal.model_validate(row["goal"]),
+                graph_fingerprint=str(row["graph_fingerprint"]),
+                target=float(row["target"]),
+                source=BackupSource(row["source"]),
             )
-            for node_id, goal, hypotheses, target, source in state["critic_queue"]
+            for row in state.get("critic_queue", [])
         )
+        for sample in [*tactic_queue, *critic_queue]:
+            sample.goal.require_model_state()
+            if (
+                dag_fingerprint(model_goal_to_dag(sample.goal))
+                != sample.graph_fingerprint
+            ):
+                raise ValueError(
+                    "Resume checkpoint contains a replay sample whose canonical goal "
+                    "does not match its graph fingerprint."
+                )
         torch.set_rng_state(state["torch_rng_state"].cpu())
         start_round = int(state["round"]) + 1
         onpolicy_steps = int(state["onpolicy_steps"])
@@ -626,7 +648,9 @@ async def run_rl_training(
     else:
         run_dir = _create_run_dir(cfg.run_root)
         with open(run_dir / "config.json", "w") as f:
-            json.dump(cfg.to_dict(), f, indent=2)
+            run_config = cfg.to_dict()
+            run_config["graph_representation"] = metadata.graph_representation.to_dict()
+            json.dump(run_config, f, indent=2)
     metrics_path = run_dir / "metrics.jsonl"
     console_print(f"Run dir: {run_dir}")
 
@@ -640,7 +664,7 @@ async def run_rl_training(
         environment = pantograph_env(cfg)
         environment.verify()
         console_print(f"Pantograph environment: {environment.describe()}")
-        server = await environment.create_server()
+        server = await create_model_sexpr_server(environment)
         executor = PantographExecutor(server)
         reasoner = RLHybridReasoner(
             model=model,
@@ -720,6 +744,10 @@ async def run_rl_training(
             metrics = {
                 "num_transitions": 0.0,
                 "num_failures": 0.0,
+                "unknown_label_count": 0.0,
+                "structural_unknown_label_count": 0.0,
+                "semantic_unknown_label_count": 0.0,
+                "total_label_count": 0.0,
                 "onpolicy_optimizer_step": 0.0,
             }
         onpolicy_steps += int(metrics.get("onpolicy_optimizer_step", 0.0))
@@ -774,6 +802,13 @@ async def run_rl_training(
             )
             metrics["tactic_imitation_loss"] = htps_metrics["tactic_imitation_loss"]
             metrics["critic_soft_loss"] = htps_metrics["critic_soft_loss"]
+            for key in (
+                "unknown_label_count",
+                "structural_unknown_label_count",
+                "semantic_unknown_label_count",
+                "total_label_count",
+            ):
+                metrics[f"htps_{key}"] = htps_metrics[key]
 
         # Curriculum: grow when the recent training-window solve rate crosses threshold.
         solve_rate = collect_stats["solved"] / (collect_stats["attempted"] or 1.0)
@@ -818,6 +853,7 @@ async def run_rl_training(
                 critic_queue=critic_queue,
                 node_vocab=node_vocab,
                 tactic_vocab=tactic_vocab,
+                graph_representation=metadata.graph_representation,
                 saved_search_settings=search_settings(cfg),
             )
 
@@ -839,6 +875,7 @@ async def run_rl_training(
                     critic_queue=critic_queue,
                     node_vocab=node_vocab,
                     tactic_vocab=tactic_vocab,
+                    graph_representation=metadata.graph_representation,
                     saved_search_settings=search_settings(cfg),
                 )
                 console_print(f"  New best proof rate {best_proof_rate:.3f} → best.pt")
@@ -853,6 +890,7 @@ async def run_rl_training(
         critic_queue=critic_queue,
         node_vocab=node_vocab,
         tactic_vocab=tactic_vocab,
+        graph_representation=metadata.graph_representation,
         saved_search_settings=search_settings(cfg),
     )
     return last_metrics
@@ -883,12 +921,15 @@ def driver_main(argv: list[str] | None = None) -> int:
 
         async def _eval() -> None:
             device = _resolve_device(cfg.device)
-            node_vocab, tactic_vocab = _load_vocabs(cfg.prepared_root)
+            metadata = load_prepared_metadata(cfg.prepared_root)
+            require_graph_representation(metadata.graph_representation)
+            node_vocab, tactic_vocab = metadata.node_vocab, metadata.tactic_vocab
             checkpoint = torch.load(cfg.warmstart_checkpoint, map_location=device, weights_only=False)
             model, _manifest, _model_spec = build_model_from_checkpoint(
                 checkpoint,
                 node_vocab=node_vocab,
                 tactic_vocab=tactic_vocab,
+                graph_representation=metadata.graph_representation,
                 expected_model_kind="actor_critic_with_args",
             )
             model = model.to(device)
@@ -897,7 +938,7 @@ def driver_main(argv: list[str] | None = None) -> int:
 
             environment = pantograph_env(cfg)
             environment.verify()
-            server = await environment.create_server()
+            server = await create_model_sexpr_server(environment)
             reasoner = RLHybridReasoner(
                 model=model, node_vocab=node_vocab, tactic_vocab=tactic_vocab,
                 executor=PantographExecutor(server), device=device,

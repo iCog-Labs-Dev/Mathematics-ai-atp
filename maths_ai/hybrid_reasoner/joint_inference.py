@@ -15,7 +15,15 @@ from typing import Dict, List, Literal, Optional, Set
 from dataclasses import dataclass, field
 from pantograph.server import Server, GoalState, ServerError, ParseError
 
-from maths_ai.data_models.proof_components import Goal, RankedSubgoal, STV, TacticCandidate
+from maths_ai.data_models.proof_components import (
+    Goal,
+    GoalReplaySpec,
+    LeanGoalSeed,
+    RankedSubgoal,
+    STV,
+    TacticCandidate,
+    seed_replay_spec,
+)
 from maths_ai.gnn_inference.inference_engine import GNNModelEngine
 from maths_ai.pln_inference.model import PLNInference
 from maths_ai.pln_inference.metta.translator.translator_modules.runner import DynamicThompsonSampler
@@ -35,11 +43,22 @@ from maths_ai.hybrid_reasoner.hypergraph import (
 )
 from maths_ai.hybrid_reasoner.selection_policy import puct_score, resolve_search_params
 from maths_ai.hybrid_reasoner.pantograph_env import PantographEnv
+from maths_ai.hybrid_reasoner.pantograph_model_sexpr import (
+    create_model_sexpr_server,
+    pantograph_state_to_goals,
+)
 from maths_ai.core.config import settings
 from maths_ai.gnn_inference.atp_lean_gnn.reporting import console_print
 
 _INACCESSIBLE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_']*✝[⁰-⁹¹²³]*")
-_LEAN_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_'.!?]*$")
+
+
+def _is_lean_identifier(value: str) -> bool:
+    parts = value.split(".")
+    return bool(parts) and all(
+        bool(core := part.rstrip("'!?")) and core.isidentifier()
+        for part in parts
+    )
 _BRACKET_REQUIRED_TACTICS = frozenset({
     "rw", "rwa", "rewrite", "simp_rw", "simp only", "erw",
 })
@@ -57,7 +76,7 @@ def render_tactic_command(tactic: TacticCandidate) -> Optional[str]:
     arguments = [arg.rstrip(":").strip() for arg in tactic.arguments]
     arguments = [arg for arg in arguments if arg]
     if name in _BRACKET_REQUIRED_TACTICS or name in _BRACKET_OPTIONAL_TACTICS:
-        rules = [arg for arg in arguments if _LEAN_IDENT_RE.match(arg)]
+        rules = [arg for arg in arguments if _is_lean_identifier(arg)]
         if rules:
             return f"{name} [{', '.join(rules)}]"
         if name in _BRACKET_REQUIRED_TACTICS:
@@ -79,6 +98,16 @@ class _Simulation:
     leaves: List[int] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class MaterializedGoal:
+    """One canonical goal paired with the live Pantograph state that produced it."""
+
+    goal: Goal
+    state: GoalState
+    server_epoch: int
+    fingerprint: str
+
+
 class ExpansionResult(str, Enum):
     TACTICS_EXECUTED = "tactics_executed"
     NO_CANDIDATES = "no_candidates"
@@ -87,7 +116,7 @@ class ExpansionResult(str, Enum):
     EXTERNAL_ABORT = "external_abort"
 
 
-def _sanitize_inaccessible_names(goal: Goal) -> Goal:
+def _sanitize_replay_spec(spec: GoalReplaySpec) -> GoalReplaySpec:
     """Replace Lean's "inaccessible name" tokens (e.g. ``p✝``, printed for a
     binder shadowed by a later one — see ``intro p q p``) with fresh plain
     identifiers.
@@ -98,10 +127,10 @@ def _sanitize_inaccessible_names(goal: Goal) -> Goal:
     every hypothesis keeps the goal semantically identical while making it
     parseable again.
     """
-    text = " ".join([goal.expression, *goal.hypotheses])
+    text = " ".join([spec.expression, *spec.local_names])
     tokens = sorted(set(_INACCESSIBLE_NAME_RE.findall(text)))
     if not tokens:
-        return goal
+        return spec
 
     existing_names = set(re.findall(r"[A-Za-z_][A-Za-z0-9_']*", text))
     rename: Dict[str, str] = {}
@@ -114,9 +143,9 @@ def _sanitize_inaccessible_names(goal: Goal) -> Goal:
     def substitute(value: str) -> str:
         return _INACCESSIBLE_NAME_RE.sub(lambda m: rename[m.group(0)], value)
 
-    return Goal(
-        expression=substitute(goal.expression),
-        hypotheses=[substitute(h) for h in goal.hypotheses],
+    return GoalReplaySpec(
+        expression=substitute(spec.expression),
+        local_names=tuple(substitute(name) for name in spec.local_names),
     )
 def plot_hypergraph(graph: ProofHypergraph) -> None:
     """Utility to visualize the proof hypergraph with Graphviz (for debugging
@@ -191,10 +220,7 @@ class PantographExecutor(TacticExecutor):
         except Exception as e:
             return TacticOutcome(success=False, subgoals=[], error=str(e))
 
-        subgoals = [
-            Goal(expression=str(g.target), hypotheses=[str(v) for v in g.variables])
-            for g in new_state.goals
-        ]
+        subgoals = pantograph_state_to_goals(new_state)
         return TacticOutcome(success=True, subgoals=subgoals, error=None)
 
 
@@ -247,6 +273,7 @@ class HybridReasoner:
             argument_model_path=argument_model_path,
             index_path=index_path,
             corpus_path=corpus_path,
+            pantograph_env=self._env,
         )
 
         self.atomic_tactics = {}
@@ -287,6 +314,8 @@ class HybridReasoner:
 
         self.executor = executor
         self.server = executor.server
+        self._server_epoch = 0
+        self._cached_root_materialization: MaterializedGoal | None = None
 
         self.top_k_tactics = top_k_tactics
         self.max_depth = max_depth
@@ -308,6 +337,7 @@ class HybridReasoner:
         argument_model_path: Path,
         index_path: Optional[Path],
         corpus_path: Optional[Path],
+        pantograph_env: PantographEnv,
     ) -> Optional[GNNModelEngine]:
         """Construct the tactic-prediction engine.
 
@@ -323,6 +353,7 @@ class HybridReasoner:
             argument_predictor_model_path=argument_model_path,
             index_path=index_path,
             corpus_path=corpus_path,
+            pantograph_env=pantograph_env,
         )
 
     def predict_next_tactic(self, sub_goal: Goal) -> List[TacticCandidate]:
@@ -488,7 +519,10 @@ class HybridReasoner:
         safeguards. Cycle detection (a subgoal identical to one of its own
         ancestors) is handled inside ``ProofHypergraph.add_edge``.
         """
-        graph = ProofHypergraph(Goal(expression=goal, hypotheses=hypotheses or []))
+        seed = LeanGoalSeed(expression=goal, hypotheses=hypotheses or [])
+        root_materialization = await self._materialize_goal(seed)
+        graph = ProofHypergraph(root_materialization.goal)
+        self._cached_root_materialization = root_materialization
 
         if self.selection_policy == "puct":
             await self._prove_mcts(graph, deadline)
@@ -646,16 +680,11 @@ class HybridReasoner:
         sampled actions can be owned by the exact graph node even when two nodes
         contain identical goal text.
         """
-        sanitized = [_sanitize_inaccessible_names(node.goal) for node in nodes]
-        return self.predict_next_tactics_batch(sanitized)
+        return self.predict_next_tactics_batch([node.goal.require_model_state() for node in nodes])
 
     async def _expand_leaves(self, graph: ProofHypergraph, leaf_ids: List[int]) -> None:
-        """Expand a batch of unexpanded leaves: one batched proposal call
-        across all of them, then the existing execute-and-link logic per
-        leaf, sequentially (one Pantograph server — Lean execution cannot
-        batch).
-        """
-        to_propose: List[ProofNode] = []
+        """Materialize a PUCT leaf batch, propose once, then execute sequentially."""
+        materialized: List[tuple[ProofNode, MaterializedGoal]] = []
         seen_node_ids: set[int] = set()
         for node_id in leaf_ids:
             if node_id in seen_node_ids:
@@ -672,13 +701,24 @@ class HybridReasoner:
                 )
                 self._on_expansion_complete(node, ExpansionResult.DEPTH_LIMIT)
                 continue
-            to_propose.append(node)
-        if not to_propose:
+            current = await self._materialize_for_expansion(graph, node)
+            if current is not None:
+                materialized.append((node, current))
+        if not materialized:
             return
 
-        proposals = self.predict_next_tactics_for_nodes(to_propose)
+        proposals = self.predict_next_tactics_for_nodes(
+            [node for node, _current in materialized]
+        )
 
-        for node, candidates in zip(to_propose, proposals):
+        for (node, current), candidates in zip(materialized, proposals):
+            if current.server_epoch != self._server_epoch:
+                self._on_materialization_invalidated(node)
+                refreshed = await self._materialize_for_expansion(graph, node)
+                if refreshed is None:
+                    continue
+                current = refreshed
+                candidates = self.predict_next_tactics_for_nodes([node])[0]
             if not candidates:
                 graph.mark_node_exhausted(
                     node.id,
@@ -687,7 +727,12 @@ class HybridReasoner:
                 )
                 self._on_expansion_complete(node, ExpansionResult.NO_CANDIDATES)
                 continue
-            await self._execute_and_link(graph, node, candidates)
+            await self._execute_and_link(
+                graph,
+                node,
+                candidates,
+                materialized=current,
+            )
 
     @staticmethod
     def _release_virtual_losses(graph: ProofHypergraph, simulation: "_Simulation") -> None:
@@ -810,49 +855,108 @@ class HybridReasoner:
         actions to failure records here.
         """
 
+    def _on_materialization_invalidated(self, node: ProofNode) -> None:
+        """Hook for subclasses to discard actions sampled from a stale server epoch."""
+
+    async def _create_server(self) -> Server:
+        return await create_model_sexpr_server(self._env)
+
     async def _restart_server(self) -> None:
         self.server._close()
         started = perf_counter()
-        self.server = await self._env.create_server()
+        self.server = await self._create_server()
         self.executor.server = self.server
+        self._server_epoch += 1
+        self._cached_root_materialization = None
         console_print(
             f"  [Server] pantograph restarted after crash in "
             f"{perf_counter() - started:.1f}s ({self._env.describe()})"
         )
 
-    async def _start_state(self, goal: Goal) -> GoalState:
-        """Reconstruct a Lean goal state for ``goal``, including its local
-        hypotheses.
-
-        ``goal_start_async`` parses its argument as a closed, context-free
-        target, but a subgoal's ``expression`` may reference names declared
-        in ``goal.hypotheses`` (e.g. ``h`` in ``q ∨ p`` after introducing
-        ``h : p ∨ q``). To recover the same context, universally quantify
-        over the hypotheses in the start expression and immediately
-        ``intro`` them back — this reproduces the exact state the executor
-        handed back when the subgoal was discovered.
-        """
-        goal = _sanitize_inaccessible_names(goal)
-        expression = goal.expression
-        for hypothesis in reversed(goal.hypotheses):
-            expression = f"∀ ({hypothesis}), {expression}"
+    async def _start_state(self, goal: Goal | LeanGoalSeed) -> GoalState:
+        """Replay one seed or canonical goal and force Pantograph serialization."""
+        replay = goal.replay_spec() if isinstance(goal, Goal) else seed_replay_spec(goal)
+        replay = _sanitize_replay_spec(replay)
 
         try:
-            return await self._goal_state_for(expression, goal)
+            return await self._goal_state_for(replay)
         except (BrokenPipeError, ConnectionResetError, EOFError, AssertionError):
             await self._restart_server()
         except ServerError:
             if not _server_is_dead(self.server):
                 raise
             await self._restart_server()
-        return await self._goal_state_for(expression, goal)
+        return await self._goal_state_for(replay)
 
-    async def _goal_state_for(self, expression: str, goal: Goal) -> GoalState:
-        state = await self.server.goal_start_async(expression)
-        if goal.hypotheses:
-            names = " ".join(hypothesis.split(":", 1)[0].strip() for hypothesis in goal.hypotheses)
-            state = await self.server.goal_tactic_async(state, f"intro {names}")
+    async def _goal_state_for(self, replay: GoalReplaySpec) -> GoalState:
+        state = await self.server.goal_start_async(replay.expression)
+        tactic = f"intro {' '.join(replay.local_names)}" if replay.local_names else "skip"
+        state = await self.server.goal_tactic_async(state, tactic)
         return state
+
+    async def _materialize_goal(self, goal: Goal | LeanGoalSeed) -> MaterializedGoal:
+        state = await self._start_state(goal)
+        goals = pantograph_state_to_goals(state)
+        if len(goals) != 1:
+            raise ValueError(
+                f"Replaying one search node produced {len(goals)} Pantograph goals."
+            )
+        canonical = goals[0]
+        return MaterializedGoal(
+            goal=canonical,
+            state=state,
+            server_epoch=self._server_epoch,
+            fingerprint=canonical.state_fingerprint(),
+        )
+
+    async def _materialize_node(
+        self,
+        graph: ProofHypergraph,
+        node: ProofNode,
+    ) -> MaterializedGoal:
+        cached = self._cached_root_materialization
+        if (
+            node.id == graph.root_id
+            and cached is not None
+            and cached.server_epoch == self._server_epoch
+            and cached.fingerprint == node.goal.state_fingerprint()
+        ):
+            self._cached_root_materialization = None
+            current = cached
+        else:
+            current = await self._materialize_goal(node.goal)
+        node.goal = current.goal
+        return current
+
+    async def _materialize_for_expansion(
+        self,
+        graph: ProofHypergraph,
+        node: ProofNode,
+    ) -> MaterializedGoal | None:
+        try:
+            return await self._materialize_node(graph, node)
+        except ParseError as exc:
+            console_print(f"  [Node {node.id} SKIP] goal elaboration failed: {exc}")
+            graph.mark_node_exhausted(
+                node.id,
+                reason=NodeClosureReason.ELABORATION_ERROR,
+                note=f"elaboration error: {exc}",
+            )
+            self._on_expansion_complete(node, ExpansionResult.ELABORATION_ERROR)
+        except ServerError as exc:
+            if _server_is_dead(self.server):
+                console_print(f"  [Node {node.id} ABORT] Pantograph unavailable: {exc}")
+                reason = NodeClosureReason.EXTERNAL_ABORT
+                result = ExpansionResult.EXTERNAL_ABORT
+                note = f"Pantograph unavailable: {exc}"
+            else:
+                console_print(f"  [Node {node.id} SKIP] goal elaboration failed: {exc}")
+                reason = NodeClosureReason.ELABORATION_ERROR
+                result = ExpansionResult.ELABORATION_ERROR
+                note = f"elaboration error: {exc}"
+            graph.mark_node_exhausted(node.id, reason=reason, note=note)
+            self._on_expansion_complete(node, result)
+        return None
 
     def _link(
         self,
@@ -886,8 +990,10 @@ class HybridReasoner:
             self._on_expansion_complete(node, ExpansionResult.DEPTH_LIMIT)
             return
 
-        sanitized = _sanitize_inaccessible_names(node.goal)
-        print(f"  [GNN Input] goal={sanitized.expression}  hyps={sanitized.hypotheses}")
+        materialized = await self._materialize_for_expansion(graph, node)
+        if materialized is None:
+            return
+        print(f"  [GNN Input] goal={node.goal.expression}  hyps={node.goal.hypotheses}")
         candidates = self.predict_next_tactics_for_nodes([node])[0]
         if not candidates:
             graph.mark_node_exhausted(
@@ -898,10 +1004,20 @@ class HybridReasoner:
             self._on_expansion_complete(node, ExpansionResult.NO_CANDIDATES)
             return
 
-        await self._execute_and_link(graph, node, candidates)
+        await self._execute_and_link(
+            graph,
+            node,
+            candidates,
+            materialized=materialized,
+        )
 
     async def _execute_and_link(
-        self, graph: ProofHypergraph, node: ProofNode, candidates: List[TacticCandidate]
+        self,
+        graph: ProofHypergraph,
+        node: ProofNode,
+        candidates: List[TacticCandidate],
+        *,
+        materialized: MaterializedGoal,
     ) -> None:
         """Execute each proposed candidate against Lean and link the
         survivors into the hypergraph — the per-node execution stage shared
@@ -909,41 +1025,25 @@ class HybridReasoner:
         (``_expand_leaves``). Ends with ``mark_node_exhausted`` (the node's
         candidate set is spent) and the ``_on_expansion_complete`` hook.
         """
-        try:
-            state = await self._start_state(node.goal)
-        except ParseError as exc:
-            console_print(f"  [Node {node.id} SKIP] goal elaboration failed: {exc}")
-            graph.mark_node_exhausted(
-                node.id,
-                reason=NodeClosureReason.ELABORATION_ERROR,
-                note=f"elaboration error: {exc}",
+        if materialized.server_epoch != self._server_epoch:
+            raise RuntimeError(
+                f"Node {node.id} was materialized by Pantograph epoch "
+                f"{materialized.server_epoch}, current epoch is {self._server_epoch}."
             )
-            self._on_expansion_complete(node, ExpansionResult.ELABORATION_ERROR)
-            return
-        except ServerError as exc:
-            if _server_is_dead(self.server):
-                console_print(f"  [Node {node.id} ABORT] Pantograph unavailable: {exc}")
-                graph.mark_node_exhausted(
-                    node.id,
-                    reason=NodeClosureReason.EXTERNAL_ABORT,
-                    note=f"Pantograph unavailable: {exc}",
-                )
-                self._on_expansion_complete(node, ExpansionResult.EXTERNAL_ABORT)
-                return
-            console_print(f"  [Node {node.id} SKIP] goal elaboration failed: {exc}")
-            graph.mark_node_exhausted(
-                node.id,
-                reason=NodeClosureReason.ELABORATION_ERROR,
-                note=f"elaboration error: {exc}",
-            )
-            self._on_expansion_complete(node, ExpansionResult.ELABORATION_ERROR)
-            return
+        if materialized.fingerprint != node.goal.state_fingerprint():
+            raise RuntimeError(f"Node {node.id} goal changed after action sampling.")
+        state = materialized.state
         any_applied = False
 
         for tactic in candidates:
             try:
                 outcome = await self.executor.apply(self.server, state, tactic)
             except (BrokenPipeError, ConnectionResetError, EOFError, AssertionError, ServerError) as exc:
+                if _server_is_dead(self.server):
+                    try:
+                        await self._restart_server()
+                    except Exception as restart_exc:
+                        exc = restart_exc
                 graph.mark_node_exhausted(
                     node.id,
                     reason=NodeClosureReason.EXTERNAL_ABORT,
@@ -1013,20 +1113,16 @@ async def main(
     dts_c: float = None,
     dts_random_seed: Optional[int] = None,
     top_k_tactics: int = 3,
+    source_root: Path,
+    pantograph_repl: Path,
 
 ) -> None:
-    # Use Mathlib project if available
-    mathlib_project = settings.root_dir / "lean_mathlib"
-    server_kwargs = {}
-    if (mathlib_project / "lakefile.lean").exists():
-        server_kwargs["project_path"] = str(mathlib_project)
-        server_kwargs["imports"] = ["Init", "Mathlib"]
-        console_print(f"  Using Mathlib project: {mathlib_project}")
-    else:
-        console_print("  No Mathlib project found. Only core Lean theorems supported.")
-        console_print(f"  To enable Mathlib: cd {mathlib_project} && lake update && lake build")
-    
-    server = await Server.create(**server_kwargs)
+    env = PantographEnv(
+        source_root=source_root,
+        pantograph_repl=pantograph_repl,
+        imports=("Init", "Mathlib"),
+    )
+    server = await create_model_sexpr_server(env)
     
     # Auto-load DTS state from default location if not specified
     if dts_state_input is None and settings.dts_state_file.exists():
@@ -1061,6 +1157,7 @@ async def main(
         dts_sampler=dts_sampler,
         dts_c=dts_c,
         dts_random_seed=dts_random_seed,
+        env=env,
     )
     print("Goal:")
     print(repr(goal_statement))
@@ -1136,6 +1233,8 @@ if __name__ == "__main__":
         default=3,
         help="Number of top tactic candidates to try per node (default: 3).",
     )
+    args_parser.add_argument("--source-root", type=Path, required=True)
+    args_parser.add_argument("--pantograph-repl", type=Path, required=True)
     args = args_parser.parse_args()
 
     asyncio.run(main(
@@ -1152,4 +1251,6 @@ if __name__ == "__main__":
         dts_c=args.dts_c,
         dts_random_seed=args.dts_random_seed,
         top_k_tactics=args.top_k_tactics,
+        source_root=args.source_root,
+        pantograph_repl=args.pantograph_repl,
     ))

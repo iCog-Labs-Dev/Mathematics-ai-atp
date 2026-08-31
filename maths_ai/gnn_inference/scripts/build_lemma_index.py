@@ -88,6 +88,7 @@ def build_index(
         checkpoint,
         node_vocab=metadata.node_vocab,
         tactic_vocab=metadata.tactic_vocab,
+        graph_representation=metadata.graph_representation,
     )
     if str(checkpoint_manifest["model_kind"]) not in {"tactic_with_args", "actor_critic_with_args"}:
         raise ValueError("Lemma indexes must be built from a pointer or actor-critic checkpoint.")

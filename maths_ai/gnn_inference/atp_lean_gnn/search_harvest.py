@@ -23,6 +23,7 @@ from maths_ai.hybrid_reasoner.hypergraph import (
 )
 
 from .pln_reward import RewardConfig, edge_shaped_reward
+from .graph import dag_fingerprint, model_goal_to_dag
 
 if TYPE_CHECKING:
     from .pln_rl_training import EdgeAction
@@ -50,8 +51,8 @@ class CriticSample:
     """One unique proof-state target ``y(s)`` with evidence provenance."""
 
     node_id: int
-    goal: str
-    hypotheses: tuple[str, ...]
+    goal: Goal
+    graph_fingerprint: str
     target: float
     source: BackupSource
 
@@ -60,8 +61,8 @@ class CriticSample:
 class TacticImitationSample:
     """One policy action on a Lean-confirmed minimal proof hypertree."""
 
-    goal: str
-    hypotheses: tuple[str, ...]
+    goal: Goal
+    graph_fingerprint: str
     tactic_id: int
     arg_indices: tuple[int, ...] = ()
 
@@ -304,8 +305,8 @@ def extract_critic_samples(
         samples.append(
             CriticSample(
                 node_id=node_id,
-                goal=node.goal.expression,
-                hypotheses=tuple(node.goal.hypotheses),
+                goal=node.goal.require_model_state(),
+                graph_fingerprint=dag_fingerprint(model_goal_to_dag(node.goal)),
                 target=backup.value,
                 source=backup.source,
             )
@@ -377,8 +378,8 @@ def extract_minimal_hypertree(
             node = graph.nodes[node_id]
             samples.append(
                 TacticImitationSample(
-                    goal=node.goal.expression,
-                    hypotheses=tuple(node.goal.hypotheses),
+                    goal=node.goal.require_model_state(),
+                    graph_fingerprint=action.graph_fingerprint,
                     tactic_id=action.tactic_id,
                     arg_indices=tuple(action.arg_indices),
                 )

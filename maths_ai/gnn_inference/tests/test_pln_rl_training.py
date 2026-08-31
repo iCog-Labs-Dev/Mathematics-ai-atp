@@ -5,13 +5,13 @@ import unittest
 import torch
 from torch.optim import AdamW
 
-from maths_ai.data_models.proof_components import Goal, STV, TacticCandidate
+from maths_ai.data_models.proof_components import STV, TacticCandidate
 from maths_ai.hybrid_reasoner.hypergraph import BackupSource, ProofHypergraph, NodeStatus
 
-from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
+from maths_ai.gnn_inference.atp_lean_gnn.graph import dag_fingerprint, model_goal_to_dag
 from maths_ai.gnn_inference.atp_lean_gnn.pyg import build_vocab
 from maths_ai.gnn_inference.atp_lean_gnn.actor_critic import ActorCriticWithArgsClassifier
-from maths_ai.gnn_inference.tests.model_helpers import actor_critic
+from maths_ai.gnn_inference.tests.model_helpers import actor_critic, structured_goal
 from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import (
     make_featurizer,
     train_step,
@@ -31,6 +31,14 @@ def _tac(name: str = "apply", p: float = 1.0) -> TacticCandidate:
     return TacticCandidate(tactic_name=name, arguments=[], probability=p)
 
 
+def _goal(expression: str):
+    return structured_goal(expression, ["n : Nat"])
+
+
+def _fingerprint(goal) -> str:
+    return str(dag_fingerprint(model_goal_to_dag(goal)))
+
+
 class PLNRLTrainingTests(unittest.TestCase):
     # Parseable proof-state strings (same format the GNN featurizer expects).
     ROOT = "n : Nat\n⊢ Even n ∧ Odd n"
@@ -38,13 +46,16 @@ class PLNRLTrainingTests(unittest.TestCase):
     SUB_B = "n : Nat\n⊢ Odd n"
 
     def _solved_and_graph(self):
-        g = ProofHypergraph(Goal(expression=self.ROOT, hypotheses=[]))
+        root = _goal(self.ROOT)
+        sub_a = _goal(self.SUB_A)
+        sub_b = _goal(self.SUB_B)
+        g = ProofHypergraph(root)
         edge = g.add_edge(
             g.root_id,
             _tac(),
             ranked_subgoals=[
-                (Goal(expression=self.SUB_A, hypotheses=[]), STV(strength=0.6, confidence=1.0)),
-                (Goal(expression=self.SUB_B, hypotheses=[]), STV(strength=0.4, confidence=1.0)),
+                (sub_a, STV(strength=0.6, confidence=1.0)),
+                (sub_b, STV(strength=0.4, confidence=1.0)),
             ],
         )
         a_id, b_id = edge.child_ids
@@ -54,7 +65,7 @@ class PLNRLTrainingTests(unittest.TestCase):
 
     def _setup(self):
         g = self._solved_and_graph()
-        dags = [proof_state_to_dag(s) for s in (self.ROOT, self.SUB_A, self.SUB_B)]
+        dags = [model_goal_to_dag(_goal(s)) for s in (self.ROOT, self.SUB_A, self.SUB_B)]
         vocab = build_vocab(dags)
         featurize = make_featurizer(vocab)
         model = actor_critic(len(vocab), 3)
@@ -106,21 +117,21 @@ class HTPSStyleStepTests(unittest.TestCase):
 
     def _setup(self, seed: int = 0):
         torch.manual_seed(seed)
-        dags = [proof_state_to_dag(s) for s in (self.GOAL_A, self.GOAL_B)]
+        dags = [model_goal_to_dag(_goal(s)) for s in (self.GOAL_A, self.GOAL_B)]
         vocab = build_vocab(dags)
         featurize = make_featurizer(vocab)
         model = actor_critic(len(vocab), 3, dropout=0.0)
         tactic_batch = [
-            TacticImitationSample(goal=self.GOAL_A, hypotheses=(), tactic_id=1, arg_indices=(0,)),
-            TacticImitationSample(goal=self.GOAL_B, hypotheses=(), tactic_id=2),
+            TacticImitationSample(goal=_goal(self.GOAL_A), graph_fingerprint=_fingerprint(_goal(self.GOAL_A)), tactic_id=1, arg_indices=(0,)),
+            TacticImitationSample(goal=_goal(self.GOAL_B), graph_fingerprint=_fingerprint(_goal(self.GOAL_B)), tactic_id=2),
         ]
         critic_batch = [
             CriticSample(
-                node_id=0, goal=self.GOAL_A, hypotheses=(), target=1.0,
+                node_id=0, goal=_goal(self.GOAL_A), graph_fingerprint=_fingerprint(_goal(self.GOAL_A)), target=1.0,
                 source=BackupSource.LEAN_STATUS,
             ),
             CriticSample(
-                node_id=1, goal=self.GOAL_B, hypotheses=(), target=0.25,
+                node_id=1, goal=_goal(self.GOAL_B), graph_fingerprint=_fingerprint(_goal(self.GOAL_B)), target=0.25,
                 source=BackupSource.VISIT_MEAN,
             ),
         ]
@@ -170,8 +181,13 @@ class HTPSStyleStepTests(unittest.TestCase):
         opt = AdamW(model.parameters(), lr=0.01)
         # 10_000 exceeds every graph's node count; forced_step must treat it as
         # invalid (log-prob 0), leaving the loss finite.
-        bad = [TacticImitationSample(goal=self.GOAL_A, hypotheses=(), tactic_id=1,
-                                     arg_indices=(10_000, -1))]
+        bad_goal = _goal(self.GOAL_A)
+        bad = [TacticImitationSample(
+            goal=bad_goal,
+            graph_fingerprint=_fingerprint(bad_goal),
+            tactic_id=1,
+            arg_indices=(10_000, -1),
+        )]
         metrics = train_step_htps_style(model, opt, bad, [], featurize)
         self.assertTrue(torch.isfinite(torch.tensor(metrics["htps_total_loss"])))
         self.assertEqual(metrics["num_imitation_rows"], 1.0)

@@ -20,6 +20,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.model_factory import (
     build_supervised_tactic_model,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.model_spec import ModelSpec
+from maths_ai.gnn_inference.atp_lean_gnn.graph_contract import MODEL_SEXPR_GRAPH_SPEC
 from maths_ai.gnn_inference.atp_lean_gnn.training_safety import require_finite_loss
 from maths_ai.gnn_inference.scripts.migrate_model_checkpoint import migrate_checkpoint
 
@@ -188,11 +189,13 @@ class ModelCompositionTests(unittest.TestCase):
             node_vocab=node_vocab,
             tactic_vocab=tactic_vocab,
             model=model,
+            graph_representation=MODEL_SEXPR_GRAPH_SPEC,
         )
         restored, manifest, restored_spec = build_model_from_checkpoint(
             checkpoint,
             node_vocab=node_vocab,
             tactic_vocab=tactic_vocab,
+            graph_representation=MODEL_SEXPR_GRAPH_SPEC,
             expected_model_kind="tactic_with_args",
         )
         self.assertEqual(manifest["model_kind"], "tactic_with_args")
@@ -274,11 +277,13 @@ class ModelCompositionTests(unittest.TestCase):
                     layout=layout,
                     node_vocab=node_vocab,
                     tactic_vocab=tactic_vocab,
+                    graph_representation=MODEL_SEXPR_GRAPH_SPEC,
                 )
                 restored, manifest, restored_spec = build_model_from_checkpoint(
                     migrated,
                     node_vocab=node_vocab,
                     tactic_vocab=tactic_vocab,
+                    graph_representation=MODEL_SEXPR_GRAPH_SPEC,
                     expected_model_kind=model_kind,
                 )
                 self.assertEqual(restored_spec, spec)

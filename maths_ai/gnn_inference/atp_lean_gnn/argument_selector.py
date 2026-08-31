@@ -98,10 +98,17 @@ class ArgumentSelector(nn.Module):
         batch_size = state_emb.size(0)
         device = state_emb.device
 
-        dist = torch.distributions.Categorical(logits=scores)
+        valid_rows = torch.isfinite(scores).any(dim=1)
+        # A state may have no legal premise nodes even when the sampled tactic
+        # has an argument slot. Keep the row executable with zero policy credit
+        # instead of constructing Categorical from all -inf logits.
+        safe_scores = torch.where(valid_rows.unsqueeze(1), scores, torch.zeros_like(scores))
+        dist = torch.distributions.Categorical(logits=safe_scores)
         selected_idx = dist.sample()          # [B]
         log_prob = dist.log_prob(selected_idx)  # [B] — differentiable w.r.t. pointer params
         selected_emb = padded_keys[torch.arange(batch_size, device=device), selected_idx]  # [B, H]
+        log_prob = torch.where(valid_rows, log_prob, torch.zeros_like(log_prob))
+        selected_emb = selected_emb * valid_rows.unsqueeze(1).to(selected_emb.dtype)
         return scores, selected_idx, log_prob, selected_emb
 
     def forced_step(
@@ -135,10 +142,12 @@ class ArgumentSelector(nn.Module):
 
         valid = (forced_idx >= 0) & (forced_idx < max_nodes)
         safe_idx = forced_idx.clamp(min=0, max=max_nodes - 1)
-        log_probs = torch.log_softmax(scores, dim=1)
+        valid_rows = torch.isfinite(scores).any(dim=1)
+        safe_scores = torch.where(valid_rows.unsqueeze(1), scores, torch.zeros_like(scores))
+        log_probs = torch.log_softmax(safe_scores, dim=1)
         gathered = log_probs.gather(1, safe_idx.unsqueeze(1)).squeeze(1)  # [B]
         # A stored index landing on a masked (-inf) position yields -inf/NaN; drop it too.
-        valid = valid & torch.isfinite(gathered)
+        valid = valid & valid_rows & torch.isfinite(gathered)
         log_prob = torch.where(valid, gathered, torch.zeros_like(gathered))
 
         selected_emb = padded_keys[torch.arange(batch_size, device=device), safe_idx]  # [B, H]

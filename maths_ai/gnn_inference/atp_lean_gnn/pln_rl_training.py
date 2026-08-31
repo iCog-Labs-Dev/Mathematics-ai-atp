@@ -10,13 +10,14 @@ Two phases, cleanly separated by the ``asyncio.run`` boundary:
     anchor. PLN enters the reward only as the potential-based shaping term (Approach 1).
 
 The trainer takes an injected ``featurize`` callable (``Goal -> PyG Data``) so it is testable
-without a Lean/Pantograph backend; ``make_featurizer`` builds the default one reusing the same
-string path the GNN engine already uses (OOV → ``<UNK>``).
+without a Lean/Pantograph backend. ``make_featurizer`` builds the strict normalized model
+S-expression path used by live collection and both optimizer paths.
 """
 
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass
 from typing import Callable
 
@@ -26,7 +27,7 @@ from torch_geometric.data import Batch, Data
 from .actor_critic import ActorCriticWithArgsClassifier
 from .actor_critic_loss import compute_bc_anchor_loss, compute_critic_loss, compute_entropy_bonus
 from .argument_selector import resolve_premise_mask
-from .graph import proof_state_to_dag
+from .graph import dag_fingerprint, model_goal_to_dag
 from .pyg import build_premise_mask, dag_to_pyg
 from .pln_reward import RewardConfig
 from .search_harvest import (
@@ -39,6 +40,61 @@ from .search_harvest import (
 )
 
 from maths_ai.data_models.proof_components import Goal
+
+
+_STRUCTURAL_LABELS = {
+    "State",
+    "Goal",
+    "Hyp",
+    ":app",
+    ":arg",
+    ":forall",
+    ":instance-of",
+    ":lambda",
+    ":let",
+    ":lit",
+    ":mdata",
+    ":metavar",
+    ":proj",
+    ":proof-of",
+}
+_FV_RE = re.compile(r"^FV\d+$")
+
+
+def _is_structural_label(label: str) -> bool:
+    return (
+        label in _STRUCTURAL_LABELS
+        or label.startswith(":")
+        or label.startswith("HypRole:")
+        or label.startswith("BinderRole:")
+        or label.startswith("ArgRole:")
+        or label.startswith("ArgPosition:")
+        or _FV_RE.fullmatch(label) is not None
+    )
+
+
+def _oov_metrics(datas: list[Data]) -> dict[str, float]:
+    return {
+        "unknown_label_count": float(
+            sum(int(data.unknown_label_count) for data in datas)
+        ),
+        "structural_unknown_label_count": float(
+            sum(int(data.structural_unknown_label_count) for data in datas)
+        ),
+        "semantic_unknown_label_count": float(
+            sum(int(data.semantic_unknown_label_count) for data in datas)
+        ),
+        "total_label_count": float(sum(int(data.total_label_count) for data in datas)),
+    }
+
+
+def _require_graph_fingerprint(data: Data, expected: str, owner: str) -> None:
+    actual = str(data.graph_fingerprint)
+    if actual != expected:
+        raise ValueError(
+            f"{owner} graph changed between collection and training: "
+            f"expected {expected}, got {actual}."
+        )
 
 
 def _validate_update_size(
@@ -74,6 +130,11 @@ class EdgeAction:
     tactic_id: int
     arg_indices: tuple[int, ...] = ()
     multiplicity: int = 1
+    graph_fingerprint: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.graph_fingerprint:
+            raise ValueError("EdgeAction requires a graph fingerprint.")
 
 
 @dataclass(frozen=True)
@@ -88,27 +149,8 @@ class FailureRecord:
     action: EdgeAction
 
 
-def goal_to_state(goal: Goal) -> str:
-    """Render a ``Goal`` as the proof-state string the parser expects.
-
-    ``Goal.hypotheses`` are Pantograph's ``name : type`` lines; joining them above the
-    turnstile reproduces the state the executor observed, so the DAG contains the
-    hypothesis nodes the pointer needs as argument candidates. A goal with no
-    hypotheses passes its expression through unchanged (it may already embed a full
-    state string, as the harvest tests do).
-    """
-    if goal.hypotheses:
-        return "\n".join(goal.hypotheses) + "\n⊢ " + goal.expression
-    return goal.expression
-
-
 def make_featurizer(node_vocab: dict[str, int]) -> Callable[[Goal], Data]:
-    """Build a ``Goal -> PyG Data`` featurizer reusing the string parsing path.
-
-    ``goal_to_state`` → ``proof_state_to_dag`` → ``dag_to_pyg`` with the fixed ``node_vocab``
-    (unseen tokens map to ``<UNK>``). Adds the ``premise_mask`` and ``state_node_index`` the
-    encoder's readout needs.
-    """
+    """Build the canonical ``Goal -> PyG Data`` model-S-expression featurizer."""
     dag_featurize = make_dag_featurizer(node_vocab)
 
     def featurize(goal: Goal) -> Data:
@@ -126,14 +168,33 @@ def make_dag_featurizer(node_vocab: dict[str, int]):
     argument strings (``_resolve_local_node_name``) requires the nodes themselves. Collect
     and train MUST featurize through the same path so the stored indices stay aligned.
     """
-    state_label_id = node_vocab.get("State", 0)
-
     def featurize(goal: Goal):
-        dag = proof_state_to_dag(goal_to_state(goal))
+        dag = model_goal_to_dag(goal.require_model_state())
         data = dag_to_pyg(dag, node_vocab, add_reverse_edges=True)
         data.premise_mask = torch.tensor(build_premise_mask(dag), dtype=torch.bool)
-        matches = (data.x == state_label_id).nonzero(as_tuple=False).view(-1)
-        data.state_node_index = matches[-1:] if matches.numel() else torch.tensor([0], dtype=torch.long)
+        if dag.state_root_id is None:
+            raise ValueError("RL DAG has no State root.")
+        data.state_node_index = torch.tensor([dag.state_root_id], dtype=torch.long)
+        data.graph_fingerprint = dag_fingerprint(dag)
+        unknown_labels = [node.label for node in dag.nodes if node.label not in node_vocab]
+        structural_unknown = sorted(
+            {label for label in unknown_labels if _is_structural_label(label)}
+        )
+        if structural_unknown:
+            raise ValueError(
+                "Prepared node vocabulary is missing required structural labels: "
+                + ", ".join(structural_unknown)
+            )
+        data.unknown_label_count = len(unknown_labels)
+        data.structural_unknown_label_count = 0
+        data.semantic_unknown_label_count = sum(
+            not _is_structural_label(label) for label in unknown_labels
+        )
+        data.structural_label_count = sum(
+            _is_structural_label(node.label) for node in dag.nodes
+        )
+        data.semantic_label_count = int(data.num_nodes) - int(data.structural_label_count)
+        data.total_label_count = int(data.num_nodes)
         return dag, data
 
     return featurize
@@ -173,10 +234,11 @@ def compute_transition_loss(
         action_ids.append(tid)
         returns.append(t.return_)
 
-    critic_datas = [
-        featurize(Goal(expression=sample.goal, hypotheses=list(sample.hypotheses)))
-        for sample in critic_samples
-    ]
+    critic_datas = []
+    for sample in critic_samples:
+        data = featurize(sample.goal)
+        _require_graph_fingerprint(data, sample.graph_fingerprint, "Critic sample")
+        critic_datas.append(data)
     if not actor_datas and not critic_datas:
         return None
 
@@ -240,6 +302,7 @@ def compute_transition_loss(
         "num_critic_samples": float(len(critic_samples)),
         "update_nodes": float(node_count),
         "update_edges": float(edge_count),
+        **_oov_metrics([*actor_datas, *critic_datas]),
     }
     for source in sorted({sample.source for sample in critic_samples}, key=lambda item: item.value):
         metrics[f"critic_source_{source.value}"] = float(
@@ -295,7 +358,9 @@ def compute_onpolicy_loss(
         action = edge_actions.get(t.edge_id)
         if action is None:
             continue
-        actor_datas.append(featurize(t.goal))
+        data = featurize(t.goal)
+        _require_graph_fingerprint(data, action.graph_fingerprint, "Accepted action")
+        actor_datas.append(data)
         tactic_ids.append(action.tactic_id)
         arg_rows.append(action.arg_indices)
         multiplicities.append(float(action.multiplicity))
@@ -304,17 +369,20 @@ def compute_onpolicy_loss(
 
     failure_return = reward_cfg.terminal_failure - reward_cfg.step_penalty
     for f in failures:
-        actor_datas.append(featurize(f.goal))
+        data = featurize(f.goal)
+        _require_graph_fingerprint(data, f.action.graph_fingerprint, "Rejected action")
+        actor_datas.append(data)
         tactic_ids.append(f.action.tactic_id)
         arg_rows.append(f.action.arg_indices)
         multiplicities.append(float(f.action.multiplicity))
         returns.append(failure_return)
         is_success.append(False)
 
-    critic_datas = [
-        featurize(Goal(expression=sample.goal, hypotheses=list(sample.hypotheses)))
-        for sample in critic_samples
-    ]
+    critic_datas = []
+    for sample in critic_samples:
+        data = featurize(sample.goal)
+        _require_graph_fingerprint(data, sample.graph_fingerprint, "Critic sample")
+        critic_datas.append(data)
     if not actor_datas and not critic_datas:
         return None
 
@@ -399,6 +467,7 @@ def compute_onpolicy_loss(
         "num_critic_samples": float(len(critic_samples)),
         "update_nodes": float(node_count),
         "update_edges": float(edge_count),
+        **_oov_metrics([*actor_datas, *critic_datas]),
     }
     for source in sorted({sample.source for sample in critic_samples}, key=lambda item: item.value):
         metrics[f"critic_source_{source.value}"] = float(
@@ -550,7 +619,15 @@ def train_step_onpolicy(
         max_update_nodes=max_update_nodes, max_update_edges=max_update_edges,
     )
     if loss_result is None:
-        return {"num_transitions": 0.0, "num_failures": 0.0, "onpolicy_optimizer_step": 0.0}
+        return {
+            "num_transitions": 0.0,
+            "num_failures": 0.0,
+            "unknown_label_count": 0.0,
+            "structural_unknown_label_count": 0.0,
+            "semantic_unknown_label_count": 0.0,
+            "total_label_count": 0.0,
+            "onpolicy_optimizer_step": 0.0,
+        }
     loss, metrics = loss_result
     metrics["unknown_edges_skipped"] = float(unknown_edges_skipped)
     metrics["unknown_nodes_skipped"] = float(unknown_nodes_skipped)
@@ -640,15 +717,16 @@ def train_step_htps_style(
     tactic_labels: list[int] = []
     arg_rows: list[tuple[int, ...]] = []
     for s in tactic_batch:
-        imitation_datas.append(
-            featurize(Goal(expression=s.goal, hypotheses=list(s.hypotheses)))
-        )
+        data = featurize(s.goal)
+        _require_graph_fingerprint(data, s.graph_fingerprint, "Tactic imitation sample")
+        imitation_datas.append(data)
         tactic_labels.append(s.tactic_id)
         arg_rows.append(s.arg_indices)
-    critic_datas = [
-        featurize(Goal(expression=s.goal, hypotheses=list(s.hypotheses)))
-        for s in critic_batch
-    ]
+    critic_datas = []
+    for sample in critic_batch:
+        data = featurize(sample.goal)
+        _require_graph_fingerprint(data, sample.graph_fingerprint, "Critic replay sample")
+        critic_datas.append(data)
 
     n_imitation = len(tactic_batch)
     model.train()
@@ -715,4 +793,5 @@ def train_step_htps_style(
         "htps_total_loss": float(total.item()),
         "num_imitation_rows": float(n_imitation),
         "num_critic_rows": float(len(critic_batch)),
+        **_oov_metrics([*imitation_datas, *critic_datas]),
     }

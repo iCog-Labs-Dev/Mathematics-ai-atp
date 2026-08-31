@@ -24,6 +24,7 @@ from maths_ai.gnn_inference.atp_lean_gnn import (
 )
 from maths_ai.gnn_inference.atp_lean_gnn.cache import SplitReport, prepare_output_root, write_manifest, write_pyg_artifact, write_vocab
 from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
+from maths_ai.gnn_inference.atp_lean_gnn.graph_contract import TEXT_GRAPH_SPEC
 from maths_ai.gnn_inference.atp_lean_gnn.pyg import build_vocab_from_labels, dag_to_pyg
 from maths_ai.gnn_inference.atp_lean_gnn.training import build_baseline_model
 
@@ -117,6 +118,11 @@ class TrainingPipelineTests(unittest.TestCase):
         tactic_vocab = build_tactic_vocab(train_tactic_names)
         write_vocab(self.prepared_root, name="node_vocab.json", vocab=node_vocab)
         write_vocab(self.prepared_root, name="tactic_vocab.json", vocab=tactic_vocab)
+        metadata_dir = self.prepared_root / "metadata"
+        metadata_dir.mkdir(parents=True, exist_ok=True)
+        (metadata_dir / "graph_representation.json").write_text(
+            json.dumps(TEXT_GRAPH_SPEC.to_dict()), encoding="utf-8"
+        )
 
         for split in ("train", "val", "test"):
             report = SplitReport(split=split)

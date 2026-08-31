@@ -3,20 +3,27 @@ from __future__ import annotations
 import asyncio
 import time
 import unittest
+from dataclasses import replace
+from types import MethodType
 
 import torch
 from torch.optim import AdamW
 from torch_geometric.data import Batch
 
-from maths_ai.data_models.proof_components import Goal, STV, TacticCandidate
-from maths_ai.hybrid_reasoner.hypergraph import TacticOutcome
+from maths_ai.data_models.proof_components import STV, TacticCandidate
+from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph, TacticOutcome
+from maths_ai.hybrid_reasoner.joint_inference import MaterializedGoal
 from maths_ai.pln_inference.model import PLNResult
 
 from maths_ai.gnn_inference.atp_lean_gnn.actor_critic import (
     ActionSample,
     ActorCriticWithArgsClassifier,
 )
-from maths_ai.gnn_inference.tests.model_helpers import actor_critic
+from maths_ai.gnn_inference.tests.model_helpers import (
+    actor_critic,
+    pantograph_goal,
+    structured_goal,
+)
 from maths_ai.gnn_inference.atp_lean_gnn.pln_reward import RewardConfig
 from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import (
     EdgeAction,
@@ -35,15 +42,34 @@ from maths_ai.gnn_inference.atp_lean_gnn.search_harvest import extract_transitio
 
 
 class _FakeGoalState:
-    goals: list = []
+    def __init__(self, goals=None, *, expression=None):
+        self.expression = expression
+        self.goals = [pantograph_goal(goal) for goal in (goals or [])]
 
 
 class _FakeServer:
+    def __init__(self):
+        self.proc = object()
+        self.goals_by_expression = {}
+        self._last_expression = None
+
     async def goal_start_async(self, expression):
-        return _FakeGoalState()
+        self._last_expression = expression
+        goal = self.goals_by_expression.get(expression)
+        if goal is None:
+            goal = structured_goal(expression, HYPS if expression == GOAL_EXPR else [])
+        return _FakeGoalState([goal] if goal is not None else [], expression=expression)
 
     async def goal_tactic_async(self, state, tactic):
-        return _FakeGoalState()
+        if tactic.startswith("intro "):
+            if state.expression == "∀ (p : Prop), p → p":
+                return _FakeGoalState(
+                    [structured_goal(GOAL_EXPR, HYPS)], expression=GOAL_EXPR
+                )
+            goal = self.goals_by_expression.get(state.expression)
+            if goal is not None:
+                return _FakeGoalState([goal], expression=state.expression)
+        return state
 
 
 class _QEDExecutor:
@@ -86,7 +112,9 @@ class _SubgoalExecutor:
     async def apply(self, server, state, tactic):
         self.applications += 1
         subgoal_exprs = self.depth_map.get(self.current_goal, [])
-        subgoals = [Goal(expression=e, hypotheses=[]) for e in subgoal_exprs]
+        subgoals = [structured_goal(e, HYPS) for e in subgoal_exprs]
+        for subgoal in subgoals:
+            self.server.goals_by_expression[subgoal.replay_spec().expression] = subgoal
         return TacticOutcome(success=True, subgoals=subgoals)
 
 
@@ -98,9 +126,11 @@ class _GoalTrackingReasoner(RLHybridReasoner):
     per-node execution stage runs.
     """
 
-    async def _execute_and_link(self, graph, node, candidates):
+    async def _execute_and_link(self, graph, node, candidates, *, materialized):
         self.executor.current_goal = node.goal.expression
-        return await super()._execute_and_link(graph, node, candidates)
+        return await super()._execute_and_link(
+            graph, node, candidates, materialized=materialized
+        )
 
 
 class _StubPLN:
@@ -117,13 +147,12 @@ HYPS = ["p : Prop"]
 
 def _make_reasoner(executor, *, top_k=3, seed=0, reasoner_cls=RLHybridReasoner, **search_kwargs):
     torch.manual_seed(seed)
-    goal = Goal(expression=GOAL_EXPR, hypotheses=HYPS)
+    goal = structured_goal(GOAL_EXPR, HYPS)
     # Vocab from the test goal's own DAG so featurization is non-degenerate.
-    from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
+    from maths_ai.gnn_inference.atp_lean_gnn.graph import model_goal_to_dag
     from maths_ai.gnn_inference.atp_lean_gnn.pyg import build_vocab
-    from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import goal_to_state
 
-    node_vocab = build_vocab([proof_state_to_dag(goal_to_state(goal))])
+    node_vocab = build_vocab([model_goal_to_dag(goal)])
     model = actor_critic(len(node_vocab), len(TACTIC_VOCAB))
     reasoner = reasoner_cls(
         model,
@@ -142,8 +171,8 @@ def _make_reasoner(executor, *, top_k=3, seed=0, reasoner_cls=RLHybridReasoner, 
 class DecodeTests(unittest.TestCase):
     def test_decode_tactic_and_argument(self):
         reasoner, _model, node_vocab = _make_reasoner(_QEDExecutor())
-        goal = Goal(expression=GOAL_EXPR, hypotheses=HYPS)
-        dag, _data = reasoner.dag_featurize(goal)
+        goal = structured_goal(GOAL_EXPR, HYPS)
+        dag, data = reasoner.dag_featurize(goal)
 
         # The hypothesis node's first child is its name node ("p").
         hyp_idx = next(i for i, n in enumerate(dag.nodes) if n.label == "Hyp")
@@ -157,7 +186,10 @@ class DecodeTests(unittest.TestCase):
             value=torch.tensor([0.0]),
             tactic_logits=torch.zeros(1, 3),
         )
-        candidate, action = reasoner._decode(sample, dag)
+        from maths_ai.gnn_inference.atp_lean_gnn.inference import _local_names_by_fv_label
+        candidate, action = reasoner._decode(
+            sample, dag, _local_names_by_fv_label(dag), str(data.graph_fingerprint)
+        )
         self.assertEqual(candidate.tactic_name, "exact")
         self.assertEqual(candidate.arguments, ["p"])
         self.assertEqual(action.tactic_id, 2)
@@ -165,8 +197,8 @@ class DecodeTests(unittest.TestCase):
 
     def test_decode_out_of_range_argument_dropped_from_command(self):
         reasoner, _model, _vocab = _make_reasoner(_QEDExecutor())
-        goal = Goal(expression=GOAL_EXPR, hypotheses=HYPS)
-        dag, _data = reasoner.dag_featurize(goal)
+        goal = structured_goal(GOAL_EXPR, HYPS)
+        dag, data = reasoner.dag_featurize(goal)
 
         oob = len(dag.nodes) + 5  # padding position
         sample = ActionSample(
@@ -178,9 +210,13 @@ class DecodeTests(unittest.TestCase):
             value=torch.tensor([0.0]),
             tactic_logits=torch.zeros(1, 3),
         )
-        candidate, action = reasoner._decode(sample, dag)
-        self.assertEqual(candidate.arguments, [])           # not sent to Lean
-        self.assertEqual(action.arg_indices, (oob,))        # but kept for the recompute
+        from maths_ai.gnn_inference.atp_lean_gnn.inference import _local_names_by_fv_label
+        candidate, action = reasoner._decode(
+            sample, dag, _local_names_by_fv_label(dag), str(data.graph_fingerprint)
+        )
+        self.assertIsNone(candidate)
+        self.assertEqual(action.arg_indices, (oob,))
+        self.assertEqual(action.graph_fingerprint, str(data.graph_fingerprint))
 
 
 class RolloutTests(unittest.TestCase):
@@ -230,7 +266,7 @@ class RolloutTests(unittest.TestCase):
 class OnPolicyLossTests(unittest.TestCase):
     def test_evaluate_actions_gradient_reaches_pointer(self):
         reasoner, model, _vocab = _make_reasoner(_QEDExecutor())
-        goal = Goal(expression=GOAL_EXPR, hypotheses=HYPS)
+        goal = structured_goal(GOAL_EXPR, HYPS)
         dag, data = reasoner.dag_featurize(goal)
         batch = Batch.from_data_list([data])
         hyp_idx = next(i for i, n in enumerate(dag.nodes) if n.label == "Hyp")
@@ -283,13 +319,20 @@ class OnPolicyLossTests(unittest.TestCase):
             result.graph, RewardConfig(step_penalty=0.0),
             edge_ids=list(result.edge_actions.keys()),
         )
-        goal = Goal(expression=GOAL_EXPR, hypotheses=HYPS)
+        goal = structured_goal(GOAL_EXPR, HYPS)
 
         # Success rows (return ≈ 1) against a failure row (return ≈ 0) give a nonzero
         # advantage contrast, so re-weighting the failure by m must change the loss.
         def loss_with(m: int) -> float:
             model.eval()  # deterministic forward so only multiplicity differs
-            failures = [FailureRecord(goal=goal, action=EdgeAction(tactic_id=1, multiplicity=m))]
+            failures = [FailureRecord(
+                goal=goal,
+                action=EdgeAction(
+                    tactic_id=1,
+                    multiplicity=m,
+                    graph_fingerprint=str(reasoner.dag_featurize(goal)[1].graph_fingerprint),
+                ),
+            )]
             out = compute_onpolicy_loss(
                 model, transitions, [], result.edge_actions, failures,
                 reasoner.dag_featurize_data, reward_cfg=RewardConfig(step_penalty=0.0),
@@ -429,7 +472,9 @@ class MCTSSearchTests(unittest.TestCase):
                 if self.current_goal == "B":
                     return TacticOutcome(success=False, subgoals=[], error="rejected")
                 subgoal_exprs = self.depth_map.get(self.current_goal, [])
-                subgoals = [Goal(expression=e, hypotheses=[]) for e in subgoal_exprs]
+                subgoals = [structured_goal(e, HYPS) for e in subgoal_exprs]
+                for subgoal in subgoals:
+                    self.server.goals_by_expression[subgoal.replay_spec().expression] = subgoal
                 return TacticOutcome(success=True, subgoals=subgoals)
 
         executor = _SelectiveExecutor({self.ROOT: ["A", "B"]})
@@ -448,6 +493,97 @@ class MCTSSearchTests(unittest.TestCase):
         ]
         self.assertTrue(any(eid in result.edge_actions for eid in solved_edges))
 
+    def _two_leaf_graph(self):
+        root = structured_goal(self.ROOT, HYPS)
+        graph = ProofHypergraph(root)
+        edge = graph.add_edge(
+            graph.root_id,
+            TacticCandidate(tactic_name="intro", arguments=[], probability=1.0),
+            [(structured_goal("A", HYPS), None), (structured_goal("B", HYPS), None)],
+        )
+        return graph, edge.child_ids
+
+    def test_puct_materializes_leaves_before_policy_forward(self):
+        reasoner, _model, _vocab = _make_reasoner(_QEDExecutor())
+        graph, leaf_ids = self._two_leaf_graph()
+        events = []
+
+        async def materialize(self, graph, node):
+            events.append(("materialize", node.id))
+            return MaterializedGoal(
+                goal=node.goal,
+                state=object(),
+                server_epoch=self._server_epoch,
+                fingerprint=node.goal.state_fingerprint(),
+            )
+
+        def propose(self, nodes):
+            events.append(("policy", [node.id for node in nodes]))
+            return [[] for _ in nodes]
+
+        reasoner._materialize_for_expansion = MethodType(materialize, reasoner)
+        reasoner.predict_next_tactics_for_nodes = MethodType(propose, reasoner)
+        asyncio.run(reasoner._expand_leaves(graph, leaf_ids))
+        self.assertEqual(events[:2], [("materialize", leaf_ids[0]), ("materialize", leaf_ids[1])])
+        self.assertEqual(events[2], ("policy", leaf_ids))
+
+    def test_failed_materialization_does_not_shift_policy_rows(self):
+        reasoner, _model, _vocab = _make_reasoner(_QEDExecutor())
+        graph, leaf_ids = self._two_leaf_graph()
+        proposed = []
+
+        async def materialize(self, graph, node):
+            if node.id == leaf_ids[0]:
+                return None
+            return MaterializedGoal(
+                goal=node.goal,
+                state=object(),
+                server_epoch=self._server_epoch,
+                fingerprint=node.goal.state_fingerprint(),
+            )
+
+        def propose(self, nodes):
+            proposed.extend(node.id for node in nodes)
+            return [[] for _ in nodes]
+
+        reasoner._materialize_for_expansion = MethodType(materialize, reasoner)
+        reasoner.predict_next_tactics_for_nodes = MethodType(propose, reasoner)
+        asyncio.run(reasoner._expand_leaves(graph, leaf_ids))
+        self.assertEqual(proposed, [leaf_ids[1]])
+
+    def test_restart_resamples_stale_leaf_before_execution(self):
+        reasoner, _model, _vocab = _make_reasoner(_QEDExecutor())
+        graph, leaf_ids = self._two_leaf_graph()
+        policy_rows = []
+        executions = []
+        calls = 0
+
+        async def materialize(self, graph, node):
+            return MaterializedGoal(
+                goal=node.goal,
+                state=f"state-{self._server_epoch}",
+                server_epoch=self._server_epoch,
+                fingerprint=node.goal.state_fingerprint(),
+            )
+
+        def propose(self, nodes):
+            nonlocal calls
+            calls += 1
+            policy_rows.append((calls, [node.id for node in nodes]))
+            if calls == 1:
+                self._server_epoch += 1
+            return [[TacticCandidate(tactic_name="skip", arguments=[], probability=1.0)] for _ in nodes]
+
+        async def execute(self, graph, node, candidates, *, materialized):
+            executions.append((node.id, materialized.server_epoch, materialized.state))
+
+        reasoner._materialize_for_expansion = MethodType(materialize, reasoner)
+        reasoner.predict_next_tactics_for_nodes = MethodType(propose, reasoner)
+        reasoner._execute_and_link = MethodType(execute, reasoner)
+        asyncio.run(reasoner._expand_leaves(graph, [leaf_ids[0]]))
+        self.assertEqual(policy_rows, [(1, [leaf_ids[0]]), (2, [leaf_ids[0]])])
+        self.assertEqual(executions, [(leaf_ids[0], 1, "state-1")])
+
 
 class PLNDisabledTests(unittest.TestCase):
     """use_pln=False: no PLN objects exist, no petta subprocess, terminal-only reward."""
@@ -463,11 +599,10 @@ class PLNDisabledTests(unittest.TestCase):
         # _make_reasoner assigns _StubPLN after construction; undo that
         # assignment to confirm the constructor truly skipped PLNInference.
         # The easiest way: build without the helper's post-assignment.
-        from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
+        from maths_ai.gnn_inference.atp_lean_gnn.graph import model_goal_to_dag
         from maths_ai.gnn_inference.atp_lean_gnn.pyg import build_vocab
-        from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import goal_to_state
-        goal = Goal(expression=GOAL_EXPR, hypotheses=HYPS)
-        node_vocab = build_vocab([proof_state_to_dag(goal_to_state(goal))])
+        goal = structured_goal(GOAL_EXPR, HYPS)
+        node_vocab = build_vocab([model_goal_to_dag(goal)])
         model = actor_critic(len(node_vocab), len(TACTIC_VOCAB))
         raw = RLHybridReasoner(
             model, node_vocab, TACTIC_VOCAB,
@@ -539,7 +674,7 @@ class PLNDisabledTests(unittest.TestCase):
         # Calling rank_subgoals on a use_pln=False reasoner raises RuntimeError
         # with a named message — not an AttributeError on None.
         reasoner, _model, _vocab = _make_reasoner(_QEDExecutor(), use_pln=False)
-        goal = Goal(expression=GOAL_EXPR, hypotheses=HYPS)
+        goal = structured_goal(GOAL_EXPR, HYPS)
         from maths_ai.data_models.proof_components import TacticCandidate as TC
         with self.assertRaises(RuntimeError) as ctx:
             asyncio.run(

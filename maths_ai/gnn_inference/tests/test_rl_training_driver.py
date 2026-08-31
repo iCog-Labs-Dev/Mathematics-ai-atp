@@ -9,13 +9,13 @@ from pathlib import Path
 import torch
 from torch.optim import AdamW
 
-from maths_ai.data_models.proof_components import Goal, STV
+from maths_ai.data_models.proof_components import Goal, LeanGoalSeed, STV
 from maths_ai.hybrid_reasoner.hypergraph import TacticOutcome
 from maths_ai.pln_inference.model import PLNResult
 
 from maths_ai.gnn_inference.atp_lean_gnn.checkpointing import checkpoint_payload
-from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
-from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import goal_to_state
+from maths_ai.gnn_inference.atp_lean_gnn.graph import model_goal_to_dag
+from maths_ai.gnn_inference.atp_lean_gnn.graph_contract import MODEL_SEXPR_GRAPH_SPEC
 from maths_ai.gnn_inference.atp_lean_gnn.pyg import build_vocab
 from maths_ai.gnn_inference.atp_lean_gnn.rl_reasoner import RLHybridReasoner
 from maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver import (
@@ -29,7 +29,11 @@ from maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver import (
     run_rl_training,
     save_checkpoint,
 )
-from maths_ai.gnn_inference.tests.model_helpers import actor_critic
+from maths_ai.gnn_inference.tests.model_helpers import (
+    actor_critic,
+    pantograph_goal,
+    structured_goal,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +42,8 @@ from maths_ai.gnn_inference.tests.model_helpers import actor_critic
 
 
 class _FakeGoalState:
-    goals: list = []
+    def __init__(self, goals=None):
+        self.goals = list(goals or [])
 
 
 class _FakeServer:
@@ -46,7 +51,7 @@ class _FakeServer:
         return _FakeGoalState()
 
     async def goal_tactic_async(self, state, tactic):
-        return _FakeGoalState()
+        return _FakeGoalState([pantograph_goal(structured_goal(GOAL_EXPR, HYPS))])
 
 
 class _QEDExecutor:
@@ -88,14 +93,13 @@ class _RaisingReasoner:
         return await self._inner.prove(goal, hypotheses=hypotheses, greedy=greedy, deadline=deadline)
 
 
-TACTIC_VOCAB = {"trivial": 0, "intro": 1, "exact": 2}
+TACTIC_VOCAB = {"trivial": 0, "intro": 1, "exact": 2, "<UNK_TACTIC>": 3}
 GOAL_EXPR = "p → p"
 HYPS = ["p : Prop"]
 
 
 def _build_node_vocab():
-    goal = Goal(expression=GOAL_EXPR, hypotheses=HYPS)
-    return build_vocab([proof_state_to_dag(goal_to_state(goal))])
+    return build_vocab([model_goal_to_dag(structured_goal(GOAL_EXPR, HYPS))])
 
 
 def _make_model(node_vocab):
@@ -118,7 +122,11 @@ def _make_reasoner(model, node_vocab, executor, *, top_k=3):
 
 def _items(n: int) -> list[TheoremItem]:
     return [
-        TheoremItem(goal=Goal(expression=GOAL_EXPR, hypotheses=HYPS), tactic_label="intro", size=10 + i)
+        TheoremItem(
+            goal=LeanGoalSeed(expression=GOAL_EXPR, hypotheses=HYPS),
+            tactic_label="intro",
+            size=10 + i,
+        )
         for i in range(n)
     ]
 
@@ -132,6 +140,17 @@ def _write_config(tmp: Path, **overrides) -> RLTrainingConfig:
         json.dump(node_vocab, f)
     with open(vocab_dir / "tactic_vocab.json", "w") as f:
         json.dump(TACTIC_VOCAB, f)
+    metadata_dir = tmp / "prepared" / "metadata"
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    with open(metadata_dir / "graph_representation.json", "w") as f:
+        json.dump(MODEL_SEXPR_GRAPH_SPEC.to_dict(), f)
+    manifests_dir = tmp / "prepared" / "manifests"
+    manifests_dir.mkdir(parents=True, exist_ok=True)
+    for split in ("train", "val", "test"):
+        pyg_dir = tmp / "prepared" / "pyg" / split
+        pyg_dir.mkdir(parents=True, exist_ok=True)
+        with open(manifests_dir / f"{split}.json", "w") as f:
+            json.dump({"artifact_paths": {"pyg_dir": f"pyg/{split}"}}, f)
 
     torch.manual_seed(0)
     model = _make_model(node_vocab)
@@ -143,6 +162,7 @@ def _write_config(tmp: Path, **overrides) -> RLTrainingConfig:
             node_vocab=node_vocab,
             tactic_vocab=TACTIC_VOCAB,
             model=model,
+            graph_representation=MODEL_SEXPR_GRAPH_SPEC,
         ),
         ckpt,
     )
@@ -425,15 +445,19 @@ class HTPSDriverTests(unittest.TestCase):
             # The decoupled step ran ⇒ its optimizer carries Adam moments.
             self.assertIn("optimizer_htps_state_dict", state)
             self.assertGreater(len(state["optimizer_htps_state_dict"]["state"]), 0)
-            # Queues serialize as plain tuples, not pickled dataclass instances.
+            # Queues serialize canonical goals and graph fingerprints as plain dicts.
             self.assertGreater(len(state["tactic_queue"]), 0)
-            goal, hyps, tactic_id, arg_indices = state["tactic_queue"][0]
-            self.assertIsInstance(goal, str)
-            self.assertIsInstance(tactic_id, int)
+            tactic_row = state["tactic_queue"][0]
+            self.assertIsInstance(tactic_row["goal"], dict)
+            self.assertTrue(tactic_row["graph_fingerprint"])
+            self.assertIsInstance(tactic_row["tactic_id"], int)
+            self.assertIsInstance(tactic_row["arg_indices"], list)
             self.assertGreater(len(state["critic_queue"]), 0)
-            node_id, goal_c, hyps_c, target, source = state["critic_queue"][0]
-            self.assertEqual(target, 1.0)  # QED executor ⇒ SOLVED root ⇒ hard label
-            self.assertEqual(source, "lean_status")
+            critic_row = state["critic_queue"][0]
+            self.assertIsInstance(critic_row["goal"], dict)
+            self.assertTrue(critic_row["graph_fingerprint"])
+            self.assertEqual(critic_row["target"], 1.0)
+            self.assertEqual(critic_row["source"], "lean_status")
 
             # Resume restores the queues: with num_rounds == start_round the loop
             # body never runs, so the final checkpoint's queues are exactly the
@@ -466,7 +490,7 @@ class HTPSDriverTests(unittest.TestCase):
 
             cfg.num_rounds = 2
             torch.manual_seed(0)
-            with self.assertRaisesRegex(ValueError, "predates validity-aware"):
+            with self.assertRaisesRegex(ValueError, "canonical model-S-expression"):
                 asyncio.run(run_rl_training(
                     cfg, resume_run_dir=run_dir, reasoner_factory=_qed_factory, pool=_pool()
                 ))

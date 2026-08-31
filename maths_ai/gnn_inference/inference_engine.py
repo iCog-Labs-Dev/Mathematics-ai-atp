@@ -16,6 +16,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.training import (
     load_pointer_config,
     load_prepared_metadata,
 )
+from maths_ai.hybrid_reasoner.pantograph_env import PantographEnv
 
 from .model import GNNPredictor
 
@@ -33,6 +34,7 @@ class GNNModelEngine:
         scorer_mode: str = "dot",
         k: int = 500,
         device: str = "cuda",
+        pantograph_env: PantographEnv,
     ):
         """
             Args:
@@ -60,6 +62,7 @@ class GNNModelEngine:
             tactic_checkpoint,
             node_vocab=metadata.node_vocab,
             tactic_vocab=metadata.tactic_vocab,
+            graph_representation=metadata.graph_representation,
             expected_model_kind=expected_kind,
         )
 
@@ -93,6 +96,7 @@ class GNNModelEngine:
             device=self.device,
             k=k,
             lemma_corpus=lemma_corpus,
+            pantograph_env=pantograph_env,
         )
 
     @staticmethod

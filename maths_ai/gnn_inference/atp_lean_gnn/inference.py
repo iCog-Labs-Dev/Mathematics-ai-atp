@@ -13,7 +13,7 @@ from torch_geometric.data import Batch
 
 from .argument_selector import TacticWithArgsClassifier
 from .actor_critic import ActorCriticWithArgsClassifier
-from .graph import DAGBuilder, GraphNode, proof_state_to_dag, goal_state_to_proof_state
+from .graph import DAGBuilder, GraphNode, model_goal_to_dag, proof_state_to_dag
 from .labels import get_tactic_arity
 from .lemma_corpus import LemmaRecord
 from .lemma_index import LemmaIndex
@@ -33,12 +33,45 @@ _NO_ARGS_TACTICS = frozenset({"constructor", "assumption", "trivial", "omega", "
 # Everything else (exact, apply, refine, rw, simp, ...): accept unified pool
 
 
-def _resolve_local_node_name(node: GraphNode, dag: DAGBuilder) -> str:
-    """Attempt to extract a readable hypothesis or variable name from a node."""
+_FV_LABEL_RE = re.compile(r"^FV(\d+)$")
+
+
+def _is_playable_local_name(value: str) -> bool:
+    if value == "_" or _FV_LABEL_RE.match(value):
+        return False
+    core = value.rstrip("'!?")
+    return bool(core) and core.isidentifier()
+
+
+def _local_names_by_fv_label(dag: DAGBuilder) -> dict[str, str]:
+    names: dict[str, str] = {}
+    for node in dag.nodes:
+        if node.label != "Hyp" or len(node.children) != 4:
+            continue
+        context_label = dag.nodes[node.children[0]].label
+        if _FV_LABEL_RE.match(context_label):
+            names[context_label] = dag.nodes[node.children[1]].label
+    return names
+
+
+def _resolve_local_node_name(
+    node: GraphNode,
+    dag: DAGBuilder,
+    local_names: dict[str, str] | None = None,
+) -> str:
+    """Resolve a structured local node to a Lean-usable user name."""
     if node.label == "Hyp" and node.children:
-        name_node = dag.nodes[node.children[0]]
-        return name_node.label
-    return node.label
+        name_index = 1 if len(node.children) == 4 else 0
+        result = dag.nodes[node.children[name_index]].label
+    elif _FV_LABEL_RE.match(node.label):
+        result = (local_names or {}).get(node.label, node.label)
+    else:
+        raise ValueError(
+            f"Selected node {node.label!r} is not a structured local declaration."
+        )
+    if not _is_playable_local_name(result):
+        raise ValueError(f"Selected local {result!r} is not a playable Lean identifier.")
+    return result
 
 
 def _extract_fresh_names_from_dag(dag: DAGBuilder) -> list[str]:
@@ -170,27 +203,24 @@ class InferencePipeline:
 
     @torch.no_grad()
     def predict_from_goal_state(self, goal_state, *, top_k: int = 1) -> InferenceResult:
-        """Predict tactics from a Pantograph GoalState with S-expressions.
+        """Predict from a state parsed by the strict Pantograph codec."""
+        from maths_ai.hybrid_reasoner.pantograph_model_sexpr import (
+            pantograph_state_to_goals,
+        )
 
-        This method extracts S-expressions from the GoalState (requires
-        patch_pantograph_for_sexp() to have been called) and builds the DAG
-        directly from S-expressions for both goal and hypothesis types.
-        """
-        from .graph import goal_state_to_proof_state, proof_state_to_dag
-        
-        text_state, hyp_sexps, goal_sexp = goal_state_to_proof_state(goal_state)
-        dag = proof_state_to_dag(text_state, goal_sexp=goal_sexp, hyp_sexps=hyp_sexps)
+        goals = pantograph_state_to_goals(goal_state)
+        if len(goals) != 1:
+            raise ValueError(f"Inference requires one active goal, received {len(goals)}.")
+        dag = model_goal_to_dag(goals[0])
         return self._predict_from_dag(dag, top_k=top_k)
 
     def _predict_from_dag(self, dag: DAGBuilder, *, top_k: int = 1) -> InferenceResult:
         """Core prediction logic from a pre-built DAG."""
         data = dag_to_pyg(dag, self.node_vocab)
         
-        try:
-            state_idx = next(i for i, n in enumerate(dag.nodes) if n.label == "State")
-        except StopIteration:
-            state_idx = 0
-        data.state_node_index = torch.tensor([state_idx], dtype=torch.long)
+        if dag.state_root_id is None:
+            raise ValueError("Inference DAG has no State root.")
+        data.state_node_index = torch.tensor([dag.state_root_id], dtype=torch.long)
         
         premise_mask = build_premise_mask(dag)
         data.premise_mask = torch.tensor(premise_mask, dtype=torch.bool)
@@ -223,6 +253,7 @@ class InferencePipeline:
             k=self.k,
         )
         pool = pools[0]
+        local_names = _local_names_by_fv_label(dag)
 
         top_tactic_predictions: list[dict[str, object]] = []
         for candidate in top_candidates:
@@ -294,7 +325,7 @@ class InferencePipeline:
                     idx = int(idx)
                     cid = pool.candidate_ids[idx]
                     node = dag.nodes[cid]
-                    arg_str = _resolve_local_node_name(node, dag)
+                    arg_str = _resolve_local_node_name(node, dag, local_names)
                     arguments.append(arg_str)
                     score_val = float(local_scores[local_sorted[rank]].item()) if len(local_indices) > 0 else 0.0
                     selected_argument_details.append(
@@ -331,7 +362,7 @@ class InferencePipeline:
 
                 if source == "local":
                     node = dag.nodes[cid]
-                    arg_str = _resolve_local_node_name(node, dag)
+                    arg_str = _resolve_local_node_name(node, dag, local_names)
                 else:
                     if self.lemma_corpus and cid in self.lemma_corpus:
                         arg_str = self.lemma_corpus[cid].name

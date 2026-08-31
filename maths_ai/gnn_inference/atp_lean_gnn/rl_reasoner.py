@@ -42,11 +42,10 @@ from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph, ProofNode
 from maths_ai.hybrid_reasoner.joint_inference import (
     ExpansionResult,
     HybridReasoner,
-    _sanitize_inaccessible_names,
 )
 
 from .actor_critic import ActorCriticWithArgsClassifier
-from .inference import _resolve_local_node_name
+from .inference import _local_names_by_fv_label, _resolve_local_node_name
 from .labels import get_tactic_arity
 from .pln_rl_training import EdgeAction, FailureRecord, make_dag_featurizer
 
@@ -63,10 +62,6 @@ class RLSearchResult:
     failure_actions: List[FailureRecord] = field(default_factory=list)
 
 
-def _goal_key(goal: Goal) -> tuple:
-    return (goal.expression, tuple(goal.hypotheses))
-
-
 def _fingerprint(tactic_name: str, arguments: tuple[str, ...]) -> tuple:
     return (tactic_name, arguments)
 
@@ -76,7 +71,9 @@ class _PendingNode:
     """One proposing node's sampled-but-not-yet-linked actions."""
 
     goal: Goal
+    graph_fingerprint: str
     actions: Dict[tuple, EdgeAction] = field(default_factory=dict)
+    unplayable_actions: List[EdgeAction] = field(default_factory=list)
 
 
 class RLHybridReasoner(HybridReasoner):
@@ -155,9 +152,8 @@ class RLHybridReasoner(HybridReasoner):
     def predict_next_tactics_for_nodes(
         self, nodes: List[ProofNode]
     ) -> List[List[TacticCandidate]]:
-        sanitized = [_sanitize_inaccessible_names(node.goal) for node in nodes]
         return self._predict_next_tactics_batch(
-            sanitized,
+            [node.goal.require_model_state() for node in nodes],
             node_ids=[node.id for node in nodes],
         )
 
@@ -168,22 +164,30 @@ class RLHybridReasoner(HybridReasoner):
         node_ids: Optional[List[int]],
     ) -> List[List[TacticCandidate]]:
         pendings: List[_PendingNode] = []
+        dags = []
+        datas = []
+        local_name_maps: list[dict[str, str]] = []
         if node_ids is not None and len(node_ids) != len(sub_goals):
             raise ValueError("node_ids must align with sub_goals")
         for row, sub_goal in enumerate(sub_goals):
+            dag, data = self.dag_featurize(sub_goal.require_model_state())
+            graph_fingerprint = str(data.graph_fingerprint)
             key = node_ids[row] if node_ids is not None else -(row + 1)
             pending = self._pending.get(key)
             if pending is None:
-                pending = _PendingNode(goal=sub_goal)
+                pending = _PendingNode(
+                    goal=sub_goal,
+                    graph_fingerprint=graph_fingerprint,
+                )
                 self._pending[key] = pending
+            elif pending.graph_fingerprint != graph_fingerprint:
+                raise RuntimeError(
+                    f"Node {key} was proposed from two different graph states."
+                )
             pendings.append(pending)
-
-        dags = []
-        datas = []
-        for sub_goal in sub_goals:
-            dag, data = self.dag_featurize(sub_goal)
             dags.append(dag)
             datas.append(data)
+            local_name_maps.append(_local_names_by_fv_label(dag))
         batch = Batch.from_data_list(datas).to(self.device)
 
         all_candidates: List[List[TacticCandidate]] = [[] for _ in sub_goals]
@@ -191,9 +195,18 @@ class RLHybridReasoner(HybridReasoner):
         with torch.no_grad():
             for _ in range(self.top_k_tactics):
                 sample = self.model.act(batch, id_to_tactic=self.id_to_tactic, greedy=self._greedy)
-                for row, (dag, pending) in enumerate(zip(dags, pendings)):
-                    candidate, action = self._decode_row(sample, row, dag)
+                for row, (dag, pending, local_names) in enumerate(
+                    zip(dags, pendings, local_name_maps)
+                ):
+                    candidate, action = self._decode_row(
+                        sample,
+                        row,
+                        dag,
+                        local_names,
+                        pending.graph_fingerprint,
+                    )
                     if candidate is None:
+                        pending.unplayable_actions.append(action)
                         continue
                     key = _fingerprint(candidate.tactic_name, tuple(candidate.arguments))
                     existing = pending.actions.get(key)
@@ -202,13 +215,21 @@ class RLHybridReasoner(HybridReasoner):
                             tactic_id=existing.tactic_id,
                             arg_indices=existing.arg_indices,
                             multiplicity=existing.multiplicity + 1,
+                            graph_fingerprint=existing.graph_fingerprint,
                         )
                     else:
                         pending.actions[key] = action
                         all_candidates[row].append(candidate)
         return all_candidates
 
-    def _decode_row(self, sample, row: int, dag) -> tuple[Optional[TacticCandidate], Optional[EdgeAction]]:
+    def _decode_row(
+        self,
+        sample,
+        row: int,
+        dag,
+        local_names: dict[str, str],
+        graph_fingerprint: str,
+    ) -> tuple[Optional[TacticCandidate], EdgeAction]:
         """Turn row ``row`` of a batched ``ActionSample`` into
         ``(TacticCandidate, EdgeAction)``.
 
@@ -226,27 +247,48 @@ class RLHybridReasoner(HybridReasoner):
         """
         tactic_id = int(sample.tactic_action[row])
         tactic_name = self.id_to_tactic.get(tactic_id)
-        if tactic_name is None or tactic_name.startswith("<"):
-            return None, None
-
-        arity = min(get_tactic_arity(tactic_name), self.model.max_args)
+        arity = (
+            min(get_tactic_arity(tactic_name), self.model.max_args)
+            if tactic_name is not None and not tactic_name.startswith("<")
+            else len(sample.arg_actions)
+        )
         arg_indices = tuple(int(a[row]) for a in sample.arg_actions[:arity])
+        action = EdgeAction(
+            tactic_id=tactic_id,
+            arg_indices=arg_indices,
+            multiplicity=1,
+            graph_fingerprint=graph_fingerprint,
+        )
+        if tactic_name is None or tactic_name.startswith("<"):
+            return None, action
+
         arguments: List[str] = []
         for idx in arg_indices:
-            if 0 <= idx < len(dag.nodes):
-                arguments.append(_resolve_local_node_name(dag.nodes[idx], dag))
+            if not 0 <= idx < len(dag.nodes):
+                return None, action
+            try:
+                arguments.append(
+                    _resolve_local_node_name(dag.nodes[idx], dag, local_names)
+                )
+            except ValueError:
+                return None, action
 
         probability = float(math.exp(float(sample.tactic_logp[row])))
         candidate = TacticCandidate(
             tactic_name=tactic_name, arguments=arguments, probability=probability
         )
-        action = EdgeAction(tactic_id=tactic_id, arg_indices=arg_indices, multiplicity=1)
         return candidate, action
 
-    def _decode(self, sample, dag) -> tuple[Optional[TacticCandidate], Optional[EdgeAction]]:
+    def _decode(
+        self,
+        sample,
+        dag,
+        local_names: dict[str, str],
+        graph_fingerprint: str,
+    ) -> tuple[Optional[TacticCandidate], EdgeAction]:
         """Batch-size-1 view of ``_decode_row`` (kept for tests and callers
         holding a single-graph ``ActionSample``)."""
-        return self._decode_row(sample, 0, dag)
+        return self._decode_row(sample, 0, dag, local_names, graph_fingerprint)
 
     # ------------------------------------------------------------------
     # Stash migration: fingerprint → edge.id on link, failures on flush
@@ -268,16 +310,19 @@ class RLHybridReasoner(HybridReasoner):
         result: ExpansionResult,
     ) -> None:
         """Settle sampled actions according to what Lean actually observed."""
-        if result == ExpansionResult.TACTICS_EXECUTED:
+        if result in (ExpansionResult.TACTICS_EXECUTED, ExpansionResult.NO_CANDIDATES):
             self._flush_pending(node.id)
             return
 
         pending = self._pending.pop(node.id, None)
-        if result in (ExpansionResult.NO_CANDIDATES, ExpansionResult.DEPTH_LIMIT):
-            if pending is not None and pending.actions:
+        if result == ExpansionResult.DEPTH_LIMIT:
+            if pending is not None and (pending.actions or pending.unplayable_actions):
                 raise AssertionError(
                     f"{result.value} cannot leave executable actions for node {node.id}"
                 )
+
+    def _on_materialization_invalidated(self, node: ProofNode) -> None:
+        self._pending.pop(node.id, None)
 
     def _flush_pending(self, key: int) -> None:
         """Convert one node's still-pending samples into failure records."""
@@ -285,7 +330,7 @@ class RLHybridReasoner(HybridReasoner):
         if pending is None:
             return
         if self._result is not None:
-            for action in pending.actions.values():
+            for action in [*pending.actions.values(), *pending.unplayable_actions]:
                 self._result.failure_actions.append(
                     FailureRecord(goal=pending.goal, action=action)
                 )
@@ -300,7 +345,7 @@ class RLHybridReasoner(HybridReasoner):
         Featurize the goal, run ``model.encode`` under ``no_grad``, and return
         the value head's scalar — no autograd tensor escapes the search.
         """
-        _dag, data = self.dag_featurize(_sanitize_inaccessible_names(node.goal))
+        _dag, data = self.dag_featurize(node.goal.require_model_state())
         batch = Batch.from_data_list([data]).to(self.device)
         self.model.eval()
         with torch.no_grad():
