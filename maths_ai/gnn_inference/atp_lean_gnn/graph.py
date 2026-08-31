@@ -346,7 +346,11 @@ def proof_state_to_dag(
                 type_node = _hyp_parser.parse(hyp.type_expr)
             else:
                 type_node = dag.get_or_create("?", ())
-            hyp_node = dag.get_or_create("Hyp", (name_node, type_node))
+            if hyp.is_local_definition:
+                value_node = _hyp_parser.parse(hyp.value_expr)
+                hyp_node = dag.get_or_create("Let", (name_node, type_node, value_node))
+            else:
+                hyp_node = dag.get_or_create("Hyp", (name_node, type_node))
             root_ids.append(hyp_node)
 
         goal_node = dag.get_or_create("Goal", (goal_expr_id,))
@@ -366,7 +370,11 @@ def proof_state_to_dag(
         for hypothesis in parsed.hypotheses:
             name_node = dag.get_or_create(hypothesis.name, ())
             type_node = _hyp_parser.parse(hypothesis.type_expr) if hypothesis.type_expr else dag.get_or_create("?", ())
-            hyp_node = dag.get_or_create("Hyp", (name_node, type_node))
+            if hypothesis.is_local_definition:
+                value_node = _hyp_parser.parse(hypothesis.value_expr)
+                hyp_node = dag.get_or_create("Let", (name_node, type_node, value_node))
+            else:
+                hyp_node = dag.get_or_create("Hyp", (name_node, type_node))
             root_ids.append(hyp_node)
 
         goal_node = dag.get_or_create("Goal", (goal_expr_id,))
@@ -384,7 +392,11 @@ def proof_state_to_dag(
     for hypothesis in parsed.hypotheses:
         name_node = dag.get_or_create(hypothesis.name, ())
         type_node = parser.parse(hypothesis.type_expr) if hypothesis.type_expr else dag.get_or_create("?", ())
-        hyp_node = dag.get_or_create("Hyp", (name_node, type_node))
+        if hypothesis.is_local_definition:
+            value_node = parser.parse(hypothesis.value_expr)
+            hyp_node = dag.get_or_create("Let", (name_node, type_node, value_node))
+        else:
+            hyp_node = dag.get_or_create("Hyp", (name_node, type_node))
         root_ids.append(hyp_node)
 
     goal_expr_node = parser.parse(parsed.goal)

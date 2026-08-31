@@ -15,11 +15,14 @@ the exact tensors and file locations. It describes the system as implemented in
 | `u_k` | the k-th pointer-selected tactic argument (a DAG node) | index into the state DAG's node list |
 | `a = (τ, u_1…u_K)` | one full action | `EdgeAction(tactic_id, arg_indices, multiplicity)` |
 | `π(a\|s)` | the policy: tactic head × autoregressive pointer | `ActorCriticWithArgsClassifier` |
-| `V(s)` | the critic's value estimate for state `s` | `CriticHead` on the state embedding |
+| `V_theta(s)` | the critic's current prediction; its target meaning is the probability that the configured search proves `s` within its tactic, depth, node, and time budgets | `CriticHead` on the state embedding |
+| `y(s)` | a valid numeric critic target for `s`, emitted only when search evidence is conclusive | `CriticSample.target` |
+| `e` | one tactic hyperedge from a parent state to every subgoal that tactic produced | `ProofHyperedge` |
+| `E(e)` | the validity-aware outcome of edge `e`: known `0`, known `1`, or unknown | `BackupTables.edge_outcomes` |
 | `Φ(s)` | shaping potential = PLN strength σ of `s` (0 at terminals) | `pln_reward.potential` |
 | `r` | per-edge shaped reward `r_term + Σ_j(γΦ(child_j) − Φ(parent))` | `pln_reward.edge_shaped_reward` |
-| `G` | per-edge return `r + γ·AND-combine(children's backup values)` | `search_harvest.extract_transitions` |
-| `Â` | advantage `G − V(s)`, batch-normalized | `pln_rl_training.compute_onpolicy_loss` |
+| `G(e)` | per-edge return `r(e) + γ·successor_value(e)`, present only when `E(e)` is known | `ActorTransition.return_` |
+| `Â` | advantage `G(e) − V_theta(s)`, batch-normalized over actor rows | `pln_rl_training.compute_onpolicy_loss` |
 | `m` | multiplicity: how many of the k i.i.d. draws produced this action | `EdgeAction.multiplicity` |
 | `γ` | discount (default 0.99) | `RewardConfig.gamma` |
 
@@ -98,8 +101,8 @@ two seams. One search proceeds:
    - **Accepted, no subgoals** → QED: `add_edge(node, tactic, [])`, immediately SOLVED.
    - **Accepted, subgoals** → PLN scores each subgoal concurrently
      (`rank_subgoals` → `evaluate_async`, the petta subprocess dispatched off the event
-     loop), and the top-k `(Goal, STV)` pairs become the children of one **AND-edge**:
-     all of them must eventually close for this tactic to count.
+     loop), and every `(Goal, STV)` pair becomes a child of one **AND-edge**:
+     all Lean-returned obligations must eventually close for this tactic to count.
 5. **Cycle guard**: `add_edge` fingerprints every child (`expression::sorted(hyps)`)
    against the node's ancestors; a child identical to an ancestor is force-marked DEAD —
    otherwise a tactic that rewrites a goal into an earlier one loops forever.
@@ -110,8 +113,9 @@ two seams. One search proceeds:
    max_edge tactic_prob × min_child rank)` — OR-max over edges, pessimistic AND-min over
    children). This is what makes the search *best-first in provability*: a PLN score
    assigned to a new leaf immediately re-orders the global frontier.
-7. **Termination**: root SOLVED (proof found), root DEAD (explored space exhausted), or
-   the `max_nodes` budget — the partial graph is still returned and still harvested.
+7. **Termination**: the graph records `ROOT_SOLVED`, `ROOT_DEAD`, `MAX_NODES`,
+   `FRONTIER_EMPTY`, or `EXTERNAL_ABORT`. A clean `MAX_NODES` result is a root-level
+   finite-budget failure only; untouched internal nodes remain unknown.
 
 So during the search the AND-OR graph plays two roles at once: it is the **control
 structure** (frontier ordering decides where the policy is asked next) and it is
@@ -133,10 +137,10 @@ would pin the memory of every intermediate activation for minutes. What is store
 - **Edge join** (seam 2, `_link`) — when the base `_expand` links an accepted tactic into
   the graph, the subclass moves the stash entry to `edge_actions[edge.id]`. This is the
   join key between graph structure and policy actions.
-- **Failure flush** — entries still pending when the node's expansion ends (or the search
-  ends) were rejected by Lean: they move to `failure_actions` as
-  `FailureRecord(goal, action)`. With an untrained policy these are *most* of the signal —
-  an edge-less rejection would otherwise vanish without teaching anything.
+- **Failure flush** — entries still pending after a normal tactic-execution expansion were
+  rejected by Lean: they move to `failure_actions` as `FailureRecord(goal, action)`. Entries
+  discarded because the goal failed to elaborate, the backend failed, or the search was
+  cancelled are not failures because Lean never observed those actions.
 - **Per-search container** — `prove` returns
   `RLSearchResult(graph, edge_actions, failure_actions)` and resets its stashes, because
   `edge.id` is unique only within one `ProofHypergraph`; collect therefore runs theorems
@@ -147,21 +151,32 @@ would pin the memory of every intermediate activation for minutes. What is store
 
 `train_step_onpolicy` (pln_rl_training.py) first harvests each result's graph:
 
-**Value backup** (`search_harvest.backup_values`) — a numeric AND-OR recursion, memoized
-and cycle-safe:
+**Validity-aware backup** (`search_harvest.compute_backups`) — a memoized AND-OR
+recursion that carries both a numeric value and an evidence marker. `KNOWN` means the
+search established the outcome. `UNKNOWN` means that it did not. Unknown is not converted
+to `0.0`.
 
-```
-value(SOLVED)      = 1.0
-value(DEAD)        = 0.0
-value(interior)    = max over edges of AND-combine(child values)   # OR over tactics
-AND-combine        = product (default) or min of children          # all must close
-value(unexpanded)  = 0.0                                           # not yet shown provable
+```text
+SOLVED node                                -> KNOWN(1.0)
+locally exhausted node with all edges 0    -> KNOWN(0.0)
+OPEN, globally truncated, unelaborated     -> UNKNOWN
+AND edge: any known failed child           -> KNOWN(0.0)
+AND edge: every child known solved         -> KNOWN(1.0)
+AND edge: otherwise                        -> UNKNOWN
+OR node: any edge known 1                  -> KNOWN(1.0)
+OR node: locally exhausted and all edges 0 -> KNOWN(0.0)
+OR node: otherwise                         -> UNKNOWN
 ```
 
-This is the same fixpoint logic as the status propagation, but in [0,1] — and it is the
-**critic's regression target**. Note what it is not: it contains no PLN number. Only
-demonstrated solvability enters the value target, so an unreliable PLN cannot poison the
-critic.
+`CANDIDATES_EXHAUSTED` and `NO_CANDIDATES` are local failure boundaries. `DEPTH_LIMIT`
+and `CYCLE` can fail the incoming tactic path, but do not receive standalone critic rows,
+because those states were not searched with a fresh root budget. `ELABORATION_ERROR` and
+`INFRASTRUCTURE_FAILURE` are unknown for both edge backup and critic supervision.
+
+The critic target is a node property, so `extract_critic_samples` emits at most one row
+per node. The actor target is an edge property, so `extract_actor_transitions` emits one
+row per selected edge whose outcome is known. A clean `MAX_NODES` episode adds exactly one
+root target `0.0` when no elaboration or infrastructure failure occurred.
 
 **Per-edge reward** (`pln_reward.edge_shaped_reward`) — where PLN *does* enter, in the
 only provably-safe slot:
@@ -180,28 +195,27 @@ alone and Φ(terminal)=0, the shaping telescopes along every path to
 toward states PLN likes but cannot change which policy is optimal. That is the entire
 reason a near-constant, unreliable PLN is safe to include.
 
-**Transitions** (`extract_transitions`) — one `HarvestedTransition` per hyperedge,
-restricted to `edge_ids = keys(edge_actions)` so only policy-produced edges are harvested
-(the on-policy filter; PLN-fallback pseudo-edges are excluded automatically):
+**Actor transitions** (`extract_actor_transitions`) — one `ActorTransition` per selected
+policy-produced edge whose successor evidence is known. Unknown edges are omitted rather
+than assigned an invented return:
 
 ```
-HarvestedTransition(node_id, goal, tactic, reward=r,
-                    children_value = AND-combine(child backups),
-                    value_target   = backup value of the parent,
-                    return_        = r + γ·children_value,
-                    edge_id)
+ActorTransition(node_id, goal, tactic, reward=r,
+                successor_value = E(e),
+                return_ = r + γ·successor_value,
+                edge_id)
 ```
 
-`return_` is a **one-step bootstrapped** target: the immediate shaped reward plus the
-discounted AND-OR value of what the action produced. Because `children_value` comes from
-the backup — which already OR-maxes over everything the search discovered below — the
-return sees arbitrarily deep consequences without an explicit T-step rollout sum.
+`return_` is a one-step bootstrapped target. The critic uses a separate deduplicated
+`CriticSample(node_id, goal, target)` batch, so three accepted tactics from one state do
+not duplicate the state label three times.
 
 ## 5. The gradient step: recompute, then one update
 
-`compute_onpolicy_loss` (pln_rl_training.py) assembles one batch from all of the round's
-results (edge ids re-keyed per graph to avoid collisions), each row being either a
-successful transition or a failure record:
+`compute_onpolicy_loss` (pln_rl_training.py) assembles separate actor and critic batches
+from all of the round's results. Actor rows are accepted edges with known outcomes plus
+executor-rejected actions. Critic rows are unique states with known node targets. Edge ids
+are re-keyed per graph to avoid collisions.
 
 **Log-prob recompute** — `model.evaluate_actions(batch, tactic_ids, arg_indices)` re-runs
 the encoder **with gradient** under the current parameters and evaluates the log-probs of
@@ -217,19 +231,20 @@ argument requires the featurizer identity: collect and train featurize through t
 `make_dag_featurizer` instance, so the stored pointer indices land on the same DAG nodes.
 
 **Returns per row type**:
-- success row: `G` from the harvest, plus its `value_target` for the critic;
-- failure row: `G = terminal_failure − step_penalty`, and **no critic target** — the
+
+- accepted edge row: `G(e)` from the validity-aware harvest;
+- rejected-action row: `G = terminal_failure − step_penalty`, and **no critic target** — the
   *action* failed, but the *state* may be provable by another tactic, so a failed action
-  says nothing about V(s).
+  says nothing about `V_theta(s)`.
 
 **Advantage** — over all rows jointly:
 
 ```
-Â_raw = G − V(s).detach()
+Â_raw = G(e) − V_theta(s).detach()
 Â     = (Â_raw − mean) / (std + 1e-8)        # population std; batch of 1 → 0, not NaN
 ```
 
-Joint normalization is deliberate: the failure rows' low returns and the success rows'
+Joint normalization is deliberate: the failure rows' low returns and the accepted-edge rows'
 bootstrapped returns supply the *contrast* that the near-constant PLN shaping lacks —
 without variance in Â, the actor gradient is zero regardless of how many transitions were
 collected. `detach()` on V keeps the critic out of the actor's gradient path (the baseline
@@ -239,19 +254,19 @@ must not chase the policy).
 
 ```
 L_actor   = − Σ_i m_i · (log π(τ_i|s_i) + w_arg·Σ_k log π(u_k|s_i,τ_i)) · Â_i  /  Σ_i m_i
-L_critic  = MSE(V(s), value_target)          # success rows only
+L_critic  = MSE(V_theta(s), y(s))            # unique valid critic rows only
 L_entropy = − mean H(π(·|s))                 # subtracted: rewards exploration
-L_bc      = CE(tactic_logits, τ)             # success rows only, annealed weight
+L_bc      = CE(tactic_logits, τ)             # accepted edge rows only, annealed weight
 total     = L_actor + 0.5·L_critic − 0.01·L_entropy + w_bc(t)·L_bc
 ```
 
 Reading `L_actor` mechanically: a positive advantage *increases* the joint log-probability
-of the executed tactic **and** its arguments (pointer-as-actor — the same Â weights both
+of the executed tactic **and** its arguments (the same `Â` weights both
 levels, `w_arg` balancing their scales); a negative advantage decreases it. The
 multiplicity `m` restores the i.i.d. weighting that executor-side dedup removed: an action
 drawn 3 times must contribute its gradient term 3 times or the estimator under-weights
 high-probability actions. The BC anchor is a supervised cross-entropy toward the
-search-executed tactic on success rows (never failures — that would clone rejections),
+search-executed tactic on accepted edge rows (never failures — that would clone rejections),
 annealed from `bc_anneal_start` to `bc_anneal_end` by `bc_weight_at_round`; it is a dense,
 low-variance gradient that holds the policy near supervised competence while terminal
 rewards are still rare, and it lives in the *loss*, not the reward, so it cannot
@@ -296,9 +311,9 @@ Two data-side choices matter for why this learns at all:
 | featurizer identity collect↔train | `reasoner.dag_featurize_data` passed to the trainer | stored arg indices point at wrong DAG nodes |
 | vocabs from `prepared_root` only | `_load_vocabs`; never `build_vocab` on rollout states | warm-started embeddings mean the wrong tokens |
 | Φ(terminal) = 0 | `potential` returns 0 for SOLVED/DEAD | shaping stops telescoping; terminals get biased by `γ^T Φ(s_T)` |
-| critic sees success rows only | `success_t` mask in the loss | failed actions poison state values |
+| critic sees unique valid node rows | `extract_critic_samples` and the separate critic batch | failed actions and duplicate edge labels poison state values |
 | dedup with multiplicity | `EdgeAction.multiplicity` weighting | high-probability actions under-weighted |
-| value target from backup, not PLN | `backup_values` uses statuses only | unreliable PLN trains the critic |
+| value target from backup, not PLN | `compute_backups` uses closure provenance | unreliable PLN and unknown evidence train the critic |
 | sequential collect per reasoner | `collect_round` loop | edge-id collisions across concurrent stashes |
 
 ## 8. File map
@@ -309,7 +324,7 @@ Two data-side choices matter for why this learns at all:
 | search + graph | `hybrid_reasoner/joint_inference.py`, `hybrid_reasoner/hypergraph.py` |
 | RL search overrides + stash | `atp_lean_gnn/rl_reasoner.py` |
 | reward + shaping | `atp_lean_gnn/pln_reward.py` |
-| backup + transitions | `atp_lean_gnn/search_harvest.py` |
+| backup + actor/critic harvest | `atp_lean_gnn/search_harvest.py` |
 | loss + train step | `atp_lean_gnn/pln_rl_training.py`, `atp_lean_gnn/actor_critic_loss.py` |
 | driver, curriculum, eval | `atp_lean_gnn/rl_training_driver.py`, `scripts/rl_train.py`, `configs/rl_actor_critic.json` |
 | tests | `tests/test_actor_critic.py`, `tests/test_pln_reward.py`, `tests/test_pln_rl_training.py`, `tests/test_rl_reasoner.py`, `tests/test_rl_training_driver.py` |

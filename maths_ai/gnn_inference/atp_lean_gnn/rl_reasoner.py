@@ -31,7 +31,7 @@ from torch_geometric.data import Batch
 
 from maths_ai.data_models.proof_components import Goal, TacticCandidate
 from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph, ProofNode
-from maths_ai.hybrid_reasoner.joint_inference import HybridReasoner
+from maths_ai.hybrid_reasoner.joint_inference import ExpansionResult, HybridReasoner
 
 from .actor_critic import ActorCriticWithArgsClassifier
 from .inference import _resolve_local_node_name
@@ -51,7 +51,7 @@ class RLSearchResult:
 
 
 def _fingerprint(goal: Goal, tactic_name: str, arguments: tuple[str, ...]) -> tuple:
-    return (goal.expression, tuple(goal.hypotheses), tactic_name, arguments)
+    return (goal.expression, tuple(h.render() for h in goal.hypotheses), tactic_name, arguments)
 
 
 class RLHybridReasoner(HybridReasoner):
@@ -115,7 +115,8 @@ class RLHybridReasoner(HybridReasoner):
         If ``self._greedy`` is True (set by ``prove(greedy=True)``), draw k argmax
         actions instead of sampling — used for evaluation.
         """
-        self._flush_pending()  # anything left from the previous node is a failure
+        if self._pending:
+            raise RuntimeError("Previous expansion left pending actions unsettled")
         self._pending_goal = sub_goal
 
         dag, data = self.dag_featurize(sub_goal)
@@ -178,7 +179,6 @@ class RLHybridReasoner(HybridReasoner):
     def _link(self, graph: ProofHypergraph, node: ProofNode, tactic: TacticCandidate, ranked_subgoals: list):
         edge = super()._link(graph, node, tactic, ranked_subgoals)
         key = _fingerprint(node.goal, tactic.tactic_name, tuple(tactic.arguments))
-        # PLN_fallback pseudo-edges carry no sampled action; leave them out of the join.
         # node.goal must match the fingerprint's goal: predict_next_tactic fingerprinted
         # the SANITIZED goal, so try that too.
         action = self._pending.pop(key, None)
@@ -199,12 +199,15 @@ class RLHybridReasoner(HybridReasoner):
         self._pending = {}
         self._pending_goal = None
 
-    def _on_unelaborated(self, goal: Goal) -> None:
-        # Samples were drawn before Lean attempted to reconstruct the state, but
-        # were never executed.  They are not rejected actions and carry no signal.
+    def _discard_pending(self) -> None:
         self._pending = {}
         self._pending_goal = None
 
+    def _on_expansion_complete(self, node: ProofNode, result: str) -> None:
+        if result == ExpansionResult.TACTICS_EXECUTED:
+            self._flush_pending()
+        else:
+            self._discard_pending()
     # ------------------------------------------------------------------
     # Per-search result (refinement 6)
     # ------------------------------------------------------------------
@@ -229,11 +232,12 @@ class RLHybridReasoner(HybridReasoner):
         self._pending_goal = None
         self._greedy = greedy
         self._result = RLSearchResult(graph=None)  # graph attached after the base search
+        result = None
         try:
             graph = await super().prove(goal, hypotheses=hypotheses)
-            self._flush_pending()  # last expanded node's rejects
             self._result.graph = graph
             result, self._result = self._result, None
         finally:
+            self._discard_pending()
             self._greedy = False
         return result

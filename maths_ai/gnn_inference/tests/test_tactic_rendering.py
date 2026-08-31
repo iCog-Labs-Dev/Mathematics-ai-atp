@@ -237,6 +237,17 @@ class RestartDiscriminationTests(unittest.TestCase):
         self.assertEqual(healthy.started, ["∀ (p : Prop), ∀ (h : p ∨ q), q ∨ p"])
         self.assertEqual(state, "goal-state+intro p h")
 
+    def test_local_let_is_preserved_when_reconstructing_a_goal(self):
+        healthy = _HealthyServer()
+        reasoner = _reasoner(healthy, _FakeEnv(lambda: healthy))
+        state = asyncio.run(
+            reasoner._start_state(
+                Goal(expression="x = 1", hypotheses=["let x : Nat := 1", "h : x = 1"])
+            )
+        )
+        self.assertEqual(healthy.started, ["let x : Nat := 1\n∀ (h : x = 1), x = 1"])
+        self.assertEqual(state, "goal-state+intro h")
+
 
 if __name__ == "__main__":
     unittest.main()

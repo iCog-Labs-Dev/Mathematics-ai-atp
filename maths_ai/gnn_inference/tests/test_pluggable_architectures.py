@@ -332,6 +332,26 @@ class GraphBudgetBatchSamplerTests(unittest.TestCase):
                 max_nodes=10,
             )
 
+    def test_oversized_graph_can_be_skipped_or_kept_singleton(self) -> None:
+        sizes = [
+            GraphSize("large", nodes=11, edges=4),
+            GraphSize("small", nodes=2, edges=2),
+        ]
+        skipped = GraphBudgetBatchSampler(
+            sizes,
+            max_graphs=2,
+            max_nodes=10,
+            oversize_policy="skip",
+        )
+        self.assertEqual(list(skipped), [[1]])
+        singleton = GraphBudgetBatchSampler(
+            sizes,
+            max_graphs=2,
+            max_nodes=10,
+            oversize_policy="singleton",
+        )
+        self.assertEqual(list(singleton), [[0], [1]])
+
 
 if __name__ == "__main__":
     unittest.main()

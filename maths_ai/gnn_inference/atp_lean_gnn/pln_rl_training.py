@@ -17,7 +17,7 @@ string path the GNN engine already uses (OOV → ``<UNK>``).
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable
 
 import torch
@@ -28,7 +28,13 @@ from .actor_critic_loss import compute_bc_anchor_loss, compute_critic_loss, comp
 from .graph import proof_state_to_dag
 from .pyg import build_premise_mask, dag_to_pyg
 from .pln_reward import RewardConfig
-from .search_harvest import HarvestConfig, HarvestedTransition, extract_transitions
+from .search_harvest import (
+    ActorTransition,
+    CriticSample,
+    HarvestConfig,
+    extract_actor_transitions,
+    extract_critic_samples,
+)
 
 from maths_ai.data_models.proof_components import Goal
 
@@ -70,7 +76,7 @@ class EdgeAction:
 
 @dataclass(frozen=True)
 class FailureRecord:
-    """A sampled action the executor rejected (or that never produced an edge).
+    """A sampled action that the executor rejected.
 
     There is no hyperedge and no successor state, so it enters the loss actor-only:
     ``return = terminal_failure − step_penalty`` and NO critic regression target — the
@@ -83,14 +89,14 @@ class FailureRecord:
 def goal_to_state(goal: Goal) -> str:
     """Render a ``Goal`` as the proof-state string the parser expects.
 
-    ``Goal.hypotheses`` are Pantograph's ``name : type`` lines; joining them above the
+    ``Goal.hypotheses`` retain Pantograph's local declaration structure; rendering them above the
     turnstile reproduces the state the executor observed, so the DAG contains the
     hypothesis nodes the pointer needs as argument candidates. A goal with no
     hypotheses passes its expression through unchanged (it may already embed a full
     state string, as the harvest tests do).
     """
     if goal.hypotheses:
-        return "\n".join(goal.hypotheses) + "\n⊢ " + goal.expression
+        return "\n".join(hypothesis.render() for hypothesis in goal.hypotheses) + "\n⊢ " + goal.expression
     return goal.expression
 
 
@@ -133,7 +139,8 @@ def make_dag_featurizer(node_vocab: dict[str, int]):
 
 def compute_transition_loss(
     model: ActorCriticWithArgsClassifier,
-    transitions: list[HarvestedTransition],
+    actor_transitions: list[ActorTransition],
+    critic_samples: list[CriticSample],
     featurize: Callable[[Goal], Data],
     tactic_to_id: dict[str, int],
     *,
@@ -144,67 +151,59 @@ def compute_transition_loss(
     max_update_nodes: int = 0,
     max_update_edges: int = 0,
 ) -> tuple[torch.Tensor, dict[str, float]] | None:
-    """One actor-critic loss over a batch of harvested transitions (tactic-level policy grad).
-
-    Advantage ``Â(s,τ) = return − V_pred(s)`` with the AND-OR-backed ``return`` from the
-    harvest; the critic regresses the AND-OR backup ``value_target``. Transitions whose tactic
-    is outside ``tactic_to_id`` (e.g. the ``PLN_fallback`` pseudo-tactic) are dropped. Returns
-    ``None`` if nothing survives. The BC anchor uses each transition's own tactic id as the
-    supervised label (the search-chosen action), annealed by ``bc_weight``.
-    """
+    """Offline tactic-level actor loss plus a separate unique-state critic loss."""
     device = device or torch.device("cpu")
-    datas: list[Data] = []
+    actor_datas: list[Data] = []
     action_ids: list[int] = []
     returns: list[float] = []
-    value_targets: list[float] = []
-    critic_rows: list[int] = []
-    for t in transitions:
+    for t in actor_transitions:
         tid = tactic_to_id.get(t.tactic.tactic_name)
         if tid is None:
             continue
-        datas.append(featurize(t.goal))
+        actor_datas.append(featurize(t.goal))
         action_ids.append(tid)
         returns.append(t.return_)
-        if t.value_target is not None:
-            critic_rows.append(len(datas) - 1)
-            value_targets.append(t.value_target)
-
-    if not datas:
+    critic_datas = [featurize(sample.goal) for sample in critic_samples]
+    if not actor_datas and not critic_datas:
         return None
-
     node_count, edge_count = _validate_update_size(
-        datas,
+        actor_datas + critic_datas,
         max_update_nodes=max_update_nodes,
         max_update_edges=max_update_edges,
     )
-    batch = Batch.from_data_list(datas).to(device)
-    _node_emb, _state_emb, tactic_logits, values = model.encode(batch)
+    zero = next(model.parameters()).sum() * 0.0
+    actor_loss = zero
+    entropy = zero
+    bc_loss = zero
+    mean_return = 0.0
+    if actor_datas:
+        batch = Batch.from_data_list(actor_datas).to(device)
+        _node_emb, _state_emb, tactic_logits, values = model.encode(batch)
+        actions = torch.tensor(action_ids, dtype=torch.long, device=device)
+        returns_t = torch.tensor(returns, dtype=torch.float32, device=device)
+        raw_adv = returns_t - values.squeeze(-1).detach()
+        advantages = (raw_adv - raw_adv.mean()) / (raw_adv.std(unbiased=False) + 1e-8)
+        selected_logp = torch.log_softmax(tactic_logits, dim=-1).gather(
+            1, actions.unsqueeze(1)
+        ).squeeze(1)
+        actor_loss = -(selected_logp * advantages).mean()
+        entropy = compute_entropy_bonus(tactic_logits)
+        if bc_weight != 0.0:
+            bc_loss = compute_bc_anchor_loss(tactic_logits, actions)
+        mean_return = float(returns_t.mean().item())
 
-    actions = torch.tensor(action_ids, dtype=torch.long, device=device)
-    returns_t = torch.tensor(returns, dtype=torch.float32, device=device)
-    value_pred = values.squeeze(-1)
-
-    # Advantage: AND-OR-backed return minus the critic baseline (detached), normalized.
-    raw_adv = returns_t - value_pred.detach()
-    advantages = (raw_adv - raw_adv.mean()) / (raw_adv.std() + 1e-8)
-
-    log_probs = torch.log_softmax(tactic_logits, dim=-1)
-    selected_logp = log_probs.gather(1, actions.unsqueeze(1)).squeeze(1)
-    actor_loss = -(selected_logp * advantages).mean()
-
-    if critic_rows:
-        value_targets_t = torch.tensor(value_targets, dtype=torch.float32, device=device)
-        critic_loss = compute_critic_loss(values[critic_rows], value_targets_t)
-        mean_value_target = float(value_targets_t.mean().item())
-    else:
-        critic_loss = values.sum() * 0.0
-        mean_value_target = 0.0
-    entropy = compute_entropy_bonus(tactic_logits)
-
+    critic_loss = zero
+    mean_value_target = 0.0
+    if critic_datas:
+        critic_batch = Batch.from_data_list(critic_datas).to(device)
+        _nodes, _states, _logits, critic_values = model.encode(critic_batch)
+        targets = torch.tensor(
+            [sample.target for sample in critic_samples], dtype=torch.float32, device=device
+        )
+        critic_loss = compute_critic_loss(critic_values, targets)
+        mean_value_target = float(targets.mean().item())
     total = actor_loss + critic_weight * critic_loss - entropy_weight * entropy
-
-    if bc_weight != 0.0:
-        bc_loss = compute_bc_anchor_loss(tactic_logits, actions)
+    if actor_datas and bc_weight != 0.0:
         total = total + bc_weight * bc_loss
         bc_val = float(bc_loss.item())
     else:
@@ -216,9 +215,10 @@ def compute_transition_loss(
         "entropy": float(entropy.item()),
         "bc_loss": bc_val,
         "total_loss": float(total.item()),
-        "mean_return": float(returns_t.mean().item()),
+        "mean_return": mean_return,
         "mean_value_target": mean_value_target,
-        "num_transitions": float(len(datas)),
+        "num_transitions": float(len(actor_datas)),
+        "num_critic_samples": float(len(critic_datas)),
         "update_node_count": float(node_count),
         "update_edge_count": float(edge_count),
     }
@@ -227,7 +227,8 @@ def compute_transition_loss(
 
 def compute_onpolicy_loss(
     model: ActorCriticWithArgsClassifier,
-    transitions: list[HarvestedTransition],
+    actor_transitions: list[ActorTransition],
+    critic_samples: list[CriticSample],
     edge_actions: dict[int, EdgeAction],
     failures: list[FailureRecord],
     featurize: Callable[[Goal], Data],
@@ -241,110 +242,91 @@ def compute_onpolicy_loss(
     max_update_nodes: int = 0,
     max_update_edges: int = 0,
 ) -> tuple[torch.Tensor, dict[str, float]] | None:
-    """On-policy actor-critic loss with the argument-level policy gradient (B2).
-
-    Recompute pattern (refinement 2): the collect phase stored only the integer actions
-    (``EdgeAction``); here ``model.evaluate_actions`` rebuilds ``log π(τ|s)`` and
-    ``Σ_k log π(u_k|s,τ)`` with gradient under the current parameters. Exactly on-policy only
-    when no optimizer step ran between collect and this call.
-
-    Per successful edge (a ``HarvestedTransition`` whose ``edge_id`` is in ``edge_actions``):
-      ``L_actor = −m · (log π(τ) + w_arg · Σ_k log π(u_k)) · Â.detach()``
-    with ``Â = return − V_pred(s)`` (normalized jointly with the failure rows) and
-    ``m`` the sample multiplicity (refinement 1). The critic regresses the AND-OR
-    ``value_target`` on these rows only.
-
-    Per ``FailureRecord`` (executor-rejected sample, refinement 4): the same actor term with
-    ``return = terminal_failure − step_penalty`` and NO critic target.
-    """
+    """Build separate actor and critic forwards, then one combined backward loss."""
     device = device or torch.device("cpu")
     reward_cfg = reward_cfg or RewardConfig()
 
-    datas: list[Data] = []
+    actor_datas: list[Data] = []
     tactic_ids: list[int] = []
     arg_rows: list[tuple[int, ...]] = []
     multiplicities: list[float] = []
     returns: list[float] = []
-    is_success: list[bool] = []
-    value_targets: list[float] = []
-    critic_rows: list[int] = []
+    is_accepted: list[bool] = []
 
-    for t in transitions:
+    for t in actor_transitions:
         action = edge_actions.get(t.edge_id)
         if action is None:
             continue
-        datas.append(featurize(t.goal))
+        actor_datas.append(featurize(t.goal))
         tactic_ids.append(action.tactic_id)
         arg_rows.append(action.arg_indices)
         multiplicities.append(float(action.multiplicity))
         returns.append(t.return_)
-        is_success.append(True)
-        if t.value_target is not None:
-            critic_rows.append(len(datas) - 1)
-            value_targets.append(t.value_target)
+        is_accepted.append(True)
 
     failure_return = reward_cfg.terminal_failure - reward_cfg.step_penalty
     for f in failures:
-        datas.append(featurize(f.goal))
+        actor_datas.append(featurize(f.goal))
         tactic_ids.append(f.action.tactic_id)
         arg_rows.append(f.action.arg_indices)
         multiplicities.append(float(f.action.multiplicity))
         returns.append(failure_return)
-        is_success.append(False)
+        is_accepted.append(False)
 
-    if not datas:
+    critic_datas = [featurize(sample.goal) for sample in critic_samples]
+    if not actor_datas and not critic_datas:
         return None
 
     node_count, edge_count = _validate_update_size(
-        datas,
+        actor_datas + critic_datas,
         max_update_nodes=max_update_nodes,
         max_update_edges=max_update_edges,
     )
-    batch = Batch.from_data_list(datas).to(device)
-    max_args = max((len(r) for r in arg_rows), default=0)
-    if max_args > 0:
-        arg_indices = torch.full((len(arg_rows), max_args), -1, dtype=torch.long, device=device)
-        for i, row in enumerate(arg_rows):
-            for j, idx in enumerate(row):
-                arg_indices[i, j] = idx
-    else:
+    zero = next(model.parameters()).sum() * 0.0
+    actor_loss = zero
+    entropy_bonus = zero
+    bc_loss = zero
+    mean_return = 0.0
+    mean_arg_logp = 0.0
+    if actor_datas:
+        batch = Batch.from_data_list(actor_datas).to(device)
+        max_args = max((len(row) for row in arg_rows), default=0)
         arg_indices = None
+        if max_args > 0:
+            arg_indices = torch.full(
+                (len(arg_rows), max_args), -1, dtype=torch.long, device=device
+            )
+            for i, row in enumerate(arg_rows):
+                for j, idx in enumerate(row):
+                    arg_indices[i, j] = idx
+        tactic_ids_t = torch.tensor(tactic_ids, dtype=torch.long, device=device)
+        tactic_logp, arg_logp, entropy, values, tactic_logits = model.evaluate_actions(
+            batch, tactic_ids_t, arg_indices
+        )
+        returns_t = torch.tensor(returns, dtype=torch.float32, device=device)
+        mult_t = torch.tensor(multiplicities, dtype=torch.float32, device=device)
+        accepted_t = torch.tensor(is_accepted, dtype=torch.bool, device=device)
+        raw_adv = returns_t - values.detach()
+        advantages = (raw_adv - raw_adv.mean()) / (raw_adv.std(unbiased=False) + 1e-8)
+        joint_logp = tactic_logp + arg_loss_weight * arg_logp
+        actor_loss = (-(mult_t * joint_logp * advantages)).sum() / mult_t.sum()
+        entropy_bonus = entropy.mean()
+        if bc_weight != 0.0:
+            labels = torch.where(accepted_t, tactic_ids_t, torch.full_like(tactic_ids_t, -1))
+            bc_loss = compute_bc_anchor_loss(tactic_logits, labels)
+        mean_return = float(returns_t.mean().item())
+        mean_arg_logp = float(arg_logp.mean().item())
 
-    tactic_ids_t = torch.tensor(tactic_ids, dtype=torch.long, device=device)
-    tactic_logp, arg_logp, entropy, values, tactic_logits = model.evaluate_actions(
-        batch, tactic_ids_t, arg_indices
-    )
-
-    returns_t = torch.tensor(returns, dtype=torch.float32, device=device)
-    mult_t = torch.tensor(multiplicities, dtype=torch.float32, device=device)
-    success_t = torch.tensor(is_success, dtype=torch.bool, device=device)
-
-    # Advantage over ALL rows (success + failure), normalized jointly so the failure
-    # rows' negative returns supply the contrast the near-constant PLN reward lacks.
-    # Population std (unbiased=False): a single-row batch normalizes to 0, not NaN.
-    raw_adv = returns_t - values.detach()
-    advantages = (raw_adv - raw_adv.mean()) / (raw_adv.std(unbiased=False) + 1e-8)
-
-    joint_logp = tactic_logp + arg_loss_weight * arg_logp
-    actor_terms = -(mult_t * joint_logp * advantages)
-    actor_loss = actor_terms.sum() / mult_t.sum()
-
-    # Critic: regress the AND-OR backup on success rows only (a failed ACTION says
-    # nothing about the STATE's value).
-    if critic_rows:
-        value_targets_t = torch.tensor(value_targets, dtype=torch.float32, device=device)
-        critic_loss = compute_critic_loss(values[critic_rows], value_targets_t)
-    else:
-        critic_loss = values.sum() * 0.0
-
-    entropy_bonus = entropy.mean()
+    critic_loss = zero
+    if critic_datas:
+        critic_batch = Batch.from_data_list(critic_datas).to(device)
+        _nodes, _states, _logits, critic_values = model.encode(critic_batch)
+        critic_targets = torch.tensor(
+            [sample.target for sample in critic_samples], dtype=torch.float32, device=device
+        )
+        critic_loss = compute_critic_loss(critic_values, critic_targets)
     total = actor_loss + critic_weight * critic_loss - entropy_weight * entropy_bonus
-
-    if bc_weight != 0.0:
-        # BC anchor toward the search-executed tactic on success rows only — anchoring
-        # toward rejected tactics would clone the failures.
-        labels = torch.where(success_t, tactic_ids_t, torch.full_like(tactic_ids_t, -1))
-        bc_loss = compute_bc_anchor_loss(tactic_logits, labels)
+    if actor_datas and bc_weight != 0.0:
         total = total + bc_weight * bc_loss
         bc_val = float(bc_loss.item())
     else:
@@ -356,9 +338,10 @@ def compute_onpolicy_loss(
         "entropy": float(entropy_bonus.item()),
         "bc_loss": bc_val,
         "total_loss": float(total.item()),
-        "mean_return": float(returns_t.mean().item()),
-        "mean_arg_logp": float(arg_logp.mean().item()),
-        "num_transitions": float(int(success_t.sum().item())),
+        "mean_return": mean_return,
+        "mean_arg_logp": mean_arg_logp,
+        "num_transitions": float(sum(is_accepted)),
+        "num_critic_samples": float(len(critic_datas)),
         "num_failures": float(len(failures)),
         "update_node_count": float(node_count),
         "update_edge_count": float(edge_count),
@@ -384,26 +367,37 @@ def train_step(
     """Harvest transitions from a batch of search graphs and take one gradient step."""
     reward_cfg = reward_cfg or RewardConfig()
     harvest_cfg = harvest_cfg or HarvestConfig()
-    transitions: list[HarvestedTransition] = []
+    actor_transitions: list[ActorTransition] = []
+    critic_samples: list[CriticSample] = []
     for graph in graphs:
-        transitions.extend(extract_transitions(graph, reward_cfg, harvest_cfg))
+        actor_transitions.extend(extract_actor_transitions(graph, reward_cfg, harvest_cfg))
+        critic_samples.extend(extract_critic_samples(graph, harvest_cfg))
 
-    if not transitions:
-        return {"num_transitions": 0.0}
+    if not actor_transitions and not critic_samples:
+        return {
+            "num_transitions": 0.0,
+            "num_critic_samples": 0.0,
+            "optimizer_step": 0.0,
+        }
 
     model.train()
     optimizer.zero_grad(set_to_none=True)
     result = compute_transition_loss(
-        model, transitions, featurize, tactic_to_id,
+        model, actor_transitions, critic_samples, featurize, tactic_to_id,
         device=device, critic_weight=critic_weight,
         entropy_weight=entropy_weight, bc_weight=bc_weight,
     )
     if result is None:
-        return {"num_transitions": 0.0}
+        return {
+            "num_transitions": 0.0,
+            "num_critic_samples": 0.0,
+            "optimizer_step": 0.0,
+        }
     loss, metrics = result
     loss.backward()
     torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
     optimizer.step()
+    metrics["optimizer_step"] = 1.0
     return metrics
 
 
@@ -461,7 +455,7 @@ def train_step_onpolicy(
     """One gradient step over a batch of ``RLSearchResult`` s (rl_reasoner.py).
 
     Per result: harvest only the edges the policy produced
-    (``extract_transitions(edge_ids=…)``), then join each transition to its ``EdgeAction``
+    (``extract_actor_transitions(edge_ids=...)``), then join each transition to its ``EdgeAction``
     via ``edge_id`` and fold in the failure records. Exactly ONE ``optimizer.step()`` per
     collect round — the recomputed log-probs are on-policy only while the parameters match
     those that sampled the actions.
@@ -469,20 +463,25 @@ def train_step_onpolicy(
     reward_cfg = reward_cfg or RewardConfig()
     harvest_cfg = harvest_cfg or HarvestConfig()
 
-    transitions: list[HarvestedTransition] = []
+    actor_transitions: list[ActorTransition] = []
+    critic_samples: list[CriticSample] = []
     edge_actions: dict[int, EdgeAction] = {}
     failures: list[FailureRecord] = []
+    unknown_edges_skipped = 0
+    unknown_nodes_skipped = 0
     # edge_id is unique only within one graph (refinement 6): re-key each result's
     # actions by a per-batch offset before merging.
     offset = 0
     for result in results:
-        ts = extract_transitions(
+        ts = extract_actor_transitions(
             result.graph, reward_cfg, harvest_cfg,
             edge_ids=list(result.edge_actions.keys()),
         )
-        for t in ts:
-            t.edge_id += offset
-        transitions.extend(ts)
+        actor_transitions.extend(replace(t, edge_id=t.edge_id + offset) for t in ts)
+        result_critic_samples = extract_critic_samples(result.graph, harvest_cfg)
+        critic_samples.extend(result_critic_samples)
+        unknown_edges_skipped += len(result.edge_actions) - len(ts)
+        unknown_nodes_skipped += len(result.graph.nodes) - len(result_critic_samples)
         edge_actions.update({eid + offset: a for eid, a in result.edge_actions.items()})
         failures.extend(result.failure_actions)
         if result.edge_actions:
@@ -491,18 +490,28 @@ def train_step_onpolicy(
     model.train()
     optimizer.zero_grad(set_to_none=True)
     loss_result = compute_onpolicy_loss(
-        model, transitions, edge_actions, failures, featurize,
+        model, actor_transitions, critic_samples, edge_actions, failures, featurize,
         device=device, critic_weight=critic_weight, entropy_weight=entropy_weight,
         arg_loss_weight=arg_loss_weight, bc_weight=bc_weight, reward_cfg=reward_cfg,
         max_update_nodes=max_update_nodes,
         max_update_edges=max_update_edges,
     )
     if loss_result is None:
-        return {"num_transitions": 0.0, "num_failures": 0.0}
+        return {
+            "num_transitions": 0.0,
+            "num_critic_samples": 0.0,
+            "num_failures": 0.0,
+            "unknown_edges_skipped": float(unknown_edges_skipped),
+            "unknown_nodes_skipped": float(unknown_nodes_skipped),
+            "optimizer_step": 0.0,
+        }
     loss, metrics = loss_result
     loss.backward()
     torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
     optimizer.step()
+    metrics["optimizer_step"] = 1.0
+    metrics["unknown_edges_skipped"] = float(unknown_edges_skipped)
+    metrics["unknown_nodes_skipped"] = float(unknown_nodes_skipped)
     return metrics
 
 

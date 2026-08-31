@@ -4,11 +4,16 @@ import asyncio
 import unittest
 
 import torch
+from pantograph.server import ServerError
 from torch.optim import AdamW
 from torch_geometric.data import Batch
 
 from maths_ai.data_models.proof_components import Goal, STV, TacticCandidate
-from maths_ai.hybrid_reasoner.hypergraph import TacticOutcome
+from maths_ai.hybrid_reasoner.hypergraph import (
+    NodeClosureReason,
+    SearchEndReason,
+    TacticOutcome,
+)
 from maths_ai.pln_inference.model import PLNResult
 
 from maths_ai.gnn_inference.atp_lean_gnn.actor_critic import (
@@ -24,7 +29,10 @@ from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import (
     train_step_onpolicy,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.rl_reasoner import RLHybridReasoner
-from maths_ai.gnn_inference.atp_lean_gnn.search_harvest import extract_transitions
+from maths_ai.gnn_inference.atp_lean_gnn.search_harvest import (
+    extract_actor_transitions,
+    extract_critic_samples,
+)
 from maths_ai.gnn_inference.tests.model_helpers import actor_critic
 
 
@@ -38,6 +46,9 @@ class _FakeGoalState:
 
 
 class _FakeServer:
+    def __init__(self):
+        self.proc = object()
+
     async def goal_start_async(self, expression):
         return _FakeGoalState()
 
@@ -63,6 +74,27 @@ class _RejectExecutor:
 
     async def apply(self, server, state, tactic):
         return TacticOutcome(success=False, subgoals=[], error="rejected")
+
+
+class _ElaborationServer(_FakeServer):
+    async def goal_start_async(self, expression):
+        raise ServerError("cannot elaborate reconstructed goal")
+
+
+class _ElaborationExecutor:
+    def __init__(self):
+        self.server = _ElaborationServer()
+
+    async def apply(self, server, state, tactic):
+        raise AssertionError("tactics must not run when goal elaboration fails")
+
+
+class _InfrastructureFailureExecutor:
+    def __init__(self):
+        self.server = _FakeServer()
+
+    async def apply(self, server, state, tactic):
+        raise BrokenPipeError("Pantograph pipe closed")
 
 
 class _StubPLN:
@@ -179,13 +211,58 @@ class RolloutTests(unittest.TestCase):
     def test_onpolicy_edge_filter(self):
         reasoner, _model, _vocab = _make_reasoner(_QEDExecutor())
         result = self._prove(reasoner)
-        transitions = extract_transitions(
+        transitions = extract_actor_transitions(
             result.graph, RewardConfig(step_penalty=0.0),
             edge_ids=list(result.edge_actions.keys()),
         )
         self.assertEqual(len(transitions), len(result.edge_actions))
         for t in transitions:
             self.assertIn(t.edge_id, result.edge_actions)
+
+    def test_elaboration_failure_discards_unexecuted_actions(self):
+        reasoner, _model, _vocab = _make_reasoner(_ElaborationExecutor())
+        result = self._prove(reasoner)
+
+        self.assertEqual(result.graph.root.closure_reason, NodeClosureReason.ELABORATION_ERROR)
+        self.assertEqual(result.edge_actions, {})
+        self.assertEqual(result.failure_actions, [])
+        self.assertEqual(extract_actor_transitions(result.graph), [])
+        self.assertEqual(extract_critic_samples(result.graph), [])
+
+    def test_infrastructure_failure_discards_unobserved_actions(self):
+        reasoner, _model, _vocab = _make_reasoner(_InfrastructureFailureExecutor())
+        result = self._prove(reasoner)
+
+        self.assertEqual(result.graph.search_end_reason, SearchEndReason.EXTERNAL_ABORT)
+        self.assertEqual(result.graph.root.closure_reason, NodeClosureReason.INFRASTRUCTURE_FAILURE)
+        self.assertEqual(result.edge_actions, {})
+        self.assertEqual(result.failure_actions, [])
+        self.assertEqual(extract_actor_transitions(result.graph), [])
+        self.assertEqual(extract_critic_samples(result.graph), [])
+
+    def test_cancellation_clears_pending_actions(self):
+        class _BlockingExecutor:
+            def __init__(self):
+                self.server = _FakeServer()
+                self.started = asyncio.Event()
+
+            async def apply(self, server, state, tactic):
+                self.started.set()
+                await asyncio.Event().wait()
+
+        executor = _BlockingExecutor()
+        reasoner, _model, _vocab = _make_reasoner(executor)
+
+        async def cancel_search():
+            task = asyncio.create_task(reasoner.prove(GOAL_EXPR, hypotheses=HYPS))
+            await executor.started.wait()
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(cancel_search())
+        self.assertEqual(reasoner._pending, {})
+        self.assertIsNone(reasoner._pending_goal)
 
 
 class OnPolicyLossTests(unittest.TestCase):
@@ -228,7 +305,7 @@ class OnPolicyLossTests(unittest.TestCase):
         self.assertGreater(len(result.failure_actions), 0)
 
         loss_result = compute_onpolicy_loss(
-            model, [], {}, result.failure_actions, reasoner.dag_featurize_data,
+            model, [], [], {}, result.failure_actions, reasoner.dag_featurize_data,
         )
         self.assertIsNotNone(loss_result)
         loss, metrics = loss_result
@@ -240,10 +317,11 @@ class OnPolicyLossTests(unittest.TestCase):
     def test_multiplicity_weights_actor_term(self):
         reasoner, model, _vocab = _make_reasoner(_QEDExecutor())
         result = asyncio.run(reasoner.prove(GOAL_EXPR, hypotheses=HYPS))
-        transitions = extract_transitions(
+        transitions = extract_actor_transitions(
             result.graph, RewardConfig(step_penalty=0.0),
             edge_ids=list(result.edge_actions.keys()),
         )
+        critic_samples = extract_critic_samples(result.graph)
         goal = Goal(expression=GOAL_EXPR, hypotheses=HYPS)
 
         # Success rows (return ≈ 1) against a failure row (return ≈ 0) give a nonzero
@@ -252,7 +330,7 @@ class OnPolicyLossTests(unittest.TestCase):
             model.eval()  # deterministic forward so only multiplicity differs
             failures = [FailureRecord(goal=goal, action=EdgeAction(tactic_id=1, multiplicity=m))]
             out = compute_onpolicy_loss(
-                model, transitions, result.edge_actions, failures,
+                model, transitions, critic_samples, result.edge_actions, failures,
                 reasoner.dag_featurize_data, reward_cfg=RewardConfig(step_penalty=0.0),
             )
             self.assertIsNotNone(out)
@@ -264,7 +342,7 @@ class OnPolicyLossTests(unittest.TestCase):
 class PLNDisabledTests(unittest.TestCase):
     """Tests for the use_pln=False kill switch in RLHybridReasoner."""
 
-    def _make_no_pln(self, executor, *, top_k=3, top_k_subgoals=3, seed=0):
+    def _make_no_pln(self, executor, *, top_k=3, seed=0):
         """Build an RLHybridReasoner with use_pln=False.
 
         _make_reasoner installs a _StubPLN to keep the petta subprocess out of
@@ -285,7 +363,6 @@ class PLNDisabledTests(unittest.TestCase):
             TACTIC_VOCAB,
             executor=executor,
             top_k_tactics=top_k,
-            top_k_subgoals=top_k_subgoals,
             max_depth=3,
             max_nodes=20,
             use_pln=False,
@@ -302,9 +379,7 @@ class PLNDisabledTests(unittest.TestCase):
         self.assertIsNone(reasoner.dts_sampler)
 
     def test_subgoal_nodes_have_none_stv_in_executor_order(self):
-        """With PLN off, all Lean subgoals are retained in executor order."""
-        # Build an executor that returns two subgoals for the root, then QED on each.
-        root_goal = Goal(expression=GOAL_EXPR, hypotheses=HYPS)
+        """With PLN off, every Lean subgoal is retained in executor order."""
         sg1 = Goal(expression="p", hypotheses=HYPS)
         sg2 = Goal(expression="True", hypotheses=[])
         sg3 = Goal(expression="False", hypotheses=[])
@@ -322,7 +397,7 @@ class PLNDisabledTests(unittest.TestCase):
                 return TacticOutcome(success=True, subgoals=[])
 
         executor = _TwoSubgoalThenQEDExecutor()
-        reasoner, _, _ = self._make_no_pln(executor, top_k=1, top_k_subgoals=2)
+        reasoner, _, _ = self._make_no_pln(executor, top_k=1)
         result = self._prove(reasoner)
 
         # Verify subgoal children carry stv=None (PLN never scored them).
@@ -333,8 +408,9 @@ class PLNDisabledTests(unittest.TestCase):
         ]
         self.assertTrue(all(stv is None for stv in child_stvs),
                         f"expected all stv=None, got {child_stvs}")
-        # top_k_subgoals may rank expansion but cannot discard obligations.
-        self.assertEqual(len(next(iter(result.graph.edges.values())).child_ids), 3)
+        root_edge = next(edge for edge in result.graph.edges.values() if edge.source_id == 0)
+        child_goals = [result.graph.nodes[node_id].goal for node_id in root_edge.child_ids]
+        self.assertEqual(child_goals, [sg1, sg2, sg3])
 
     def test_no_pln_fallback_qed_on_total_rejection(self):
         """With PLN off, a fully-rejected node is exhausted, not fake-closed."""

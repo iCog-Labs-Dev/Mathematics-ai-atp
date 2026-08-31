@@ -4,6 +4,7 @@ import argparse
 import json
 import random
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -73,6 +74,8 @@ class TrainingLoopConfig:
     use_amp: bool = True
     max_batch_nodes: int = 0
     max_batch_edges: int = 0
+    oversize_graph_policy: str = "error"
+    cache_in_memory: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -89,6 +92,8 @@ class TrainingLoopConfig:
             "use_amp": self.use_amp,
             "max_batch_nodes": self.max_batch_nodes,
             "max_batch_edges": self.max_batch_edges,
+            "oversize_graph_policy": self.oversize_graph_policy,
+            "cache_in_memory": self.cache_in_memory,
         }
 
 
@@ -111,6 +116,10 @@ def _validate_training_loop(training: TrainingLoopConfig) -> None:
         raise ValueError("training.prefetch_factor must be positive.")
     if training.max_batch_nodes < 0 or training.max_batch_edges < 0:
         raise ValueError("training graph budgets cannot be negative.")
+    if training.oversize_graph_policy not in {"error", "skip", "singleton"}:
+        raise ValueError(
+            "training.oversize_graph_policy must be one of: error, skip, singleton."
+        )
 
 
 @dataclass(frozen=True)
@@ -151,6 +160,10 @@ class BaselineConfig:
                 use_amp=bool(training_payload.get("use_amp", True)),
                 max_batch_nodes=int(training_payload.get("max_batch_nodes", 0)),
                 max_batch_edges=int(training_payload.get("max_batch_edges", 0)),
+                oversize_graph_policy=str(
+                    training_payload.get("oversize_graph_policy", "error")
+                ).lower().strip(),
+                cache_in_memory=bool(training_payload.get("cache_in_memory", False)),
             ),
         ).normalized()
 
@@ -228,6 +241,10 @@ class PointerConfig:
                 use_amp=bool(training_payload.get("use_amp", True)),
                 max_batch_nodes=int(training_payload.get("max_batch_nodes", 0)),
                 max_batch_edges=int(training_payload.get("max_batch_edges", 0)),
+                oversize_graph_policy=str(
+                    training_payload.get("oversize_graph_policy", "error")
+                ).lower().strip(),
+                cache_in_memory=bool(training_payload.get("cache_in_memory", False)),
             ),
         ).normalized()
 
@@ -316,6 +333,10 @@ class ActorCriticConfig:
                 use_amp=bool(training_payload.get("use_amp", True)),
                 max_batch_nodes=int(training_payload.get("max_batch_nodes", 0)),
                 max_batch_edges=int(training_payload.get("max_batch_edges", 0)),
+                oversize_graph_policy=str(
+                    training_payload.get("oversize_graph_policy", "error")
+                ).lower().strip(),
+                cache_in_memory=bool(training_payload.get("cache_in_memory", False)),
             ),
         ).normalized()
 
@@ -595,11 +616,16 @@ class PreparedGraphDataset(Dataset):
         split: str,
         edge_mode: str = "bidirectional",
         required_fields: tuple[str, ...] = REQUIRED_DATA_FIELDS,
+        io_threads: int = 0,
+        cache_in_memory: bool = False,
     ) -> None:
         self.metadata = metadata
         self.split = canonicalize_split_name(split)
         self.edge_mode = edge_mode
         self.required_fields = required_fields
+        self.io_threads = max(0, int(io_threads))
+        self.cache_in_memory = bool(cache_in_memory)
+        self._thread_pool: ThreadPoolExecutor | None = None
         self.pyg_dir = metadata.split_pyg_dir(self.split)
         self.files = sorted(self.pyg_dir.glob("*.pt"))
         if not self.files:
@@ -613,60 +639,190 @@ class PreparedGraphDataset(Dataset):
                 f"Prepared split '{self.split}' manifest reports {expected_count} examples, "
                 f"but '{self.pyg_dir}' contains {len(self.files)} '.pt' files."
             )
+        self._cache = [None] * len(self.files) if self.cache_in_memory else None
+        self.packed_cache_loaded = False
+        self.graph_size_source = "unresolved"
 
-    def graph_sizes(self) -> list[GraphSize]:
+    def _packed_manifest_path(self) -> Path:
+        return self.metadata.root / "packed" / self.edge_mode / "manifest.json"
+
+    def _load_packed_cache(self) -> bool:
+        manifest_path = self._packed_manifest_path()
+        if not manifest_path.exists():
+            return False
+        manifest = _read_json(manifest_path)
+        if str(manifest.get("edge_mode", "")) != self.edge_mode:
+            raise ValueError(
+                f"Packed cache manifest '{manifest_path}' has edge_mode="
+                f"'{manifest.get('edge_mode')}', expected '{self.edge_mode}'."
+            )
+        split_payload = dict(manifest.get("splits", {})).get(self.split)
+        if not isinstance(split_payload, dict):
+            return False
+        if int(split_payload.get("count", -1)) != len(self):
+            return False
+        chunk_names = split_payload.get("chunks", [])
+        if not isinstance(chunk_names, list) or not chunk_names:
+            return False
+
+        packed_root = manifest_path.parent / self.split
+        offset = 0
+        for chunk_name in chunk_names:
+            chunk_path = packed_root / str(chunk_name)
+            if not chunk_path.exists():
+                return False
+            chunk = torch.load(chunk_path, map_location="cpu", weights_only=False)
+            if not isinstance(chunk, list):
+                raise ValueError(f"Packed graph chunk '{chunk_path}' must contain a list.")
+            end = offset + len(chunk)
+            if end > len(self._cache):
+                raise ValueError(f"Packed graph chunk '{chunk_path}' exceeds the split size.")
+            for cache_index, data in enumerate(chunk, start=offset):
+                source_path = self.files[cache_index]
+                self._cache[cache_index] = self._normalize_data(data, path=source_path)
+            offset = end
+        if offset != len(self._cache):
+            raise ValueError(
+                f"Packed cache for split '{self.split}' loaded {offset} examples, "
+                f"expected {len(self._cache)}."
+            )
+        return True
+
+    def _normalize_data(self, data, *, path: Path):
+        validate_prepared_data(
+            data,
+            path=path,
+            split=self.split,
+            required_fields=self.required_fields,
+        )
+        data.x = data.x.to(dtype=torch.long)
+        data.node_type = data.node_type.to(dtype=torch.long)
+        if not hasattr(data, "state_node_index"):
+            data.state_node_index = infer_state_node_index(
+                data,
+                state_label_id=self.metadata.state_label_id,
+                path=path,
+            )
+        data.edge_index = transform_edge_index(data.edge_index, edge_mode=self.edge_mode)
+        data.y = data.y.view(-1).to(dtype=torch.long)
+        return data
+
+    def _load_file(self, index: int):
+        path = self.files[index]
+        data = torch.load(path, map_location="cpu", weights_only=False)
+        return self._normalize_data(data, path=path)
+
+    def _sidecar_graph_sizes(self) -> list[GraphSize] | None:
         sizes: list[GraphSize] = []
+        edge_field = f"edges_{self.edge_mode}"
         for path in self.files:
             sidecar = path.with_suffix(".size.json")
             if not sidecar.exists():
-                raise RuntimeError(
-                    f"Prepared graph '{path}' has no size sidecar '{sidecar}'. "
-                    "Re-run preparation before enabling graph budgets."
-                )
-            payload = _read_json(sidecar)
-            edge_field = f"edges_{self.edge_mode}"
-            if edge_field not in payload:
-                raise RuntimeError(
-                    f"Prepared graph size sidecar '{sidecar}' has no '{edge_field}' field. "
-                    "Re-run preparation to record edge counts for each loader edge mode."
-                )
+                return None
+            try:
+                payload = _read_json(sidecar)
+                nodes = int(payload["nodes"])
+                edges = int(payload[edge_field])
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                return None
+            if nodes < 0 or edges < 0:
+                return None
             sizes.append(
                 GraphSize(
                     dataset_id=str(payload.get("dataset_id", path.stem)),
-                    nodes=int(payload["nodes"]),
-                    edges=int(payload[edge_field]),
+                    nodes=nodes,
+                    edges=edges,
                 )
             )
+        return sizes
+
+    def graph_sizes(self) -> list[GraphSize]:
+        sidecar_sizes = self._sidecar_graph_sizes()
+        if sidecar_sizes is not None:
+            self.graph_size_source = "sidecars"
+            return sidecar_sizes
+
+        if self._cache is not None and not self.packed_cache_loaded:
+            self.packed_cache_loaded = self._load_packed_cache()
+        if self._cache is not None and all(data is not None for data in self._cache):
+            self.graph_size_source = "packed_cache" if self.packed_cache_loaded else "memory_cache"
+            return [
+                GraphSize(
+                    dataset_id=self.files[index].stem,
+                    nodes=int(data.num_nodes),
+                    edges=int(data.edge_index.size(1)),
+                )
+                for index, data in enumerate(self._cache)
+            ]
+
+        console_print(
+            f"  [warn] {self.split}: graph-size sidecars are unavailable; "
+            "scanning individual PyG .pt files. Build the packed cache to avoid "
+            "this startup scan on repeated runs."
+        )
+        sizes: list[GraphSize] = []
+        for index, path in enumerate(self.files):
+            try:
+                data = self._load_file(index)
+            except (OSError, RuntimeError, ValueError) as exc:
+                raise RuntimeError(
+                    f"Cannot derive graph size from prepared graph '{path}'. "
+                    f"Build a packed cache at '{self._packed_manifest_path()}' or repair "
+                    f"the graph artifact. Cause: {exc}"
+                ) from exc
+            if self._cache is not None:
+                self._cache[index] = data
+            sizes.append(
+                GraphSize(
+                    dataset_id=path.stem,
+                    nodes=int(data.num_nodes),
+                    edges=int(data.edge_index.size(1)),
+                )
+            )
+        self.graph_size_source = "pt_scan"
         return sizes
 
     def __len__(self) -> int:
         return len(self.files)
 
     def __getitem__(self, index: int):
-        path = self.files[index]
-        data = torch.load(path, map_location="cpu", weights_only=False)
-        validate_prepared_data(data, path=path, split=self.split, required_fields=self.required_fields)
-
-        data.x = data.x.to(dtype=torch.long)
-        data.node_type = data.node_type.to(dtype=torch.long)
-        data.state_node_index = infer_state_node_index(
-            data,
-            state_label_id=self.metadata.state_label_id,
-            path=path,
-        )
-        data.edge_index = transform_edge_index(data.edge_index, edge_mode=self.edge_mode)
-        data.y = data.y.view(-1).to(dtype=torch.long)
+        if self._cache is not None and self._cache[index] is not None:
+            return self._cache[index]
+        data = self._load_file(index)
+        if self._cache is not None:
+            self._cache[index] = data
         return data
+
+    def __getitems__(self, indices: list[int]):
+        if self.io_threads <= 1 or len(indices) <= 1:
+            return [self[index] for index in indices]
+        if self._thread_pool is None:
+            self._thread_pool = ThreadPoolExecutor(
+                max_workers=self.io_threads,
+                thread_name_prefix=f"gnn-{self.split}-io",
+            )
+        return list(self._thread_pool.map(self.__getitem__, indices))
 
 
 def build_dataloaders(
     metadata: PreparedMetadata,
-    config: BaselineConfig | PointerConfig,
+    config: BaselineConfig | PointerConfig | ActorCriticConfig,
     required_fields: tuple[str, ...] = REQUIRED_DATA_FIELDS,
 ) -> tuple[dict[str, PreparedGraphDataset], dict[str, DataLoader]]:
-    use_workers = config.training.num_workers > 0
+    requested_workers = config.training.num_workers
+    if config.training.cache_in_memory and requested_workers > 0:
+        num_workers = 0
+        io_threads = requested_workers
+        console_print(
+            f"  [info] cache_in_memory=true: using {io_threads} in-process I/O "
+            "threads instead of DataLoader worker processes."
+        )
+    else:
+        num_workers = requested_workers
+        io_threads = 0
+    use_workers = num_workers > 0
     loader_kwargs: dict[str, object] = {
-        "num_workers": config.training.num_workers,
+        "num_workers": num_workers,
         "pin_memory": config.training.pin_memory,
     }
     if use_workers:
@@ -679,6 +835,8 @@ def build_dataloaders(
             split=split,
             edge_mode=config.edge_mode,
             required_fields=required_fields,
+            io_threads=io_threads,
+            cache_in_memory=config.training.cache_in_memory,
         )
         for split in CANONICAL_SPLITS
     }
@@ -689,11 +847,23 @@ def build_dataloaders(
                 max_graphs=config.training.batch_size,
                 max_nodes=config.training.max_batch_nodes,
                 max_edges=config.training.max_batch_edges,
+                oversize_policy=config.training.oversize_graph_policy,
                 shuffle=(split == "train"),
                 seed=config.seed,
             )
             for split, dataset in datasets.items()
         }
+        for split, sampler in samplers.items():
+            if sampler.oversize_indices:
+                largest = max(
+                    (sampler.graph_sizes[index] for index in sampler.oversize_indices),
+                    key=lambda size: (size.nodes, size.edges),
+                )
+                console_print(
+                    f"  [warn] {split}: {len(sampler.oversize_indices)} oversized graphs; "
+                    f"policy={sampler.oversize_policy}, largest={largest.nodes} nodes/"
+                    f"{largest.edges} edges."
+                )
         loaders = {
             split: DataLoader(dataset, batch_sampler=samplers[split], **loader_kwargs)
             for split, dataset in datasets.items()
@@ -709,6 +879,52 @@ def build_dataloaders(
             for split, dataset in datasets.items()
         }
     return datasets, loaders
+
+
+def _log_batching_settings(
+    config: BaselineConfig | PointerConfig | ActorCriticConfig,
+    datasets: dict[str, PreparedGraphDataset],
+    loaders: dict[str, DataLoader],
+) -> None:
+    console_print(
+        f"  Graph batching           : max_graphs={config.training.batch_size}, "
+        f"max_nodes={config.training.max_batch_nodes or 'unlimited'}, "
+        f"max_edges={config.training.max_batch_edges or 'unlimited'}, "
+        f"oversize_policy={config.training.oversize_graph_policy}, "
+        f"cache_in_memory={config.training.cache_in_memory}"
+    )
+    for split in CANONICAL_SPLITS:
+        source = datasets[split].graph_size_source
+        cache = datasets[split].packed_cache_loaded
+        console_print(
+            f"  {split} batching          : batches={len(loaders[split])}, "
+            f"size_source={source}, packed_cache={cache}"
+        )
+
+
+def _batching_summary(
+    config: BaselineConfig | PointerConfig | ActorCriticConfig,
+    datasets: dict[str, PreparedGraphDataset],
+    loaders: dict[str, DataLoader],
+) -> dict[str, object]:
+    return {
+        "max_graphs": config.training.batch_size,
+        "max_nodes": config.training.max_batch_nodes,
+        "max_edges": config.training.max_batch_edges,
+        "oversize_graph_policy": config.training.oversize_graph_policy,
+        "cache_in_memory": config.training.cache_in_memory,
+        "splits": {
+            split: {
+                "batch_count": len(loaders[split]),
+                "graph_size_source": datasets[split].graph_size_source,
+                "packed_cache_loaded": datasets[split].packed_cache_loaded,
+                "oversize_graph_count": len(
+                    getattr(loaders[split].batch_sampler, "oversize_indices", [])
+                ),
+            }
+            for split in CANONICAL_SPLITS
+        },
+    }
 
 
 def compute_eval_metrics_from_logits(
@@ -1141,6 +1357,7 @@ def train_baseline(
         f"persistent_workers={config.training.persistent_workers and config.training.num_workers > 0}, "
         f"prefetch_factor={config.training.prefetch_factor if config.training.num_workers > 0 else 'n/a'}"
     )
+    _log_batching_settings(config, datasets, loaders)
     if resume_run_dir is not None:
         console_print(
             f"  Resuming from checkpoint : {last_checkpoint_path} "
@@ -1148,6 +1365,9 @@ def train_baseline(
         )
 
     for epoch in range(start_epoch, config.training.epochs + 1):
+        batch_sampler = getattr(loaders["train"], "batch_sampler", None)
+        if hasattr(batch_sampler, "set_epoch"):
+            batch_sampler.set_epoch(epoch)
         train_metrics = train_one_epoch(
             model,
             loaders["train"],
@@ -1275,6 +1495,7 @@ def train_baseline(
         "best_checkpoint": str(best_checkpoint_path),
         "last_checkpoint": str(last_checkpoint_path),
         "resumed_from_checkpoint": resume_run_dir is not None,
+        "batching": _batching_summary(config, datasets, loaders),
         "best_validation": eval_val,
         "test_evaluation": eval_test,
     }
@@ -1378,6 +1599,7 @@ def train_pointer(
         f"persistent_workers={config.training.persistent_workers and config.training.num_workers > 0}, "
         f"prefetch_factor={config.training.prefetch_factor if config.training.num_workers > 0 else 'n/a'}"
     )
+    _log_batching_settings(config, datasets, loaders)
     console_print(f"  Max args per step        : {config.model.max_args}")
     console_print(f"  Argument loss weight     : {config.arg_loss_weight}")
     if resume_run_dir is not None:
@@ -1387,6 +1609,9 @@ def train_pointer(
         )
 
     for epoch in range(start_epoch, config.training.epochs + 1):
+        batch_sampler = getattr(loaders["train"], "batch_sampler", None)
+        if hasattr(batch_sampler, "set_epoch"):
+            batch_sampler.set_epoch(epoch)
         train_metrics = train_one_epoch_with_args(
             model,
             loaders["train"],
@@ -1518,6 +1743,7 @@ def train_pointer(
         "best_checkpoint": str(best_checkpoint_path),
         "last_checkpoint": str(last_checkpoint_path),
         "resumed_from_checkpoint": resume_run_dir is not None,
+        "batching": _batching_summary(config, datasets, loaders),
         "best_validation": eval_val,
         "test_evaluation": eval_test,
     }
@@ -1626,10 +1852,14 @@ def train_actor_critic(
         f"  Split sizes                 : train={len(datasets['train'])}, "
         f"val={len(datasets['val'])}, test={len(datasets['test'])}"
     )
+    _log_batching_settings(config, datasets, loaders)
 
     reward_source = MockRewardSource()
 
     for epoch in range(start_epoch, config.training.epochs + 1):
+        batch_sampler = getattr(loaders["train"], "batch_sampler", None)
+        if hasattr(batch_sampler, "set_epoch"):
+            batch_sampler.set_epoch(epoch)
         train_metrics = train_one_epoch_actor_critic(
             model,
             loaders["train"],
@@ -1718,6 +1948,7 @@ def train_actor_critic(
 
     summary = {
         "best_epoch": best_epoch,
+        "batching": _batching_summary(config, datasets, loaders),
         "best_val_metrics": val_metrics,
         "test_metrics": test_metrics,
     }

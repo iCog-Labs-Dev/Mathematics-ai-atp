@@ -34,7 +34,6 @@
   "max_dead_rounds": 3,
 
   "top_k_tactics": 4,
-  "top_k_subgoals": 3,
   "max_depth": 8,
   "max_nodes": 64,
   "use_pln": false,

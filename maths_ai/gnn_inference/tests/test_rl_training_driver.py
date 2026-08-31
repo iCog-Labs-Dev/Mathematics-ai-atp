@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import torch
+from pantograph.server import ServerError
 from torch.optim import AdamW
 
 from maths_ai.data_models.proof_components import Goal, STV
@@ -66,6 +67,22 @@ class _RejectExecutor:
 
     async def apply(self, server, state, tactic):
         return TacticOutcome(success=False, subgoals=[], error="rejected")
+
+
+class _UnelaboratedServer(_FakeServer):
+    def __init__(self):
+        self.proc = object()
+
+    async def goal_start_async(self, expression):
+        raise ServerError("cannot elaborate reconstructed goal")
+
+
+class _UnelaboratedExecutor:
+    def __init__(self):
+        self.server = _UnelaboratedServer()
+
+    async def apply(self, server, state, tactic):
+        raise AssertionError("tactics must not run when elaboration fails")
 
 
 class _StubPLN:
@@ -208,6 +225,10 @@ def _qed_factory(model, node_vocab, tactic_vocab, cfg):
 
 def _reject_factory(model, node_vocab, tactic_vocab, cfg):
     return _make_reasoner(model, node_vocab, _RejectExecutor(), top_k=cfg.top_k_tactics)
+
+
+def _unelaborated_factory(model, node_vocab, tactic_vocab, cfg):
+    return _make_reasoner(model, node_vocab, _UnelaboratedExecutor(), top_k=cfg.top_k_tactics)
 
 
 def _dead_server_factory(succeed_on: set[int] | None = None):
@@ -445,6 +466,24 @@ class DeadRoundTests(unittest.TestCase):
             rows = [json.loads(l) for l in (run_dir / "metrics.jsonl").read_text().splitlines()]
             self.assertEqual([r["bc_weight"] for r in rows], [0.5, 0.5])
             self.assertEqual([r["anneal_rounds_done"] for r in rows], [0, 0])
+
+    def test_unknown_only_results_do_not_advance_the_anneal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            cfg = _write_config(tmp, num_rounds=2, bc_anneal_rounds=10)
+            torch.manual_seed(0)
+            asyncio.run(
+                run_rl_training(
+                    cfg,
+                    reasoner_factory=_unelaborated_factory,
+                    pool=_pool(),
+                )
+            )
+            run_dir = next((tmp / "runs").iterdir())
+            rows = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text().splitlines()]
+            self.assertEqual([row["collected"] for row in rows], [2.0, 2.0])
+            self.assertEqual([row["optimizer_step"] for row in rows], [0.0, 0.0])
+            self.assertEqual([row["anneal_rounds_done"] for row in rows], [0, 0])
 
     def test_gradient_rounds_advance_the_anneal(self):
         with tempfile.TemporaryDirectory() as tmp:

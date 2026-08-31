@@ -408,11 +408,22 @@ With `use_pln: true`, petta supplies each search node's PLN value and the reward
 uses the change in that value as potential-based shaping. With `use_pln: false`:
 
 - no `PLNInference` object or petta subprocess is created;
-- Lean subgoals remain in executor order, subject to `top_k_subgoals`;
+- every Lean-returned subgoal remains attached to its tactic edge in executor order;
 - search frontier scoring uses the GNN probability with `stv=None`;
 - the PLN fallback that can fabricate a QED edge after executor rejection is disabled;
 - every shaping potential is zero, so the reward contains the configured terminal terms
   and per-transition step penalty, without PLN shaping.
+
+The critic value `V(s)` means the probability that this configured search proves state `s`
+within its tactic, depth, node, and time budgets. Search harvesting keeps validity separate
+from the numeric value: Lean-confirmed closure supplies `1.0`, a locally exhausted state
+supplies `0.0`, and an unelaborated, infrastructure-failed, globally truncated, open, or
+otherwise unresolved state supplies no critic row. For a tactic that returns multiple
+subgoals, one known failed child makes the tactic edge a known failure, all known solved
+children make it a known success, and a solved child plus an unknown child remains unknown.
+The actor trains from valid edge returns and executor-rejected actions. The critic trains
+once per unique state from `CriticSample` rows, so a state with several accepted tactics
+does not duplicate its target.
 
 The RL search budgets and update budgets control different objects:
 
@@ -423,6 +434,11 @@ The RL search budgets and update budgets control different objects:
 | `theorems_per_round` | theorem searches collected before one optimizer update |
 | `max_update_nodes` | total graph nodes across all transitions and rejected actions in one optimizer update |
 | `max_update_edges` | total graph edges across all transitions and rejected actions in one optimizer update |
+
+The metrics distinguish `num_transitions` (accepted edges with known outcomes),
+`num_critic_samples` (unique valid node targets), `num_failures` (executor-rejected
+actions), `unknown_edges_skipped`, and `unknown_nodes_skipped`. A round advances the
+optimizer and BC-anneal clock only when at least one actor or critic row produces a loss.
 
 The update is rejected if the complete collected round exceeds either enabled update
 budget. Reduce `theorems_per_round` to collect a smaller update, or raise the budget only
@@ -479,7 +495,15 @@ rows = [json.loads(line) for line in open(path)]
 train = pd.DataFrame(row for row in rows if "num_transitions" in row)
 train.plot(
     x="round",
-    y=["solved", "num_failures", "searches_failed", "mean_return", "total_loss"],
+    y=[
+        "solved",
+        "num_transitions",
+        "num_critic_samples",
+        "num_failures",
+        "unknown_edges_skipped",
+        "unknown_nodes_skipped",
+        "total_loss",
+    ],
     subplots=True,
 )
 ```
@@ -538,6 +562,7 @@ reject mismatched fingerprints rather than using incompatible embeddings.
 | GATv2 reports a non-finite loss | the current batch or precision produced invalid values | use the registered GATv2 precision policy and inspect the named loss and batch |
 | collected RL update exceeds its graph budget | all graphs in the round exceed `max_update_nodes` or `max_update_edges` together | reduce `theorems_per_round` or raise a measured update limit |
 | round shows many `err` values and no transitions | complete Lean searches are failing or timing out | verify `source_root`, imports, toolchain compatibility, and the REPL |
+| round collects searches but reports `optimizer_step: 0` | every edge and node outcome was unknown, commonly because reconstructed goals did not elaborate | inspect closure reasons and the unknown-edge/node metrics before changing the policy |
 | every PLN result is a fallback | petta is unavailable or failing | set `PETTA_BIN`, fix petta, or run explicitly with `use_pln: false` |
 | `ModuleNotFoundError: datasets` | Hugging Face dataset streaming dependency is absent | install it with `uv add datasets` |
 

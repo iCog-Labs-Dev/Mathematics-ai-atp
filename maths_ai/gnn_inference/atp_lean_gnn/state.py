@@ -18,9 +18,17 @@ _CASE_LABEL_RE = re.compile(r"^case\s+\S+$")
 class Hypothesis:
     name: str
     type_expr: str
+    value_expr: str | None = None
+
+    @property
+    def is_local_definition(self) -> bool:
+        return self.value_expr is not None
 
     def as_dict(self) -> dict[str, str]:
-        return {"name": self.name, "type": self.type_expr}
+        result = {"name": self.name, "type": self.type_expr}
+        if self.value_expr is not None:
+            result["value"] = self.value_expr
+        return result
 
 
 @dataclass(frozen=True)
@@ -62,6 +70,15 @@ def parse_state(state: str) -> ProofState:
                 continue
 
             if _CASE_LABEL_RE.match(line):
+                continue
+
+            let_match = re.fullmatch(r"let\s+([^:]+)\s*:\s*(.+?)\s*:=\s*(.+)", line)
+            if let_match:
+                hypotheses.append(Hypothesis(
+                    let_match.group(1).strip(),
+                    let_match.group(2).strip(),
+                    let_match.group(3).strip(),
+                ))
                 continue
 
             if " : " in line:

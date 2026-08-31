@@ -18,7 +18,10 @@ from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import (
     compute_transition_loss,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.pln_reward import RewardConfig
-from maths_ai.gnn_inference.atp_lean_gnn.search_harvest import extract_transitions
+from maths_ai.gnn_inference.atp_lean_gnn.search_harvest import (
+    extract_actor_transitions,
+    extract_critic_samples,
+)
 
 
 def _tac(name: str = "apply", p: float = 1.0) -> TacticCandidate:
@@ -57,14 +60,17 @@ class PLNRLTrainingTests(unittest.TestCase):
 
     def test_harvest_then_loss_is_finite(self):
         g, featurize, model, tactic_to_id = self._setup()
-        transitions = extract_transitions(g, RewardConfig(step_penalty=0.0))
+        transitions = extract_actor_transitions(g, RewardConfig(step_penalty=0.0))
+        critic_samples = extract_critic_samples(g)
         self.assertEqual(len(transitions), 3)
-        result = compute_transition_loss(model, transitions, featurize, tactic_to_id)
+        result = compute_transition_loss(
+            model, transitions, critic_samples, featurize, tactic_to_id
+        )
         self.assertIsNotNone(result)
         loss, metrics = result
         self.assertTrue(torch.isfinite(loss))
         self.assertEqual(metrics["num_transitions"], 3.0)
-        # Root's subgoals both solved ⇒ backup value target 1.0 on that transition.
+        self.assertEqual(metrics["num_critic_samples"], 3.0)
         self.assertGreater(metrics["mean_value_target"], 0.0)
 
     def test_train_step_updates_params(self):
@@ -80,17 +86,44 @@ class PLNRLTrainingTests(unittest.TestCase):
         changed = any(not torch.equal(b, a) for b, a in zip(before, after))
         self.assertTrue(changed, "training step did not update any parameters")
 
-    def test_unknown_tactic_dropped(self):
-        # A transition whose tactic isn't in the vocab is dropped, not crashed.
+    def test_unknown_tactic_drops_actor_row_but_keeps_critic_rows(self):
         g, featurize, model, tactic_to_id = self._setup()
-        transitions = extract_transitions(g, RewardConfig(step_penalty=0.0))
-        # Empty vocab ⇒ every tactic unknown ⇒ None result.
-        result = compute_transition_loss(model, transitions, featurize, {})
-        self.assertIsNone(result)
+        transitions = extract_actor_transitions(g, RewardConfig(step_penalty=0.0))
+        critic_samples = extract_critic_samples(g)
+        result = compute_transition_loss(model, transitions, critic_samples, featurize, {})
+        self.assertIsNotNone(result)
+        loss, metrics = result
+        self.assertTrue(torch.isfinite(loss))
+        self.assertEqual(metrics["num_transitions"], 0.0)
+        self.assertEqual(metrics["num_critic_samples"], 3.0)
+        self.assertEqual(metrics["actor_loss"], 0.0)
+
+    def test_actor_only_batch_has_zero_critic_loss(self):
+        g, featurize, model, tactic_to_id = self._setup()
+        transitions = extract_actor_transitions(g, RewardConfig(step_penalty=0.0))
+        result = compute_transition_loss(model, transitions, [], featurize, tactic_to_id)
+        self.assertIsNotNone(result)
+        loss, metrics = result
+        self.assertTrue(torch.isfinite(loss))
+        self.assertEqual(metrics["num_transitions"], 3.0)
+        self.assertEqual(metrics["num_critic_samples"], 0.0)
+        self.assertEqual(metrics["critic_loss"], 0.0)
+
+    def test_critic_only_batch_has_zero_actor_loss(self):
+        g, featurize, model, tactic_to_id = self._setup()
+        critic_samples = extract_critic_samples(g)
+        result = compute_transition_loss(model, [], critic_samples, featurize, tactic_to_id)
+        self.assertIsNotNone(result)
+        loss, metrics = result
+        self.assertTrue(torch.isfinite(loss))
+        self.assertEqual(metrics["num_transitions"], 0.0)
+        self.assertEqual(metrics["num_critic_samples"], 3.0)
+        self.assertEqual(metrics["actor_loss"], 0.0)
 
     def test_update_budget_rejects_the_complete_round(self):
         g, featurize, model, tactic_to_id = self._setup()
-        transitions = extract_transitions(g, RewardConfig(step_penalty=0.0))
+        transitions = extract_actor_transitions(g, RewardConfig(step_penalty=0.0))
+        critic_samples = extract_critic_samples(g)
         with self.assertRaisesRegex(
             ValueError,
             "Collected RL update exceeds.*nodes=.*max_nodes=1",
@@ -98,6 +131,7 @@ class PLNRLTrainingTests(unittest.TestCase):
             compute_transition_loss(
                 model,
                 transitions,
+                critic_samples,
                 featurize,
                 tactic_to_id,
                 max_update_nodes=1,

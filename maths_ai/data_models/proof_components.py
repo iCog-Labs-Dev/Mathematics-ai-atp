@@ -1,6 +1,43 @@
-from typing import List
+import re
+from typing import List, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+class LocalDeclaration(BaseModel):
+    """A declaration in a Lean goal's local context.
+
+    Keeping a local definition distinct from an ordinary binder is essential:
+    ``let x : Nat := 1`` cannot be faithfully reconstructed as ``x : Nat``.
+    """
+
+    name: str
+    type_expression: str
+    value_expression: str | None = None
+    kind: Literal["variable", "let"] = "variable"
+
+    @classmethod
+    def from_text(cls, declaration: str) -> "LocalDeclaration":
+        text = declaration.strip()
+        match = re.fullmatch(r"let\s+([^:]+)\s*:\s*(.+?)\s*:=\s*(.+)", text, re.DOTALL)
+        if match:
+            return cls(
+                name=match.group(1).strip(),
+                type_expression=match.group(2).strip(),
+                value_expression=match.group(3).strip(),
+                kind="let",
+            )
+        if ":" not in text:
+            raise ValueError(f"local declaration must contain ':': {declaration!r}")
+        name, type_expression = text.split(":", 1)
+        return cls(name=name.strip(), type_expression=type_expression.strip())
+
+    def render(self) -> str:
+        if self.kind == "let":
+            if self.value_expression is None:
+                raise ValueError("a local let declaration requires a value_expression")
+            return f"let {self.name} : {self.type_expression} := {self.value_expression}"
+        return f"{self.name} : {self.type_expression}"
 
 
 class Goal(BaseModel):
@@ -11,7 +48,14 @@ class Goal(BaseModel):
     """
 
     expression: str
-    hypotheses: List[str] = Field(default_factory=list)
+    hypotheses: List[LocalDeclaration] = Field(default_factory=list)
+
+    @field_validator("hypotheses", mode="before")
+    @classmethod
+    def _coerce_legacy_hypotheses(cls, values):
+        if values is None:
+            return []
+        return [LocalDeclaration.from_text(value) if isinstance(value, str) else value for value in values]
 
 
 class GoalState(BaseModel):
