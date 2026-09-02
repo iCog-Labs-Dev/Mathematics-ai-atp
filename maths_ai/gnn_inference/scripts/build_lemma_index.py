@@ -22,14 +22,8 @@ if __package__ in {None, ""}:
 from maths_ai.gnn_inference.atp_lean_gnn.graph import lemma_statement_to_dag
 from maths_ai.gnn_inference.atp_lean_gnn.lemma_corpus import load_lemma_corpus
 from maths_ai.gnn_inference.atp_lean_gnn.pyg import dag_to_pyg
-from maths_ai.gnn_inference.atp_lean_gnn.training import (
-    BaselineConfig,
-    build_baseline_model,
-    load_baseline_config,
-    load_prepared_metadata,
-    resolve_device,
-    transform_edge_index,
-)
+from maths_ai.gnn_inference.atp_lean_gnn.checkpointing import build_model_from_checkpoint
+from maths_ai.gnn_inference.atp_lean_gnn.training import load_prepared_metadata, resolve_device, transform_edge_index
 
 
 DEFAULT_OUTPUT_DIR = Path("artifacts") / "lemmas" / "v1" / "index"
@@ -46,27 +40,6 @@ def _normalize_rows(array: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(array, axis=1, keepdims=True)
     norms = np.clip(norms, 1e-12, None)
     return array / norms
-
-
-def _load_config_from_checkpoint(
-    checkpoint_path: Path,
-    *,
-    config_path: Path | None,
-) -> BaselineConfig:
-    if config_path is not None:
-        return load_baseline_config(config_path)
-
-    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    if "config" in checkpoint:
-        return BaselineConfig.from_dict(checkpoint["config"])
-
-    candidate = checkpoint_path.parent / "config.json"
-    if candidate.exists():
-        return load_baseline_config(candidate)
-
-    raise FileNotFoundError(
-        "Unable to infer model config. Provide --config or place config.json next to the checkpoint."
-    )
 
 
 def _state_node_id(dag) -> int:
@@ -93,7 +66,6 @@ def build_index(
     output_dir: Path,
     prepared_root: Path,
     checkpoint_path: Path,
-    config_path: Path | None,
     device_name: str,
     edge_mode: str,
     batch_size: int,
@@ -110,12 +82,16 @@ def build_index(
     manifest_path = output_dir / "manifest.json"
 
     metadata = load_prepared_metadata(prepared_root)
-    config = _load_config_from_checkpoint(checkpoint_path, config_path=config_path)
     device = resolve_device(device_name)
-
-    model = build_baseline_model(metadata, config).to(device)
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    model, checkpoint_manifest, model_spec = build_model_from_checkpoint(
+        checkpoint,
+        node_vocab=metadata.node_vocab,
+        tactic_vocab=metadata.tactic_vocab,
+    )
+    if str(checkpoint_manifest["model_kind"]) not in {"tactic_with_args", "actor_critic_with_args"}:
+        raise ValueError("Lemma indexes must be built from a pointer or actor-critic checkpoint.")
+    model = model.to(device)
     model.eval()
 
     records = load_lemma_corpus(corpus_path)
@@ -123,12 +99,14 @@ def build_index(
         records = records[:limit]
 
     lemma_ids: list[int] = []
+    lemma_names: list[str] = []
     lemma_vectors: list[np.ndarray] = []
     failures: list[dict[str, object]] = []
 
     for batch in _iter_batches(records, batch_size):
         data_list = []
         batch_ids: list[int] = []
+        batch_names: list[str] = []
         for record in batch:
             try:
                 dag = lemma_statement_to_dag(record.statement)
@@ -137,6 +115,7 @@ def build_index(
                 data.edge_index = transform_edge_index(data.edge_index, edge_mode=edge_mode)
                 data_list.append(data)
                 batch_ids.append(record.lemma_id)
+                batch_names.append(record.name)
             except Exception as exc:
                 failures.append(
                     {
@@ -151,23 +130,28 @@ def build_index(
 
         batch_data = Batch.from_data_list(data_list).to(device)
         with torch.no_grad():
-            node_embeddings = model.encode_nodes(batch_data)
-            state_emb = model.readout(node_embeddings, batch_data)
+            encoded = model.encode_graph(batch_data)
+            state_emb = encoded.state_embeddings
         vectors = state_emb.detach().cpu().numpy().astype(np.float32)
 
         lemma_ids.extend(batch_ids)
+        lemma_names.extend(batch_names)
         lemma_vectors.append(vectors)
 
     if lemma_vectors:
         lemma_vectors_np = np.concatenate(lemma_vectors, axis=0)
     else:
-        lemma_vectors_np = np.zeros((0, config.model.hidden_dim), dtype=np.float32)
+        lemma_vectors_np = np.zeros((0, model_spec.hidden_dim), dtype=np.float32)
 
     if normalize and lemma_vectors_np.size > 0:
         lemma_vectors_np = _normalize_rows(lemma_vectors_np)
 
     np.save(vectors_path, lemma_vectors_np)
     ids_path.write_text(json.dumps(lemma_ids, indent=2), encoding="utf-8")
+    (output_dir / "lemma_names.json").write_text(
+        json.dumps(lemma_names, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
     index = faiss.IndexFlatIP(lemma_vectors_np.shape[1])
     if lemma_vectors_np.size > 0:
@@ -184,13 +168,15 @@ def build_index(
         "corpus_path": str(corpus_path),
         "prepared_root": str(prepared_root),
         "checkpoint_path": str(checkpoint_path),
-        "config_path": None if config_path is None else str(config_path),
         "edge_mode": edge_mode,
         "batch_size": batch_size,
         "normalize": normalize,
         "total_count": len(records),
         "success_count": len(lemma_ids),
         "failure_count": len(failures),
+        "encoder_fingerprint": checkpoint_manifest["encoder_fingerprint"],
+        "model_kind": checkpoint_manifest["model_kind"],
+        "model_spec": checkpoint_manifest["model_spec"],
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
 
@@ -207,7 +193,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", type=str, default=str(DEFAULT_OUTPUT_DIR), help="Output directory")
     parser.add_argument("--prepared-root", type=str, required=True, help="Prepared dataset root")
     parser.add_argument("--checkpoint", type=str, required=True, help="Model checkpoint path")
-    parser.add_argument("--config", type=str, default=None, help="Optional baseline config path")
     parser.add_argument("--device", type=str, default="auto", help="auto, cpu, or cuda")
     parser.add_argument("--edge-mode", type=str, default="bidirectional", help="forward or bidirectional")
     parser.add_argument("--batch-size", type=int, default=128, help="Batch size for embedding")
@@ -226,7 +211,6 @@ def main(argv: list[str] | None = None) -> int:
             output_dir=Path(args.output_dir),
             prepared_root=Path(args.prepared_root),
             checkpoint_path=Path(args.checkpoint),
-            config_path=None if args.config is None else Path(args.config),
             device_name=str(args.device),
             edge_mode=str(args.edge_mode),
             batch_size=int(args.batch_size),

@@ -78,7 +78,6 @@ class ExprParser:
                 # Check for comma separating variable from body
                 if self._peek_type() == "COMMA":
                     self._consume()
-                    # Parse the body
                     body = self._parse_arrow()
                     func = self.dag.get_or_create("App", (func, body))
                     return func

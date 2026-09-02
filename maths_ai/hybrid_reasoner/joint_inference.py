@@ -2,23 +2,101 @@ import asyncio
 import argparse
 import random
 import re
+import json
 try:
     from graphviz import Digraph
 except ImportError:
     Digraph = None
 from pathlib import Path
+from time import perf_counter
 from typing import Dict, List, Optional
-from pantograph.server import Server, GoalState
+from pantograph.server import Server, GoalState, ServerError, ParseError
 
-from maths_ai.data_models.proof_components import Goal, RankedSubgoal, STV, TacticCandidate
+from maths_ai.data_models.proof_components import Goal, LocalDeclaration, RankedSubgoal, STV, TacticCandidate
 from maths_ai.gnn_inference.inference_engine import GNNModelEngine
 from maths_ai.pln_inference.model import PLNInference
 from maths_ai.pln_inference.metta.translator.translator_modules.runner import DynamicThompsonSampler
 
-from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph, ProofNode, TacticExecutor, TacticOutcome
+from maths_ai.hybrid_reasoner.hypergraph import (
+    NodeClosureReason,
+    ProofHypergraph,
+    ProofNode,
+    SearchEndReason,
+    TacticExecutor,
+    TacticOutcome,
+)
+from maths_ai.hybrid_reasoner.pantograph_env import PantographEnv
 from maths_ai.core.config import settings
+from maths_ai.gnn_inference.atp_lean_gnn.reporting import console_print
 
 _INACCESSIBLE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_']*✝[⁰-⁹¹²³]*")
+
+# A Lean identifier usable as a rewrite rule or simp lemma: hypothesis names and
+# dotted lemma names, but not terms like `↑13` or `?m.2235`.
+_LEAN_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_'.!?]*$")
+
+# Tactics whose arguments must be a bracketed list. `rw h` is a parse error at the
+# column where `[` was expected; the rule list is `rw [h]`. With no arguments these
+# tactics have nothing to rewrite with and are unplayable.
+_BRACKET_REQUIRED_TACTICS = frozenset({
+    "rw", "rwa", "rewrite", "simp_rw", "simp only", "erw",
+})
+
+# Tactics that run bare but take a bracketed list when given lemmas.
+_BRACKET_OPTIONAL_TACTICS = frozenset({
+    "simp", "simpa", "field_simp", "norm_num", "linarith", "nlinarith", "aesop",
+})
+
+
+class ExpansionResult:
+    TACTICS_EXECUTED = "tactics_executed"
+    NO_CANDIDATES = "no_candidates"
+    DEPTH_LIMIT = "depth_limit"
+    ELABORATION_ERROR = "elaboration_error"
+    EXTERNAL_ABORT = "external_abort"
+
+
+def _server_is_dead(server: Server) -> bool:
+    """True when the REPL subprocess behind ``server`` is gone.
+
+    ``Server.run_async`` calls ``_close()`` — which sets ``proc = None`` — before
+    raising on a timeout, a decode failure, or an empty read, and an empty read is
+    exactly what a panicked REPL produces. Checking ``proc`` therefore separates a
+    crashed server from a live one that merely rejected a goal, without matching on
+    exception message text.
+    """
+    return getattr(server, "proc", None) is None
+
+
+def render_tactic_command(tactic: TacticCandidate) -> Optional[str]:
+    """Render a tactic and its arguments as Lean surface syntax.
+
+    Argument shape is per tactic, not uniform: ``rw`` needs ``rw [h]`` while
+    ``apply`` needs ``apply h``. Rendering everything as space-separated arguments
+    makes every ``rw`` draw a parse error before any rewriting is attempted.
+
+    Returns ``None`` when the tactic cannot be rendered into a playable command —
+    a bracket-requiring tactic with no usable rule names — so the caller can drop
+    the candidate instead of sending Lean something it will certainly reject.
+    """
+    name = tactic.tactic_name.strip()
+    arguments = [arg.rstrip(":").strip() for arg in tactic.arguments]
+    arguments = [arg for arg in arguments if arg]
+
+    if name in _BRACKET_REQUIRED_TACTICS or name in _BRACKET_OPTIONAL_TACTICS:
+        # A rewrite rule must be a name Lean can look up. The policy samples nodes
+        # from the goal's own graph, so a draw can land on a term like `↑13`, which
+        # is a valid expression but not a rule.
+        rules = [arg for arg in arguments if _LEAN_IDENT_RE.match(arg)]
+        if rules:
+            return f"{name} [{', '.join(rules)}]"
+        if name in _BRACKET_REQUIRED_TACTICS:
+            return None
+        return name
+
+    if not arguments:
+        return name
+    return " ".join([name, *arguments])
 
 
 def _sanitize_inaccessible_names(goal: Goal) -> Goal:
@@ -32,7 +110,7 @@ def _sanitize_inaccessible_names(goal: Goal) -> Goal:
     every hypothesis keeps the goal semantically identical while making it
     parseable again.
     """
-    text = " ".join([goal.expression, *goal.hypotheses])
+    text = " ".join([goal.expression, *(h.render() for h in goal.hypotheses)])
     tokens = sorted(set(_INACCESSIBLE_NAME_RE.findall(text)))
     if not tokens:
         return goal
@@ -50,7 +128,14 @@ def _sanitize_inaccessible_names(goal: Goal) -> Goal:
 
     return Goal(
         expression=substitute(goal.expression),
-        hypotheses=[substitute(h) for h in goal.hypotheses],
+        hypotheses=[
+            h.model_copy(update={
+                "name": substitute(h.name),
+                "type_expression": substitute(h.type_expression),
+                "value_expression": substitute(h.value_expression) if h.value_expression else None,
+            })
+            for h in goal.hypotheses
+        ],
     )
 def plot_hypergraph(graph: ProofHypergraph) -> None:
     """Utility to visualize the proof hypergraph with Graphviz (for debugging
@@ -103,16 +188,48 @@ class PantographExecutor(TacticExecutor):
             On a Lean-side error (the tactic doesn't apply), returns
             ``TacticOutcome(success=False, error=...)``.
         """
-        arguments = " ".join(arg.rstrip(":") for arg in tactic.arguments)
-        tactic_cmd = " ".join([tactic.tactic_name, arguments]).strip()
+        tactic_cmd = render_tactic_command(tactic)
+        if tactic_cmd is None:
+            return TacticOutcome(
+                success=False,
+                subgoals=[],
+                error=(
+                    f"{tactic.tactic_name} requires a bracketed rule list and none of "
+                    f"its sampled arguments {tactic.arguments} is a usable name"
+                ),
+            )
 
         try:
             new_state = await server.goal_tactic_async(state, tactic_cmd)
+        except (BrokenPipeError, ConnectionResetError, EOFError, AssertionError):
+            raise
+        except ServerError as e:
+            if _server_is_dead(server):
+                raise
+            return TacticOutcome(success=False, subgoals=[], error=str(e))
         except Exception as e:
+            if _server_is_dead(server):
+                raise
             return TacticOutcome(success=False, subgoals=[], error=str(e))
 
         subgoals = [
-            Goal(expression=str(g.target), hypotheses=[str(v) for v in g.variables])
+            Goal(
+                expression=getattr(g, "pp_target", str(g.target)),
+                goal_sexp=getattr(g, "model_sexp", str(g.target) if str(g.target).startswith("(") else None),
+                hypotheses=[
+                    LocalDeclaration(
+                        name=v.name or "_",
+                        type_expression=getattr(v, "pp_t", str(v.t)),
+                        value_expression=str(v.v) if v.v is not None else None,
+                        kind="let" if (getattr(v, "is_let", False) or v.v is not None) else "variable",
+                        sexp=getattr(v, "model_sexp", str(v.t) if str(v.t).startswith("(") else None),
+                        context_index=getattr(v, "context_index", idx),
+                        role=getattr(v, "binder_role", "let" if v.v is not None else "context"),
+                        is_instance=getattr(v, "is_instance", False),
+                    )
+                    for idx, v in enumerate(g.variables)
+                ],
+            )
             for g in new_state.goals
         ]
         return TacticOutcome(success=True, subgoals=subgoals, error=None)
@@ -130,7 +247,7 @@ class HybridReasoner:
          "no-goal" terminal is an empty subgoal list on success)
       3. ``rank_subgoals``        — PLN: STV per subgoal, blended with the
          tactic's GNN probability into ``combined_rank``
-      4. keep the top-k subgoals, link them into the hypergraph
+      4. rank every returned subgoal and link all Lean obligations into the hypergraph
 
     Each link triggers ``ProofHypergraph``'s bottom-up propagation, which is
     objective 2: PLN-derived ranks continuously update the GNN-seeded scores
@@ -147,63 +264,104 @@ class HybridReasoner:
         index_path: Optional[Path] = None,
         corpus_path: Optional[Path] = None,
         top_k_tactics: int = 3,
-        top_k_subgoals: int = 3,
         max_depth: int = 10,
         max_nodes: int = 500,
         dts_sampler: Optional[DynamicThompsonSampler] = None,
         dts_c: float = None,
         dts_random_seed: Optional[int] = None,
+        use_pln: bool = True,
+        env: PantographEnv | None = None,
     ) -> None:
-        self.gnn_engine = GNNModelEngine(
+        self.use_pln = use_pln
+        # The environment the server runs in, kept so a post-crash restart lands in
+        # the SAME environment the initial server was started in. An all-default
+        # PantographEnv reproduces a bare `Server.create()`.
+        self._env = env or PantographEnv()
+        self.gnn_engine = self._build_gnn_engine(
+            config_path=config_path,
+            tactic_model_path=tactic_model_path,
+            argument_model_path=argument_model_path,
+            index_path=index_path,
+            corpus_path=corpus_path,
+        )
+        self.atomic_tactics = {}
+
+        # Always use Thompson sampling as fallback - it's automatic and internal
+        self.pln_fallback_strategy = "thompson"
+
+        # Use config defaults if not provided
+        if dts_c is None:
+            dts_c = settings.dts_default_c
+        if dts_random_seed is None:
+            dts_random_seed = settings.dts_default_seed
+
+        # _dts_rng is cheap; construct it unconditionally so subclasses and other
+        # callers can always reference it without an is-None check.
+        self._dts_rng = random.Random(dts_random_seed)
+
+        if not use_pln:
+            # PLN disabled: no petta subprocess will ever be spawned.
+            self.petta_chainer = None
+            self.dts_sampler = None
+        else:
+            self.petta_chainer = PLNInference()
+            # Initialize or use provided DTS sampler
+            if dts_sampler is not None:
+                self.dts_sampler = dts_sampler
+                self.dts_sampler.C = dts_c
+            else:
+                # Try to load existing state from default location
+                if settings.dts_state_file.exists():
+                    try:
+                        self.dts_sampler = DynamicThompsonSampler.load_from(str(settings.dts_state_file), C=dts_c)
+                    except Exception:
+                        # If loading fails, create fresh sampler
+                        self.dts_sampler = DynamicThompsonSampler(C=dts_c)
+                else:
+                    # Create new sampler
+                    self.dts_sampler = DynamicThompsonSampler(C=dts_c)
+
+        self.executor = executor
+        self.server = executor.server
+
+        self.top_k_tactics = top_k_tactics
+        self.max_depth = max_depth
+        self.max_nodes = max_nodes
+
+    # GNN side
+    def _build_gnn_engine(
+        self,
+        *,
+        config_path: Path,
+        tactic_model_path: Path,
+        argument_model_path: Path,
+        index_path: Optional[Path],
+        corpus_path: Optional[Path],
+    ) -> Optional[GNNModelEngine]:
+        """Construct the tactic-prediction engine.
+
+        Split out of ``__init__`` so subclasses can substitute a different
+        policy source: ``RLHybridReasoner`` overrides this to return ``None``
+        and instead drives ``predict_next_tactic`` from a live
+        ``ActorCriticTacticModel`` whose sampled actions must stay attached
+        to the training graph.
+        """
+        return GNNModelEngine(
             config_path=config_path,
             tactic_predictor_model_path=tactic_model_path,
             argument_predictor_model_path=argument_model_path,
             index_path=index_path,
             corpus_path=corpus_path,
         )
-        self.petta_chainer = PLNInference()
-        self.atomic_tactics = {}
 
-        # Always use Thompson sampling as fallback - it's automatic and internal
-        self.pln_fallback_strategy = "thompson"
-        
-        # Use config defaults if not provided
-        if dts_c is None:
-            dts_c = settings.dts_default_c
-        if dts_random_seed is None:
-            dts_random_seed = settings.dts_default_seed
-        
-        self._dts_rng = random.Random(dts_random_seed)
-        
-        # Initialize or use provided DTS sampler
-        if dts_sampler is not None:
-            self.dts_sampler = dts_sampler
-            self.dts_sampler.C = dts_c
-        else:
-            # Try to load existing state from default location
-            if settings.dts_state_file.exists():
-                try:
-                    self.dts_sampler = DynamicThompsonSampler.load_from(str(settings.dts_state_file), C=dts_c)
-                except Exception:
-                    # If loading fails, create fresh sampler
-                    self.dts_sampler = DynamicThompsonSampler(C=dts_c)
-            else:
-                # Create new sampler
-                self.dts_sampler = DynamicThompsonSampler(C=dts_c)
-
-        self.executor = executor
-        self.server = executor.server
-
-        self.top_k_tactics = top_k_tactics
-        self.top_k_subgoals = top_k_subgoals
-        self.max_depth = max_depth
-        self.max_nodes = max_nodes
-
-    # GNN side
-    def predict_next_tactic(self, sub_goal: str) -> List[TacticCandidate]:
+    def predict_next_tactic(self, sub_goal: Goal) -> List[TacticCandidate]:
         """
             Args:
-                sub_goal: a string expression of the target sub_goal for which tactics are predicated for
+                sub_goal: the sanitized target sub_goal (expression plus its
+                    local hypotheses) for which tactics are predicted. The
+                    base engine only consumes ``sub_goal.expression``; the RL
+                    subclass featurizes the full ``Goal`` so its sampled
+                    arguments resolve against the same DAG the encoder saw.
             Returns:
                 up to `top_k_tactics` TacticCandidate(tactic_name, arguments, probability),
                 ranked by predicted probability, descending.
@@ -213,7 +371,7 @@ class HybridReasoner:
                 edge case) — callers must treat that as a dead branch, which
                 `_expand` below does via `graph.mark_node_exhausted`.
         """
-        return self.gnn_engine.inference(sub_goal, top_k=self.top_k_tactics)
+        return self.gnn_engine.inference(sub_goal.expression, top_k=self.top_k_tactics)
 
     # PLN side
     def _make_dts_key(self, parent_goal: str, tactic: TacticCandidate, subgoal: Goal) -> str:
@@ -234,7 +392,7 @@ class HybridReasoner:
         subgoal_trunc = subgoal.expression[:max_len] + "..." if len(subgoal.expression) > max_len else subgoal.expression
         return f"{parent_trunc} --[{tactic_str}]--> {subgoal_trunc}"
 
-    def rank_subgoals(
+    async def rank_subgoals(
         self,
         goal: str,
         sub_goals: List[Goal],
@@ -242,7 +400,16 @@ class HybridReasoner:
         *,
         gnn_probability: float = 1.0,
     ) -> List[RankedSubgoal]:
+        if self.petta_chainer is None:
+            raise RuntimeError(
+                "rank_subgoals requires PLN; the reasoner was constructed with use_pln=False"
+            )
         """Score ``sub_goals`` with PLN and rank them best-first.
+
+        Now async: the per-subgoal PLN queries (blocking ``subprocess.run`` inside
+        ``PLNInference.evaluate``) are dispatched concurrently via ``evaluate_async`` +
+        ``asyncio.gather``, so scoring N subgoals overlaps their process waits instead of
+        serializing them, and the event loop stays free for other concurrent searches.
 
         Args:
             goal: the parent goal's expression — passed to PLN as extra
@@ -267,13 +434,20 @@ class HybridReasoner:
         they're true), not a guarantee that the subgoal is actually provable.
         It is the best automatic heuristic available, not ground truth.
         """
-        ranked: List[RankedSubgoal] = []
-        for subgoal in sub_goals:
-            result = self.petta_chainer.evaluate(
-                subgoal.expression,
-                hypotheses=[goal, *subgoal.hypotheses],
+        # Dispatch all PLN queries concurrently (off the event-loop thread).
+        results = await asyncio.gather(
+            *(
+                self.petta_chainer.evaluate_async(
+                    subgoal.expression,
+                    hypotheses=[goal, *(h.render() for h in subgoal.hypotheses)],
+                )
+                for subgoal in sub_goals
             )
+        )
 
+        # DTS bookkeeping is cheap and stateful — process results sequentially, in order.
+        ranked: List[RankedSubgoal] = []
+        for subgoal, result in zip(sub_goals, results):
             stv = result.stv
             if (
                 self.pln_fallback_strategy == "thompson"
@@ -312,7 +486,8 @@ class HybridReasoner:
 
         Termination (design-report "no-goal ambiguity" — resolved here as):
           * root SOLVED  → proof found; ``graph.proof_trace()`` replays it
-          * root DEAD    → provably unsolvable within the explored space
+          * root DEAD    → structurally closed; closure provenance determines whether
+            learning sees failure or unknown evidence
           * frontier empty / ``max_nodes`` reached → budget exhaustion
             (open design question: what to return — we return the partial
             graph so the caller can inspect ``graph.frontier()``, resume, or
@@ -327,16 +502,58 @@ class HybridReasoner:
         loop_count = 0
 
         #Running through the loop untill the theorem is solved or the depth_limit is reached
-        while not graph.is_solved() and not graph.is_exhausted() and len(graph.nodes) < self.max_nodes:
-            frontier = graph.frontier()
-            if not frontier:
-                break
-            loop_count += 1
-            node = frontier[0]
-            print(f"\n=== Loop {loop_count}: expanding node {node.id} (depth {node.depth}) | goal: {node.goal.expression} ===")
-            await self._expand(graph, node)
+        try:
+            while (
+                not graph.is_solved()
+                and not graph.is_exhausted()
+                and graph.search_end_reason != SearchEndReason.EXTERNAL_ABORT
+                and len(graph.nodes) < self.max_nodes
+            ):
+                frontier = graph.frontier()
+                if not frontier:
+                    graph.search_end_reason = SearchEndReason.FRONTIER_EMPTY
+                    break
+                loop_count += 1
+                node = frontier[0]
+                print(f"\n=== Loop {loop_count}: expanding node {node.id} (depth {node.depth}) | goal: {node.goal.expression} ===")
+                await self._expand(graph, node)
+        except BaseException:
+            graph.search_end_reason = SearchEndReason.EXTERNAL_ABORT
+            raise
 
+        if graph.is_solved():
+            graph.search_end_reason = SearchEndReason.ROOT_SOLVED
+        elif graph.search_end_reason == SearchEndReason.EXTERNAL_ABORT:
+            pass
+        elif graph.is_exhausted():
+            graph.search_end_reason = SearchEndReason.ROOT_DEAD
+        elif len(graph.nodes) >= self.max_nodes:
+            graph.search_end_reason = SearchEndReason.MAX_NODES
+        elif graph.search_end_reason is None:
+            graph.search_end_reason = SearchEndReason.FRONTIER_EMPTY
         return graph
+
+    async def _restart_server(self) -> None:
+        """Reap the current pantograph subprocess and spawn a fresh one.
+
+        Called when a goal or tactic call finds the REPL dead. Lean 4.29.1 panics
+        in ``Meta.Tactic.TryThis.getIndentAndColumn`` while building an
+        "unknown identifier" hint for a name containing multi-byte characters,
+        which hard-kills the process, so a long run has to survive crashes rather
+        than only avoid them.
+
+        Reinstalls the new server on both ``self`` and ``self.executor`` so every
+        subsequent call reaches the live process, and restarts in the same
+        environment the run was configured with.
+        """
+        self.server._close()
+        elapsed = perf_counter()
+        self.server = await self._env.create_server()
+        self.executor.server = self.server
+        console_print(
+            f"  [Server] pantograph restarted after crash "
+            f"in {perf_counter() - elapsed:.1f}s ({self._env.describe()})"
+        )
 
     async def _start_state(self, goal: Goal) -> GoalState:
         """Reconstruct a Lean goal state for ``goal``, including its local
@@ -353,34 +570,117 @@ class HybridReasoner:
         goal = _sanitize_inaccessible_names(goal)
         expression = goal.expression
         for hypothesis in reversed(goal.hypotheses):
-            expression = f"∀ ({hypothesis}), {expression}"
+            if hypothesis.kind == "let":
+                expression = f"let {hypothesis.name} : {hypothesis.type_expression} := {hypothesis.value_expression}\n{expression}"
+            else:
+                expression = f"∀ ({hypothesis.render()}), {expression}"
 
+        try:
+            return await self._goal_state_for(expression, goal)
+        except (BrokenPipeError, ConnectionResetError, EOFError):
+            # The pipe itself broke on the write side.
+            await self._restart_server()
+        except AssertionError:
+            # `run_async` asserts `self.proc` — raised by every call made after an
+            # earlier failure already reaped the subprocess.
+            await self._restart_server()
+        except ServerError:
+            # A ServerError means either a dead REPL (the decode of an empty read
+            # failed, and `run_async` closed the process before raising) or a live
+            # server rejecting this goal — an elaboration or parse error. Only the
+            # first is worth a restart; re-raising the second lets `_expand` mark
+            # the node exhausted and move on.
+            if not _server_is_dead(self.server):
+                raise
+            await self._restart_server()
+
+        return await self._goal_state_for(expression, goal)
+
+    async def _goal_state_for(self, expression: str, goal: Goal) -> GoalState:
+        """Start ``expression`` and re-``intro`` ``goal``'s hypotheses."""
         state = await self.server.goal_start_async(expression)
-        if goal.hypotheses:
-            names = " ".join(hypothesis.split(":", 1)[0].strip() for hypothesis in goal.hypotheses)
+        variable_names = [hypothesis.name for hypothesis in goal.hypotheses if hypothesis.kind == "variable"]
+        if variable_names:
+            names = " ".join(variable_names)
             state = await self.server.goal_tactic_async(state, f"intro {names}")
         return state
+
+    def _link(
+        self,
+        graph: ProofHypergraph,
+        node: ProofNode,
+        tactic: TacticCandidate,
+        ranked_subgoals: list,
+    ):
+        """Link one successful tactic application into the hypergraph and
+        return the created hyperedge (or ``None`` when ``add_edge`` refuses
+        the link, e.g. on cycle detection).
+
+        This is the single seam between search and training data collection:
+        ``RLHybridReasoner`` overrides it to associate the returned edge id
+        with the sampled action indices that produced ``tactic``, so the
+        train phase can recompute log-probabilities for exactly the edges
+        that made it into the graph.
+        """
+        return graph.add_edge(node.id, tactic, ranked_subgoals=ranked_subgoals)
+
+    def _on_expansion_complete(self, node: ProofNode, result: str) -> None:
+        """Hook invoked exactly once for every non-exceptional expansion exit."""
 
     async def _expand(self, graph: ProofHypergraph, node: ProofNode) -> None:
         """Try each of the GNN's top-k tactics on ``node`` and link whatever
         survives (executor success) into the hypergraph as new hyperedges.
         """
         if node.depth >= self.max_depth:
-            graph.mark_node_exhausted(node.id, note=f"depth limit ({self.max_depth}) reached")
+            graph.mark_node_exhausted(
+                node.id,
+                reason=NodeClosureReason.DEPTH_LIMIT,
+                note=f"depth limit ({self.max_depth}) reached",
+            )
+            self._on_expansion_complete(node, ExpansionResult.DEPTH_LIMIT)
             return
 
         sanitized = _sanitize_inaccessible_names(node.goal)
         print(f"  [GNN Input] goal={sanitized.expression}  hyps={sanitized.hypotheses}")
-        candidates = self.predict_next_tactic(sanitized.expression)
+        candidates = self.predict_next_tactic(sanitized)
         if not candidates:
-            graph.mark_node_exhausted(node.id, note="GNN returned no viable tactic")
+            graph.mark_node_exhausted(
+                node.id,
+                reason=NodeClosureReason.NO_CANDIDATES,
+                note="GNN returned no viable tactic",
+            )
+            self._on_expansion_complete(node, ExpansionResult.NO_CANDIDATES)
             return
 
-        state = await self._start_state(node.goal)
+        try:
+            state = await self._start_state(node.goal)
+        except (ServerError, ParseError) as exc:
+            if _server_is_dead(self.server):
+                console_print(f"  [Node {node.id} ABORT] Pantograph unavailable: {exc}")
+                graph.mark_node_infrastructure_failed(
+                    node.id,
+                    note=f"Pantograph unavailable: {exc}",
+                )
+                graph.search_end_reason = SearchEndReason.EXTERNAL_ABORT
+                self._on_expansion_complete(node, ExpansionResult.EXTERNAL_ABORT)
+            else:
+                console_print(f"  [Node {node.id} SKIP] goal elaboration failed: {exc}")
+                graph.mark_node_unelaborated(node.id, note=f"elaboration error: {exc}")
+                self._on_expansion_complete(node, ExpansionResult.ELABORATION_ERROR)
+            return
         any_applied = False
 
         for tactic in candidates:
-            outcome = await self.executor.apply(self.server, state, tactic)
+            try:
+                outcome = await self.executor.apply(self.server, state, tactic)
+            except (BrokenPipeError, ConnectionResetError, EOFError, AssertionError, ServerError) as exc:
+                graph.mark_node_infrastructure_failed(
+                    node.id,
+                    note=f"Pantograph failed during tactic execution: {exc}",
+                )
+                graph.search_end_reason = SearchEndReason.EXTERNAL_ABORT
+                self._on_expansion_complete(node, ExpansionResult.EXTERNAL_ABORT)
+                return
 
             if not outcome.success:
                 print(f"  [Tactic FAILED] {tactic.tactic_name} {' '.join(tactic.arguments)} — {outcome.error}")
@@ -391,33 +691,41 @@ class HybridReasoner:
             if not outcome.subgoals:
                 # "no-goal": this tactic fully discharges the goal (QED for this branch)
                 print(f"  [Tactic QED] no subgoals — branch closed!")
-                graph.add_edge(node.id, tactic, ranked_subgoals=[])
+                self._link(graph, node, tactic, ranked_subgoals=[])
                 continue
 
-            print(f"  [PLN Ranking] scoring {len(outcome.subgoals)} subgoal(s)...")
-            ranked = self.rank_subgoals(
-                node.goal.expression, outcome.subgoals, tactic, gnn_probability=tactic.probability
-            )
-            print(f"  [PLN Done] ranked {len(ranked)} subgoal(s)")
-            for i, rs in enumerate(ranked):
-                print(f"    subgoal {i}: {rs.goal.expression} | stv=({rs.stv.strength:.3f}, {rs.stv.confidence:.3f}) | combined_rank={rs.combined_rank:.4f}")
+            if self.use_pln:
+                print(f"  [PLN Ranking] scoring {len(outcome.subgoals)} subgoal(s)...")
+                ranked = await self.rank_subgoals(
+                    node.goal.expression, outcome.subgoals, tactic, gnn_probability=tactic.probability
+                )
+                print(f"  [PLN Done] ranked {len(ranked)} subgoal(s)")
+                for i, rs in enumerate(ranked):
+                    print(f"    subgoal {i}: {rs.goal.expression} | stv=({rs.stv.strength:.3f}, {rs.stv.confidence:.3f}) | combined_rank={rs.combined_rank:.4f}")
+                self._link(
+                    graph,
+                    node,
+                    tactic,
+                    ranked_subgoals=[(candidate.goal, candidate.stv) for candidate in ranked],
+                )
+            else:
+                # PLN disabled: retain every Lean obligation in executor order.
+                self._link(
+                    graph,
+                    node,
+                    tactic,
+                    ranked_subgoals=[(subgoal, None) for subgoal in outcome.subgoals],
+                )
 
-            chosen = ranked[: self.top_k_subgoals]
-            graph.add_edge(
-                node.id,
-                tactic,
-                ranked_subgoals=[(candidate.goal, candidate.stv) for candidate in chosen],
-            )
-
-        if not any_applied:
+        if not any_applied and self.use_pln:
             print(f"  [PLN Fallback] evaluating goal: {node.goal.expression}  hyps: {node.goal.hypotheses}")
-            pln_result = self.petta_chainer.evaluate(
+            pln_result = await self.petta_chainer.evaluate_async(
                 node.goal.expression,
-                hypotheses=[*node.goal.hypotheses],
+                hypotheses=[h.render() for h in node.goal.hypotheses],
             )
 
             stv = pln_result.stv
-            pln_fb_key = f"PLN_fb::{node.goal.expression}::{'|'.join(node.goal.hypotheses)}"
+            pln_fb_key = f"PLN_fb::{node.goal.expression}::{'|'.join(h.render() for h in node.goal.hypotheses)}"
 
             if pln_result.is_fallback and self.dts_sampler is not None:
                 sampled = self.dts_sampler.sample(pln_fb_key, self._dts_rng)
@@ -428,15 +736,17 @@ class HybridReasoner:
                 print(f"  [PLN Fallback] DTS recorded observation: score={stv.score:.3f}")
 
             print(f"  [PLN Fallback] final STV=({stv.strength:.3f}, {stv.confidence:.3f})  score={stv.score:.3f}  is_fallback={pln_result.is_fallback}")
-            if stv.score >= 0.9:
-                print(f"  [PLN Fallback] high confidence — closing node {node.id} as solved!")
-                graph.add_edge(node.id, TacticCandidate(tactic_name="PLN_fallback", arguments=[], probability=1.0), ranked_subgoals=[])
-                return
+            # PLN is a ranking and reward heuristic. Only Lean QED may close a node.
 
         note = None if any_applied else "executor rejected every candidate tactic"
         if note:
             print(f"  [Node {node.id} EXHAUSTED] {note}")
-        graph.mark_node_exhausted(node.id, note=note)
+        graph.mark_node_exhausted(
+            node.id,
+            reason=NodeClosureReason.CANDIDATES_EXHAUSTED,
+            note=note,
+        )
+        self._on_expansion_complete(node, ExpansionResult.TACTICS_EXECUTED)
 
 
 
@@ -455,10 +765,24 @@ async def main(
     dts_c: float = None,
     dts_random_seed: Optional[int] = None,
     top_k_tactics: int = 3,
-    top_k_subgoals: int = 3,
-
 ) -> None:
-    server = await Server.create()
+    # Use the Mathlib project if one exists, so the server can elaborate goals
+    # that mention Mathlib notation and lemmas. Falling back to a bare environment
+    # keeps core-only runs working.
+    env = PantographEnv()
+    mathlib_project = settings.root_dir / "lean_mathlib"
+    if (mathlib_project / "lakefile.lean").exists():
+        env = PantographEnv(
+            source_root=mathlib_project,
+            imports=("Init", "Mathlib"),
+        )
+        console_print(f"  Using Mathlib project: {mathlib_project}")
+    else:
+        console_print("  No Mathlib project found. Only core Lean theorems supported.")
+        console_print(f"  To enable Mathlib: cd {mathlib_project} && lake update && lake build")
+    env.verify()
+
+    server = await env.create_server()
     
     # Auto-load DTS state from default location if not specified
     if dts_state_input is None and settings.dts_state_file.exists():
@@ -488,7 +812,6 @@ async def main(
         corpus_path=corpus_path,
         executor=PantographExecutor(server=server),
         top_k_tactics=top_k_tactics,
-        top_k_subgoals=top_k_subgoals,
         max_depth=depth_limit,
         max_nodes=500,
         dts_sampler=dts_sampler,
@@ -503,13 +826,27 @@ async def main(
         print(repr(h))
     try:
         proof_graph = await hybrid_reasoner.prove(goal_statement, hypotheses=hypotheses)
-        print(proof_graph.summary())
         if proof_graph.is_solved():
-            print("Proof found!")
+            print("\n✅ Proof found!")
             print(proof_graph.proof_trace())
         else:
+            print("\n❌ Proof NOT found.")
+            # Print the deepest path tried
+            deepest = max(proof_graph.nodes.values(), key=lambda n: n.depth)
+            path = proof_graph.tactic_path(deepest.id)
+            print(f"\nDeepest node: {deepest.id} (depth {deepest.depth})")
+            print(f"Goal: {deepest.goal.expression}")
+            if path:
+                print(f"\nTactic path ({len(path)} steps):")
+                for i, step in enumerate(path):
+                    print(f"  {i+1}. {step}")
+            else:
+                print("  (root — no tactics applied)")
+            print(f"\nStatus: {deepest.status}")
+            if deepest.note:
+                print(f"Note: {deepest.note}")
+            print(proof_graph.summary())
             plot_hypergraph(proof_graph)
-            print("Proof not found within the given limits.")
     except Exception as e:
         print(f"An error occurred during proof search: {e}")
     finally:
@@ -555,12 +892,6 @@ if __name__ == "__main__":
         default=3,
         help="Number of top tactic candidates to try per node (default: 3).",
     )
-    args_parser.add_argument(
-        "--top-k-subgoals",
-        type=int,
-        default=3,
-        help="Number of subgoal nodes to expand per tactic application (default: 3).",
-    )
     args = args_parser.parse_args()
 
     asyncio.run(main(
@@ -577,5 +908,4 @@ if __name__ == "__main__":
         dts_c=args.dts_c,
         dts_random_seed=args.dts_random_seed,
         top_k_tactics=args.top_k_tactics,
-        top_k_subgoals=args.top_k_subgoals,
     ))

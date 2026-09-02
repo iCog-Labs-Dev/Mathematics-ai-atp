@@ -18,6 +18,7 @@ from torch_geometric.loader import DataLoader
 from .argument_selector import TacticWithArgsClassifier, compute_combined_loss
 from .labels import get_tactic_arity
 from .reporting import console_print
+from .training_safety import require_finite_loss
 
 
 def _format_elapsed(seconds: float) -> str:
@@ -90,6 +91,7 @@ def train_one_epoch_with_args(
     log_every_batches: int,
     use_amp: bool,
     pin_memory: bool,
+    amp_dtype: torch.dtype | None = None,
 ) -> dict[str, float | int]:
     """Train one epoch with combined tactic + argument loss."""
     model.train()
@@ -113,7 +115,11 @@ def train_one_epoch_with_args(
         tactic_arities = [get_tactic_arity(n) for n in tactic_names]
 
         optimizer.zero_grad(set_to_none=True)
-        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+        with torch.amp.autocast(
+            device_type=device.type,
+            enabled=use_amp,
+            dtype=amp_dtype,
+        ):
             tactic_logits, arg_logits_list = model(
                 batch,
                 teacher_tactic_ids=targets,
@@ -133,19 +139,19 @@ def train_one_epoch_with_args(
                 node_types=batch.node_type
             )
 
+        require_finite_loss(
+            loss,
+            architecture=model.model_spec.architecture,
+            amp_dtype=amp_dtype,
+            epoch=epoch,
+            batch_index=batch_index,
+            components=metrics,
+        )
         grad_scaler.scale(loss).backward()
-        if torch.isfinite(loss):
-            grad_scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-            grad_scaler.step(optimizer)
-            grad_scaler.update()
-        else:
-            print(f"  WARNING: Skipping batch {batch_index} due to non-finite loss: {loss.item()}")
-            # Enhanced debug info
-            with torch.no_grad():
-                print(f"    tactic_loss={metrics['tactic_loss']:.4f}, arg_loss={metrics['arg_loss']:.4f}")
-                # Check for NaNs in gradients/weights if needed, but here we just skip the step
-            optimizer.zero_grad(set_to_none=True)
+        grad_scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        grad_scaler.step(optimizer)
+        grad_scaler.update()
 
         batch_size = int(targets.numel())
         total_tactic_loss += metrics["tactic_loss"] * batch_size
@@ -184,6 +190,7 @@ def evaluate_model_with_args(
     log_every_batches: int | None = None,
     use_amp: bool = False,
     pin_memory: bool = False,
+    amp_dtype: torch.dtype | None = None,
 ) -> dict[str, float | int]:
     """Evaluate model with combined metrics."""
     model.eval()
@@ -206,7 +213,11 @@ def evaluate_model_with_args(
         arg_targets = _extract_arg_targets(batch, model.max_args, device)
         tactic_arities = [get_tactic_arity(n) for n in tactic_names]
 
-        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+        with torch.amp.autocast(
+            device_type=device.type,
+            enabled=use_amp,
+            dtype=amp_dtype,
+        ):
             tactic_logits, arg_logits_list = model(
                 batch,
                 tactic_names=tactic_names,
