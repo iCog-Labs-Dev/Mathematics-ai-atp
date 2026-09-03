@@ -1,12 +1,14 @@
 {
-  "warmstart_checkpoint": "/home/jovyan/Nol/Mathematics-ai-atp/runs/actor_critic_gnn/run_20260729_060637/best.pt",
-  "prepared_root": "/home/jovyan/Nol/Mathematics-ai-atp/maths_ai/_support_files/artifacts/prepared/v1",
-  "run_root": "runs/rl_actor_critic",
+  "warmstart_checkpoint": "/home/jovyan/Nol/Mathematics-ai-atp/runs/actor_critic_sexpr_gatv2_state/run_20260827_114924/best.pt",
+
+ 
+  "prepared_root": "/home/jovyan/yonatan/Mathematics-ai-atp/maths_ai/_support_files/artifacts/prepared/sexpr_full_model",
+  "run_root": "/home/jovyan/Nol/Mathematics-ai-atp/runs/rl_actor_critic",
   "device": "auto",
   "seed": 42,
 
-  "source_root": null,
-  "pantograph_repl": null,
+  "source_root": "/home/jovyan/yonatan/Mathematics-ai-atp/maths_ai/_support_files/sexpr_environment//mathlib4",
+  "pantograph_repl": "/home/jovyan/yonatan/Mathematics-ai-atp/maths_ai/_support_files/sexpr_environment/Pantograph/.lake/build/bin/repl",
   "pantograph_imports": null,
   "server_timeout_s": 120,
 
