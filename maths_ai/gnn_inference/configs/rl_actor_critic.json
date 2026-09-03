@@ -14,9 +14,10 @@
 
   "data_source": "dataset",
   "theorem_file": null,
+  "dataset_name": "jajostrains/Mathlib-Normalized-Sexpr",
   "leandojo_split": "train",
   "max_pool_size": 5000,
-  "max_state_chars": 400,
+  "max_state_chars": null,
   "eval_pool_size": 200,
 
   "curriculum_start_size": 200,

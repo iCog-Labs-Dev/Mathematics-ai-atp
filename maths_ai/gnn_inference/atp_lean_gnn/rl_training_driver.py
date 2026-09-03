@@ -31,7 +31,7 @@ from maths_ai.hybrid_reasoner.pantograph_model_sexpr import create_model_sexpr_s
 from .actor_critic import ActorCriticWithArgsClassifier
 from .checkpointing import build_model_from_checkpoint, checkpoint_payload
 from .graph_contract import GraphRepresentationSpec, require_graph_representation
-from .dataset import iter_dataset_rows
+from .dataset import DATASET_NAME, iter_dataset_rows
 from .pln_reward import RewardConfig
 from .pln_rl_training import make_dag_featurizer, train_step_onpolicy
 from .reporting import console_print
@@ -60,9 +60,10 @@ class RLTrainingConfig:
     # JSONL of {"goal": str, "hypotheses": [str, ...]} rows.
     data_source: str = "dataset"
     theorem_file: Path | None = None
+    dataset_name: str = DATASET_NAME
     leandojo_split: str = "train"
     max_pool_size: int = 5000
-    max_state_chars: int = 400
+    max_state_chars: int | None = 400
     eval_pool_size: int = 200
     seed: int = 42
 
@@ -94,7 +95,7 @@ class RLTrainingConfig:
     max_nodes: int = 64
     # Set to False to disable all PLN involvement (no petta subprocess, no reward
     # shaping, no PLN fallback QED). Terminal rewards and the step penalty remain.
-    use_pln: bool = True
+    use_pln: bool = False
 
     # Optimizer / loss.
     learning_rate: float = 1e-4
@@ -199,14 +200,21 @@ class TheoremItem:
 # elaborator had not yet solved when the dataset row was captured mid-proof. Such a
 # state is not a theorem statement: `goal_start` has no assignment to give the hole,
 # so it fails to elaborate and the rollout is wasted before its first tactic.
+_UNIVERSE_METAVARIABLE_RE = re.compile(r"\?u(?:\.|_)?[0-9]+")
 _METAVARIABLE_RE = re.compile(r"\?m\.\d+|\?[a-zA-Z_][a-zA-Z0-9_]*\b")
 
 
 def _has_metavariable(goal: LeanGoalSeed) -> bool:
     """True when the goal or any hypothesis mentions an unassigned metavariable."""
-    if _METAVARIABLE_RE.search(goal.expression):
+    def has_term_metavariable(text: str) -> bool:
+        # ``?u.N`` is a universe placeholder emitted by the extractor for a
+        # declaration's type level, not an unresolved term metavariable.
+        without_universes = _UNIVERSE_METAVARIABLE_RE.sub("", text)
+        return _METAVARIABLE_RE.search(without_universes) is not None
+
+    if has_term_metavariable(goal.expression):
         return True
-    return any(_METAVARIABLE_RE.search(hypothesis) for hypothesis in goal.hypotheses)
+    return any(has_term_metavariable(hypothesis) for hypothesis in goal.hypotheses)
 
 
 def _row_state_to_goal(state_str: str) -> LeanGoalSeed:
@@ -269,7 +277,7 @@ def build_theorem_pool(cfg: RLTrainingConfig) -> TheoremPool:
                     expression=row["goal"], hypotheses=row.get("hypotheses", [])
                 )
                 size = len(goal.expression) + sum(len(h) for h in goal.hypotheses)
-                if size > cfg.max_state_chars:
+                if cfg.max_state_chars is not None and size > cfg.max_state_chars:
                     dropped += 1
                     continue
                 if _has_metavariable(goal):
@@ -279,9 +287,15 @@ def build_theorem_pool(cfg: RLTrainingConfig) -> TheoremPool:
                 if len(items) >= cfg.max_pool_size:
                     break
     elif cfg.data_source == "dataset":
-        for row in iter_dataset_rows(split=cfg.leandojo_split, sample_limit=cfg.max_pool_size * 2):
+        for row in iter_dataset_rows(
+            dataset_name=cfg.dataset_name,
+            split=cfg.leandojo_split,
+            sample_limit=cfg.max_pool_size * 2,
+        ):
             state_str = (row.state or "").strip()
-            if not state_str or len(state_str) > cfg.max_state_chars:
+            if not state_str or (
+                cfg.max_state_chars is not None and len(state_str) > cfg.max_state_chars
+            ):
                 dropped += 1
                 continue
             try:
@@ -751,6 +765,12 @@ def driver_main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(description="On-policy RL training over live Lean search")
     parser.add_argument("--config", type=str, required=True, help="Path to the RL training JSON config")
+    parser.add_argument(
+        "--dataset-name",
+        type=str,
+        default=None,
+        help="Hugging Face dataset identifier used for dataset-mode theorem streaming",
+    )
     parser.add_argument("--resume", type=str, default=None, help="Run directory to resume (contains last.pt)")
     parser.add_argument("--eval-only", action="store_true", help="Only run the greedy proof-rate evaluation")
     parser.add_argument("--checkpoint", type=str, default=None,
@@ -779,6 +799,8 @@ def driver_main(argv: list[str] | None = None) -> int:
         cfg.pantograph_imports = [m.strip() for m in args.pantograph_imports.split(",") if m.strip()]
     if args.server_timeout is not None:
         cfg.server_timeout_s = args.server_timeout
+    if args.dataset_name:
+        cfg.dataset_name = args.dataset_name
     if args.eval_only:
         if args.checkpoint:
             cfg.warmstart_checkpoint = Path(args.checkpoint)

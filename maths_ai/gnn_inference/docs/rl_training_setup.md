@@ -192,6 +192,16 @@ The `datasets` package supplies the Hugging Face streaming interface used when t
 config has `"data_source": "dataset"`. It is not currently declared in
 `pyproject.toml`.
 
+The generated `jajostrains/Mathlib-Normalized-Sexpr` rows are normalized by
+`atp_lean_gnn.dataset`: `text_state` becomes the replayable RL state,
+`theorem`, `tactic`, `text_target_state`, and repository fields retain their
+existing meanings, and the JSON string in `model_hyp_sexps` is decoded into
+structured records alongside `model_goal_sexp`. Live RL does not send those
+stored S-expressions back to Pantograph, because a Pantograph state ID is
+required to apply the next tactic. The stored fields are available for
+provenance and future direct structured-root support; the live server emits the
+canonical state used for each search step.
+
 The supervised trainers choose mixed precision from the selected encoder:
 
 - GraphSAGE uses FP16 on CUDA when `training.use_amp` is true.
@@ -415,6 +425,7 @@ Edit `maths_ai/gnn_inference/configs/rl_actor_critic.json`:
 "prepared_root": "/abs/path/to/prepared/v1",
 "run_root": "runs/rl_actor_critic",
 "device": "auto",
+"dataset_name": "jajostrains/Mathlib-Normalized-Sexpr",
 "source_root": "/abs/path/to/mathlib-lake-project",
 "pantograph_repl": "/abs/path/to/Pantograph/.lake/build/bin/repl",
 "use_pln": false

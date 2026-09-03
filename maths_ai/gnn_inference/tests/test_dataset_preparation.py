@@ -18,13 +18,41 @@ from maths_ai.gnn_inference.atp_lean_gnn import (
     run_preprocessing,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.cache import build_json_payload
-from maths_ai.gnn_inference.atp_lean_gnn.dataset import DatasetRow, canonicalize_split_name, dataset_split_name
+from maths_ai.gnn_inference.atp_lean_gnn.dataset import (
+    DatasetRow,
+    _dataset_row_from_sample,
+    canonicalize_split_name,
+    dataset_split_name,
+)
 from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
 from maths_ai.gnn_inference.atp_lean_gnn.preprocess import main as preprocess_main
 from maths_ai.gnn_inference.atp_lean_gnn.state import parse_state
 
 
 class DatasetPreparationTests(unittest.TestCase):
+    def test_generated_sexpr_row_schema_is_normalized(self) -> None:
+        row = _dataset_row_from_sample(
+            {
+                "theorem": "Demo.theorem",
+                "text_state": "h : Prop\n⊢ h",
+                "text_target_state": "⊢ True",
+                "tactic": "trivial",
+                "repo_url": "https://example.invalid/mathlib",
+                "repo_commit": "abc123",
+                "file_path": "Mathlib/Demo.lean",
+                "model_goal_sexp": "(:c True)",
+                "model_hyp_sexps": '[{"name":"h","context_index":0,"sexp":"(:c Prop)"}]',
+            },
+            split="train",
+            row_index=0,
+            dataset_name="jajostrains/Mathlib-Normalized-Sexpr",
+        )
+        self.assertEqual(row.state, "h : Prop\n⊢ h")
+        self.assertEqual(row.theorem, "Demo.theorem")
+        self.assertEqual(row.target_state, "⊢ True")
+        self.assertEqual(row.model_goal_sexp, "(:c True)")
+        self.assertEqual(row.model_hyp_sexps[0]["context_index"], 0)
+
     def setUp(self) -> None:
         self.output_root = Path("tests") / "_tmp_prepared"
         if self.output_root.exists():

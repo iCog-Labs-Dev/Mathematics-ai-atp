@@ -34,6 +34,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver import (
     run_rl_training,
     save_checkpoint,
 )
+from maths_ai.gnn_inference.atp_lean_gnn.dataset import DatasetRow
 from maths_ai.gnn_inference.tests.model_helpers import pantograph_goal, structured_goal
 
 
@@ -288,6 +289,35 @@ class ConfigTests(unittest.TestCase):
 
 
 class PoolTests(unittest.TestCase):
+    @patch("maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver.iter_dataset_rows")
+    def test_dataset_name_is_forwarded_to_stream(self, mock_iter_dataset_rows):
+        mock_iter_dataset_rows.return_value = iter(
+            [
+                DatasetRow(
+                    state="p : Prop\n⊢ p → p",
+                    theorem="demo",
+                    tactic="intro",
+                    split="train",
+                    row_index=0,
+                    dataset_name="jajostrains/Mathlib-Normalized-Sexpr",
+                )
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _write_config(
+                Path(tmp),
+                dataset_name="jajostrains/Mathlib-Normalized-Sexpr",
+                max_pool_size=1,
+                eval_pool_size=0,
+            )
+            pool = build_theorem_pool(cfg)
+        self.assertEqual(len(pool.train_items), 1)
+        mock_iter_dataset_rows.assert_called_once_with(
+            dataset_name="jajostrains/Mathlib-Normalized-Sexpr",
+            split="train",
+            sample_limit=2,
+        )
+
     def test_file_mode_pool(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
@@ -334,6 +364,15 @@ class PoolTests(unittest.TestCase):
             total = len(pool.train_items) + len(pool.eval_items)
             self.assertEqual(total, 2)  # both metavariable rows dropped
             self.assertEqual(pool.train_items[0].goal.expression, "p → p")  # size-sorted
+
+    def test_universe_placeholders_are_not_term_metavariables(self):
+        goal = LeanGoalSeed(
+            expression="x = x",
+            hypotheses=["α : Type ?u.319125", "x : α"],
+        )
+        from maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver import _has_metavariable
+
+        self.assertFalse(_has_metavariable(goal))
 
     def test_curriculum_window_and_growth(self):
         pool = _pool(n_items=10)

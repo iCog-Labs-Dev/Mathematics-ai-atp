@@ -42,6 +42,7 @@ from maths_ai.core.config import settings
 from maths_ai.gnn_inference.atp_lean_gnn.reporting import console_print
 
 _INACCESSIBLE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_']*✝[⁰-⁹¹²³]*")
+_UNIVERSE_PLACEHOLDER_RE = re.compile(r"\b(?:Type|Sort)\s+\?u(?:\.|_)?[0-9]+")
 
 # A Lean identifier usable as a rewrite rule or simp lemma: hypothesis names and
 # dotted lemma names, but not terms like `↑13` or `?m.2235`.
@@ -131,9 +132,6 @@ def _sanitize_replay_spec(spec: GoalReplaySpec) -> GoalReplaySpec:
     """
     text = " ".join([spec.expression, *spec.local_names])
     tokens = sorted(set(_INACCESSIBLE_NAME_RE.findall(text)))
-    if not tokens:
-        return spec
-
     existing_names = set(re.findall(r"[A-Za-z_][A-Za-z0-9_']*", text))
     rename: Dict[str, str] = {}
     for token in tokens:
@@ -143,7 +141,11 @@ def _sanitize_replay_spec(spec: GoalReplaySpec) -> GoalReplaySpec:
         rename[token] = candidate
 
     def substitute(value: str) -> str:
-        return _INACCESSIBLE_NAME_RE.sub(lambda m: rename[m.group(0)], value)
+        value = _INACCESSIBLE_NAME_RE.sub(lambda m: rename[m.group(0)], value)
+        # Extracted pretty states may contain unresolved universe levels such as
+        # ``Type ?u.319125``. They are not term holes and cannot be replayed as
+        # surface Lean syntax, so erase only the level annotation.
+        return _UNIVERSE_PLACEHOLDER_RE.sub("Type", value)
 
     return GoalReplaySpec(
         expression=substitute(spec.expression),
