@@ -7,7 +7,7 @@
   "device": "auto",
   "seed": 42,
 
-  "source_root": "/home/jovyan/yonatan/Mathematics-ai-atp/maths_ai/_support_files/sexpr_environment//mathlib4",
+  "source_root": "/home/jovyan/yonatan/Mathematics-ai-atp/maths_ai/_support_files/sexpr_environment/mathlib4",
   "pantograph_repl": "/home/jovyan/yonatan/Mathematics-ai-atp/maths_ai/_support_files/sexpr_environment/Pantograph/.lake/build/bin/repl",
   "pantograph_imports": null,
   "server_timeout_s": 120,
