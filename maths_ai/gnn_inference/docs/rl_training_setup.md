@@ -112,8 +112,7 @@ Terminal), not a notebook — the driver is a long-running CLI process.
 cd /path/to/new-maths
 uv sync                          # installs torch, torch-geometric, pydantic, faiss-cpu,
                                  # and pantograph (from the PyPantograph git source)
-uv add datasets                  # HuggingFace streaming — required by the driver's
-                                 # dataset mode (iter_dataset_rows); not yet in pyproject
+                                 # dataset mode (iter_dataset_rows)
 ```
 
 CUDA check (the prepared configs use `"device": "auto"`, which falls back to CPU —
@@ -229,6 +228,14 @@ Edit `maths_ai/gnn_inference/configs/rl_actor_critic.json`. The fields you must
 touch before a first run are the paths and the two mode knobs; everything else ships
 with working defaults.
 
+Dataset-mode theorem pool construction streams
+`jajostrains/Mathlib-Normalized-Sexpr` by default. The loader maps its
+`text_state`, `theorem`, `text_target_state`, and repository fields into the
+existing `DatasetRow` contract and decodes the optional normalized
+S-expression columns. Live RL reconstructs each textual state through the live
+Pantograph server before applying tactics; the stored S-expressions are retained
+for metadata and future structured-state support.
+
 **Paths (required):**
 
 ```json
@@ -236,6 +243,7 @@ with working defaults.
 "prepared_root": "/abs/path/artifacts/prepared/v1",
 "run_root": "runs/rl_actor_critic",
 "device": "auto",
+"dataset_name": "jajostrains/Mathlib-Normalized-Sexpr",
 "source_root": "/abs/path/to/lean_mathlib",
 "pantograph_repl": "/abs/path/to/lean_mathlib/.lake/build/bin/pantograph-repl"
 ```

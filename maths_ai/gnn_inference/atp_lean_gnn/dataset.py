@@ -1,14 +1,13 @@
-"""
-Dataset loading and streaming for the LeanDojo benchmark.
-"""
+"""Dataset loading and streaming for the generated Mathlib proof-state corpus."""
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Generator, Iterable
 
 
-DATASET_NAME = "cat-searcher/leandojo-benchmark-4-random"
+DATASET_NAME = "jajostrains/Mathlib-Normalized-Sexpr"
 CANONICAL_SPLITS = ("train", "val", "test")
 
 _SPLIT_ALIASES = {
@@ -37,6 +36,8 @@ class DatasetRow:
     repo_url: str = ""
     repo_commit: str = ""
     file_path: str = ""
+    model_goal_sexp: str = ""
+    model_hyp_sexps: tuple[dict[str, object], ...] = ()
 
     def metadata(self) -> dict[str, object]:
         return {
@@ -50,7 +51,23 @@ class DatasetRow:
             "url": self.repo_url,
             "commit": self.repo_commit,
             "file_path": self.file_path,
+            "has_model_sexprs": bool(self.model_goal_sexp and self.model_hyp_sexps),
         }
+
+
+def _json_object_list(sample: dict[str, object], field: str) -> tuple[dict[str, object], ...]:
+    """Decode a normalized S-expression column stored as a JSON string."""
+    value = sample.get(field)
+    if value in (None, ""):
+        return ()
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Dataset field '{field}' is not valid JSON.") from exc
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise ValueError(f"Dataset field '{field}' must be a JSON list of objects.")
+    return tuple(value)
 
 
 def _dataset_row_from_sample(
@@ -60,18 +77,29 @@ def _dataset_row_from_sample(
     row_index: int,
     dataset_name: str,
 ) -> DatasetRow:
-    """Preserve the source coordinates required for exact Lean replay."""
+    """Normalize the generated dataset schema into the RL row contract."""
+    # The generated dataset calls these fields ``text_state`` and ``theorem``;
+    # the aliases retain compatibility with the original LeanDojo row schema.
+    state = sample.get("text_state", sample.get("state"))
+    if not isinstance(state, str) or not state.strip():
+        raise ValueError(
+            "Dataset row is missing a non-empty 'text_state' field; "
+            f"available fields: {sorted(sample)}"
+        )
+    target_state = sample.get("text_target_state", sample.get("target_state", ""))
     return DatasetRow(
-        state=str(sample["state"]),
-        theorem=str(sample.get("full_name", "")),
+        state=state,
+        theorem=str(sample.get("theorem", sample.get("full_name", ""))),
         tactic=str(sample.get("tactic", "")),
-        target_state=str(sample.get("target_state", "")),
-        repo_url=str(sample.get("url", "")),
-        repo_commit=str(sample.get("commit", "")),
+        target_state=str(target_state),
+        repo_url=str(sample.get("repo_url", sample.get("url", ""))),
+        repo_commit=str(sample.get("repo_commit", sample.get("commit", ""))),
         file_path=str(sample.get("file_path", "")),
         split=split,
         row_index=row_index,
         dataset_name=dataset_name,
+        model_goal_sexp=str(sample.get("model_goal_sexp", "")),
+        model_hyp_sexps=_json_object_list(sample, "model_hyp_sexps"),
     )
 
 

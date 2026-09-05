@@ -51,6 +51,7 @@ from maths_ai.core.config import settings
 from maths_ai.gnn_inference.atp_lean_gnn.reporting import console_print
 
 _INACCESSIBLE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_']*✝[⁰-⁹¹²³]*")
+_UNIVERSE_PLACEHOLDER_RE = re.compile(r"\b(?:Type|Sort)\s+\?u(?:\.|_)?[0-9]+")
 
 
 def _is_lean_identifier(value: str) -> bool:
@@ -129,9 +130,6 @@ def _sanitize_replay_spec(spec: GoalReplaySpec) -> GoalReplaySpec:
     """
     text = " ".join([spec.expression, *spec.local_names])
     tokens = sorted(set(_INACCESSIBLE_NAME_RE.findall(text)))
-    if not tokens:
-        return spec
-
     existing_names = set(re.findall(r"[A-Za-z_][A-Za-z0-9_']*", text))
     rename: Dict[str, str] = {}
     for token in tokens:
@@ -141,7 +139,10 @@ def _sanitize_replay_spec(spec: GoalReplaySpec) -> GoalReplaySpec:
         rename[token] = candidate
 
     def substitute(value: str) -> str:
-        return _INACCESSIBLE_NAME_RE.sub(lambda m: rename[m.group(0)], value)
+        value = _INACCESSIBLE_NAME_RE.sub(lambda m: rename[m.group(0)], value)
+        # Extracted states may contain universe placeholders that are not valid
+        # surface syntax for a fresh theorem declaration.
+        return _UNIVERSE_PLACEHOLDER_RE.sub("Type", value)
 
     return GoalReplaySpec(
         expression=substitute(spec.expression),

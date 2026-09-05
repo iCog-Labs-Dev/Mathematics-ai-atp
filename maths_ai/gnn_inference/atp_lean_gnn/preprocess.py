@@ -45,7 +45,7 @@ DEFAULT_OUTPUT_ROOT = Path("artifacts") / "prepared" / "v1"
 
 @dataclass(frozen=True)
 class PreprocessConfig:
-    dataset_name: str = "cat-searcher/leandojo-benchmark-4-random"
+    dataset_name: str = DATASET_NAME
     splits: tuple[str, ...] = ("train", "val", "test")
     output_root: Path = Path("artifacts") / "prepared" / "v1"
     sample_per_split: int | None = None

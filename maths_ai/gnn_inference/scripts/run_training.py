@@ -57,7 +57,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "run_root": "maths_ai/gnn_inference/runs",
 
     "prepare": {
-        "dataset_name": "cat-searcher/leandojo-benchmark-4-random",
+        "dataset_name": "jajostrains/Mathlib-Normalized-Sexpr",
         "splits": "train,val,test",
         "sample_per_split": None,
         "force": False,
