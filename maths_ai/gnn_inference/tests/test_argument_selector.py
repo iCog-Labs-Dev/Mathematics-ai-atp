@@ -15,10 +15,10 @@ from maths_ai.gnn_inference.atp_lean_gnn import (
 )
 from maths_ai.gnn_inference.atp_lean_gnn.argument_selector import (
     ArgumentSelector,
-    TacticWithArgsClassifier,
     compute_combined_loss,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.pyg import dag_to_pyg
+from maths_ai.gnn_inference.tests.model_helpers import pointer
 
 
 class TacticArityRegistryTests(unittest.TestCase):
@@ -192,14 +192,7 @@ class TacticWithArgsClassifierTests(unittest.TestCase):
     def test_forward_returns_both_heads(self) -> None:
         batch, vocab = self._build_tiny_batch()
 
-        model = TacticWithArgsClassifier(
-            num_node_labels=len(vocab),
-            num_tactics=5,
-            hidden_dim=16,
-            num_layers=2,
-            dropout=0.1,
-            max_args=2,
-        )
+        model = pointer(len(vocab), 5)
 
         tactic_logits, arg_logits_list = model(
             batch,
@@ -215,14 +208,7 @@ class TacticWithArgsClassifierTests(unittest.TestCase):
     def test_zero_arity_returns_empty_arg_list(self) -> None:
         batch, vocab = self._build_tiny_batch()
 
-        model = TacticWithArgsClassifier(
-            num_node_labels=len(vocab),
-            num_tactics=5,
-            hidden_dim=16,
-            num_layers=2,
-            dropout=0.1,
-            max_args=2,
-        )
+        model = pointer(len(vocab), 5)
 
         tactic_logits, arg_logits_list = model(
             batch,

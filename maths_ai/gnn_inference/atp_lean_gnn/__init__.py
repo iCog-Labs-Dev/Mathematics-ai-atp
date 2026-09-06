@@ -1,22 +1,7 @@
-from .argument_selector import (
-    ArgumentSelector,
-    TacticWithArgsClassifier,
-    TacticWithArgsConfig,
-    compute_combined_loss,
-    resolve_arg_targets_to_padded,
-)
-from .argument_training import (
-    evaluate_model_with_args,
-    train_one_epoch_with_args,
-)
-from .audit import DEFAULT_AUDIT_OUTPUT_ROOT, ParserAuditConfig, run_parser_audit
-from .analysis import analyze_saved_run, compare_saved_runs, load_metrics_history, load_run_summary, render_run_comparison_markdown
 from .cache import SplitReport, build_failure_record, build_json_payload
 from .cli import DEMO_STATE
 from .dataset import DatasetRow, iter_dataset_rows
-from .graph import DAGBuilder, GraphNode, GraphStats, dag_to_dict, graph_stats, lemma_statement_to_dag, proof_state_to_dag, write_dag_json
-from .inference import InferencePipeline
-from .lemma_corpus import LemmaRecord, load_lemma_corpus, load_lemma_name_index
+from .graph import DAGBuilder, GraphNode, GraphStats, dag_to_dict, get_node_labels, graph_stats, lemma_statement_to_dag, proof_state_to_dag, sexp_to_dag, write_dag_json
 from .labels import (
     DEFAULT_ARITY,
     EMPTY_TACTIC,
@@ -29,30 +14,50 @@ from .labels import (
     normalize_tactic,
     parse_tactic_arguments,
 )
-from .lemma_index import LemmaIndex, LemmaIndexConfig
-from .model import GraphSAGEClassifierConfig, GraphSAGEStateClassifier
-from .preparation import PreparedExample, prepare_example
-from .premise_pool import CandidatePool, build_unified_pools
-from .premise_scoring import PremiseScorer, PremiseScorerConfig, compute_premise_ranking_loss
-from .premise_training import evaluate_model_with_premises, train_one_epoch_with_premises
-from .preprocess import DEFAULT_OUTPUT_ROOT, PreprocessConfig, run_preprocessing
-from .pyg import NODE_TYPE_TO_ID, build_premise_mask, build_vocab, build_vocab_from_labels, dag_to_pyg
+from .lemma_corpus import LemmaRecord, load_lemma_corpus, load_lemma_name_index
 from .state import Hypothesis, ProofState, parse_state
-from .training import (
-    DEFAULT_BASELINE_CONFIG_PATH,
-    BaselineConfig,
-    PreparedGraphDataset,
-    PreparedMetadata,
-    TrainingLoopConfig,
-    build_dataloaders,
-    compute_eval_metrics_from_logits,
-    evaluate_baseline_run,
-    evaluate_model,
-    load_baseline_config,
-    load_prepared_metadata,
-    train_baseline,
-)
-from .visualize import build_visualization_html, visualize_dag
+
+try:
+    from .model_spec import ModelSpec
+    from .analysis import analyze_saved_run, compare_saved_runs, load_metrics_history, load_run_summary, render_run_comparison_markdown
+    from .audit import DEFAULT_AUDIT_OUTPUT_ROOT, ParserAuditConfig, run_parser_audit
+    from .inference import InferencePipeline
+    from .lemma_index import LemmaIndex, LemmaIndexConfig
+    from .preprocess import DEFAULT_OUTPUT_ROOT, PreprocessConfig, run_preprocessing
+    from .visualize import build_visualization_html, visualize_dag
+    from .argument_selector import (
+        ArgumentSelector,
+        TacticWithArgsClassifier,
+        compute_combined_loss,
+        resolve_arg_targets_to_padded,
+    )
+    from .architectures import EncoderOutput, GATv2Encoder, GraphSAGEEncoder, StateGraphEncoder
+    from .argument_training import (
+        evaluate_model_with_args,
+        train_one_epoch_with_args,
+    )
+    from .model import SupervisedTacticClassifier
+    from .preparation import PreparedExample, prepare_example
+    from .premise_pool import CandidatePool, build_unified_pools
+    from .premise_scoring import PremiseScorer, PremiseScorerConfig, compute_premise_ranking_loss
+    from .premise_training import evaluate_model_with_premises, train_one_epoch_with_premises
+    from .pyg import NODE_TYPE_TO_ID, build_premise_mask, build_vocab, build_vocab_from_labels, dag_to_pyg
+    from .training import (
+        DEFAULT_BASELINE_CONFIG_PATH,
+        BaselineConfig,
+        PreparedGraphDataset,
+        PreparedMetadata,
+        TrainingLoopConfig,
+        build_dataloaders,
+        compute_eval_metrics_from_logits,
+        evaluate_baseline_run,
+        evaluate_model,
+        load_baseline_config,
+        load_prepared_metadata,
+        train_baseline,
+    )
+except ImportError:
+    pass
 
 __all__ = [
     "ArgumentSelector",
@@ -66,15 +71,17 @@ __all__ = [
     "DEMO_STATE",
     "DatasetRow",
     "EMPTY_TACTIC",
+    "EncoderOutput",
+    "GATv2Encoder",
     "GraphNode",
-    "GraphSAGEClassifierConfig",
-    "GraphSAGEStateClassifier",
+    "GraphSAGEEncoder",
     "GraphStats",
     "Hypothesis",
     "InferencePipeline",
     "LemmaIndex",
     "LemmaIndexConfig",
     "LemmaRecord",
+    "ModelSpec",
     "NODE_TYPE_TO_ID",
     "ParserAuditConfig",
     "PreparedExample",
@@ -87,7 +94,8 @@ __all__ = [
     "SplitReport",
     "TACTIC_ARITY",
     "TacticWithArgsClassifier",
-    "TacticWithArgsConfig",
+    "StateGraphEncoder",
+    "SupervisedTacticClassifier",
     "TrainingLoopConfig",
     "UNKNOWN_TACTIC",
     "analyze_saved_run",
@@ -107,6 +115,7 @@ __all__ = [
     "dag_to_dict",
     "dag_to_pyg",
     "encode_tactic_name",
+    "get_node_labels",
     "evaluate_baseline_run",
     "evaluate_model",
     "evaluate_model_with_args",
@@ -131,10 +140,10 @@ __all__ = [
     "resolve_arg_targets_to_padded",
     "run_parser_audit",
     "run_preprocessing",
+    "sexp_to_dag",
     "train_baseline",
     "train_one_epoch_with_args",
     "train_one_epoch_with_premises",
     "visualize_dag",
     "write_dag_json",
 ]
-

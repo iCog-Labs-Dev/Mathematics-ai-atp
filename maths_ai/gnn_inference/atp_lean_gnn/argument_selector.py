@@ -1,26 +1,36 @@
-"""Pointer-network argument selector for tactic argument prediction.
-
-This module is additive — the existing ``GraphSAGEStateClassifier`` in
-``model.py`` is used as a backbone and remains untouched.
-"""
+"""Pointer-network argument selector for tactic argument prediction."""
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
 from .labels import get_tactic_arity
-from .model import GraphSAGEStateClassifier
-from .pyg import NODE_TYPE_TO_ID
+from .architectures import EncoderOutput, StateGraphEncoder
 
 
 # ---------------------------------------------------------------------------
 # ArgumentSelector: Scaled dot-product pointer head
 # ---------------------------------------------------------------------------
+
+
+def resolve_premise_mask(data, device) -> Tensor:
+    """Per-node bool mask of valid argument candidates for the pointer head.
+
+    Prefers the cached ``data.premise_mask`` (built by ``pyg.build_premise_mask``
+    from the DAG: Hyp nodes plus var/type/predicate leaves). Falls back to a
+    node-type heuristic (var=0, type=1, predicate=2) when no cache exists.
+    Shared by the supervised pointer model and every actor-critic path
+    (``select_arguments``/``act``/``evaluate_actions``) so the sampled indices
+    the RL collect phase stores stay valid under the train-phase recompute.
+    """
+    if getattr(data, "premise_mask", None) is not None:
+        return data.premise_mask.to(device=device)
+    node_types = data.node_type.to(device=device)
+    return (node_types >= 0) & (node_types <= 2)
 
 
 class ArgumentSelector(nn.Module):
@@ -55,6 +65,98 @@ class ArgumentSelector(nn.Module):
         ``arg_logits``   — shape ``[B, max_nodes_in_batch]``, padded with -inf.
         ``selected_emb`` — shape ``[B, H]``, the embedding of the argmax node
                            (used as context for the next autoregressive step).
+        """
+        scores, padded_keys = self._score_nodes(
+            state_emb, tactic_emb, node_embeddings, premise_mask, batch_index, prev_arg_emb
+        )
+        batch_size = state_emb.size(0)
+        device = state_emb.device
+        with torch.no_grad():
+            selected_idx = scores.argmax(dim=1)  # [B]
+        selected_emb = padded_keys[torch.arange(batch_size, device=device), selected_idx]  # [B, H]
+        return scores, selected_emb
+
+    def sample_step(
+        self,
+        state_emb: Tensor,
+        tactic_emb: Tensor,
+        node_embeddings: Tensor,
+        premise_mask: Tensor,
+        batch_index: Tensor,
+        prev_arg_emb: Tensor | None = None,
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+        """Sampling variant for on-policy RL (B2).
+
+        Return ``(arg_logits, selected_idx, log_prob, selected_emb)`` where ``selected_idx``
+        is SAMPLED from ``softmax(arg_logits)`` (not argmax), ``log_prob`` is its log-prob
+        under the pointer policy (carries gradient — this is the argument policy gradient),
+        and ``selected_emb`` is the sampled node's embedding for the next autoregressive step.
+        """
+        scores, padded_keys = self._score_nodes(
+            state_emb, tactic_emb, node_embeddings, premise_mask, batch_index, prev_arg_emb
+        )
+        batch_size = state_emb.size(0)
+        device = state_emb.device
+
+        dist = torch.distributions.Categorical(logits=scores)
+        selected_idx = dist.sample()          # [B]
+        log_prob = dist.log_prob(selected_idx)  # [B] — differentiable w.r.t. pointer params
+        selected_emb = padded_keys[torch.arange(batch_size, device=device), selected_idx]  # [B, H]
+        return scores, selected_idx, log_prob, selected_emb
+
+    def forced_step(
+        self,
+        state_emb: Tensor,
+        tactic_emb: Tensor,
+        node_embeddings: Tensor,
+        premise_mask: Tensor,
+        batch_index: Tensor,
+        forced_idx: Tensor,        # [B] long; -1 = no argument at this step for that sample
+        prev_arg_emb: Tensor | None = None,
+    ) -> tuple[Tensor, Tensor]:
+        """Teacher-forced variant for the train-phase log-prob recompute.
+
+        The collect phase stores only the sampled argument indices (ints); the train
+        phase re-runs the pointer under the CURRENT parameters and evaluates
+        ``log π(forced_idx)`` at each step, feeding the stored index's embedding
+        forward autoregressively — so the gradient matches the action actually
+        executed, without holding the search-time autograd graph.
+
+        Return ``(log_prob, selected_emb)``. Rows with ``forced_idx == -1`` (that
+        sample has fewer arguments than this step) or an out-of-range/masked index
+        contribute log-prob 0 and a zero embedding.
+        """
+        scores, padded_keys = self._score_nodes(
+            state_emb, tactic_emb, node_embeddings, premise_mask, batch_index, prev_arg_emb
+        )
+        batch_size = state_emb.size(0)
+        device = state_emb.device
+        max_nodes = scores.size(1)
+
+        valid = (forced_idx >= 0) & (forced_idx < max_nodes)
+        safe_idx = forced_idx.clamp(min=0, max=max_nodes - 1)
+        log_probs = torch.log_softmax(scores, dim=1)
+        gathered = log_probs.gather(1, safe_idx.unsqueeze(1)).squeeze(1)  # [B]
+        # A stored index landing on a masked (-inf) position yields -inf/NaN; drop it too.
+        valid = valid & torch.isfinite(gathered)
+        log_prob = torch.where(valid, gathered, torch.zeros_like(gathered))
+
+        selected_emb = padded_keys[torch.arange(batch_size, device=device), safe_idx]  # [B, H]
+        selected_emb = selected_emb * valid.unsqueeze(1).to(selected_emb.dtype)
+        return log_prob, selected_emb
+
+    def _score_nodes(
+        self,
+        state_emb: Tensor,        # [B, H]
+        tactic_emb: Tensor,        # [B, H]
+        node_embeddings: Tensor,   # [total_nodes, H]
+        premise_mask: Tensor,      # [total_nodes]  bool
+        batch_index: Tensor,       # [total_nodes]
+        prev_arg_emb: Tensor | None,  # [B, H] or None
+    ) -> tuple[Tensor, Tensor]:
+        """Shared scoring core: return ``(scores [B, N_max], padded_keys [B, N_max, H])``.
+
+        Non-premise / padding positions in ``scores`` are set to -inf.
         """
         batch_size = state_emb.size(0)
         hidden_dim = state_emb.size(1)
@@ -98,13 +200,7 @@ class ArgumentSelector(nn.Module):
         # Mask out non-premise positions
         scores = scores.masked_fill(~padded_mask, float("-inf"))
 
-        # --- 4. Selected node embedding for autoregressive context ----
-        with torch.no_grad():
-            selected_idx = scores.argmax(dim=1)  # [B]
-
-        selected_emb = padded_keys[torch.arange(batch_size, device=device), selected_idx]  # [B, H]
-
-        return scores, selected_emb
+        return scores, padded_keys
 
 
 # ---------------------------------------------------------------------------
@@ -112,75 +208,36 @@ class ArgumentSelector(nn.Module):
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class TacticWithArgsConfig:
-    hidden_dim: int = 128
-    num_layers: int = 4
-    dropout: float = 0.2
-    max_args: int = 3
-    arg_loss_weight: float = 0.5
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "hidden_dim": self.hidden_dim,
-            "num_layers": self.num_layers,
-            "dropout": self.dropout,
-            "max_args": self.max_args,
-            "arg_loss_weight": self.arg_loss_weight,
-        }
-
-
 class TacticWithArgsClassifier(nn.Module):
     """Tactic family prediction + pointer-based argument selection.
 
-    The GNN backbone (``GraphSAGEStateClassifier``) is instantiated internally
-    and its ``encode_nodes`` / ``readout`` methods are reused.  The tactic
-    classification head is inherited from the backbone.  A new
-    ``ArgumentSelector`` pointer head is added on top.
+    The encoder is injected by the central model factory. The tactic classifier
+    and pointer head consume the encoder's stable representation contract.
     """
 
     def __init__(
         self,
         *,
-        num_node_labels: int,
+        encoder: StateGraphEncoder,
         num_tactics: int,
-        num_node_types: int = len(NODE_TYPE_TO_ID),
-        hidden_dim: int = 128,
-        num_layers: int = 4,
         dropout: float = 0.2,
-        use_node_type: bool = True,
         max_args: int = 3,
     ) -> None:
         super().__init__()
-
-        # Backbone — shared encoder + tactic head
-        self.backbone = GraphSAGEStateClassifier(
-            num_node_labels=num_node_labels,
-            num_tactics=num_tactics,
-            num_node_types=num_node_types,
-            hidden_dim=hidden_dim,
-            num_layers=num_layers,
-            dropout=dropout,
-            use_node_type=use_node_type,
-        )
-
-        # Tactic embedding (one learned vector per tactic family)
-        self.tactic_embedding = nn.Embedding(num_tactics, hidden_dim)
-
-        # Pointer head
-        self.argument_selector = ArgumentSelector(hidden_dim)
+        self.encoder = encoder
+        self.tactic_classifier = nn.Linear(encoder.output_dim, num_tactics)
+        self.tactic_dropout = nn.Dropout(dropout)
+        self.tactic_embedding = nn.Embedding(num_tactics, encoder.output_dim)
+        self.argument_selector = ArgumentSelector(encoder.output_dim)
 
         self.max_args = max_args
-        self.hidden_dim = hidden_dim
+        self.hidden_dim = encoder.output_dim
 
-    # ---- convenience accessors for the backbone ----
-    @property
-    def label_embedding(self) -> nn.Embedding:
-        return self.backbone.label_embedding
+    def encode_graph(self, data) -> EncoderOutput:
+        return self.encoder(data)
 
-    @property
-    def node_type_embedding(self) -> nn.Embedding | None:
-        return self.backbone.node_type_embedding
+    def predict_tactics(self, encoded: EncoderOutput) -> Tensor:
+        return self.tactic_classifier(self.tactic_dropout(encoded.state_embeddings))
 
     def forward(
         self,
@@ -211,15 +268,14 @@ class TacticWithArgsClassifier(nn.Module):
             Each has shape ``[B, max_nodes_in_batch]``.
         """
         # 1. Encode all nodes
-        node_embeddings = self.backbone.encode_nodes(data)  # [total_nodes, H]
+        encoded = self.encode_graph(data)
+        node_embeddings = encoded.node_embeddings  # [total_nodes, H]
 
         # 2. Readout the State node embedding per graph
-        state_emb = self.backbone.readout(node_embeddings, data)  # [B, H]
+        state_emb = encoded.state_embeddings  # [B, H]
 
         # 3. Tactic classification
-        tactic_logits = self.backbone.classifier(
-            self.backbone.dropout(state_emb)
-        )  # [B, num_tactics]
+        tactic_logits = self.predict_tactics(encoded)
 
         # 4. Determine which tactic embedding to use as query context
         if teacher_tactic_ids is not None:
@@ -240,12 +296,7 @@ class TacticWithArgsClassifier(nn.Module):
             return tactic_logits, []
 
         # Autoregressive argument selection using the cached premise mask
-        if hasattr(data, "premise_mask") and data.premise_mask is not None:
-            premise_mask = data.premise_mask.to(device=node_embeddings.device)
-        else:
-            # Fallback if no cached premise mask exists: only allow var (0), type (1), and predicate (2)
-            node_types = data.node_type.to(device=node_embeddings.device)
-            premise_mask = (node_types >= 0) & (node_types <= 2)
+        premise_mask = resolve_premise_mask(data, node_embeddings.device)
         batch_index = data.batch.to(device=node_embeddings.device)
 
         arg_logits_list: list[Tensor] = []
@@ -367,4 +418,3 @@ def compute_combined_loss(
         "arg_loss": float(arg_loss.item()),
         "total_loss": float(total_loss.item()),
     }
-

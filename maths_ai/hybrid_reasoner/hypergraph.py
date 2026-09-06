@@ -24,24 +24,52 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Deque, Dict, List, Optional, Protocol, Set, Tuple
+from enum import Enum
+from typing import Any, Deque, Dict, List, Optional, Protocol, Set, Tuple
 
 from maths_ai.data_models.proof_components import STV, Goal, TacticCandidate
 from maths_ai.data_models.proof_components import GoalState as GoalStateModel
-from pantograph import Server
-from pantograph.server import GoalState
+
+try:
+    from pantograph import Server
+    from pantograph.server import GoalState
+except ImportError:
+    Server = Any
+    GoalState = Any
 
 class NodeStatus:
     OPEN = "open"          # not yet expanded; eligible for the search frontier
     EXPANDED = "expanded"  # has ≥1 outgoing edge, outcome still undetermined
     SOLVED = "solved"      # ≥1 outgoing edge is fully solved (OR-success)
-    DEAD = "dead"          # exhausted candidates and every edge is dead (AND-failure)
+    DEAD = "dead"          # structurally closed; closure_reason determines learning evidence
+
+
+class NodeClosureReason(str, Enum):
+    """Why a node stopped being searchable."""
+
+    NONE = "none"
+    CANDIDATES_EXHAUSTED = "candidates_exhausted"
+    NO_CANDIDATES = "no_candidates"
+    DEPTH_LIMIT = "depth_limit"
+    CYCLE = "cycle"
+    ELABORATION_ERROR = "elaboration_error"
+    INFRASTRUCTURE_FAILURE = "infrastructure_failure"
+
+
+class SearchEndReason(str, Enum):
+    """Why the root search ended."""
+
+    ROOT_SOLVED = "root_solved"
+    ROOT_DEAD = "root_dead"
+    MAX_NODES = "max_nodes"
+    FRONTIER_EMPTY = "frontier_empty"
+    EXTERNAL_ABORT = "external_abort"
 
 
 class EdgeStatus:
     PENDING = "pending"  # children still open/expanded; outcome undetermined
     SOLVED = "solved"    # no children, or every child is SOLVED (AND-success)
-    DEAD = "dead"        # the tactic failed to apply, or some child is DEAD
+    DEAD = "dead"        # structurally blocked because some required child is DEAD
 
 
 def _state_key(goal: Goal) -> str:
@@ -52,7 +80,7 @@ def _state_key(goal: Goal) -> str:
     structurally-identical states with different concrete names are
     different proof obligations and must not collapse together.
     """
-    hyps = "||".join(sorted(h.strip() for h in goal.hypotheses))
+    hyps = "||".join(sorted(h.render().strip() for h in goal.hypotheses))
     return f"{goal.expression.strip()}::{hyps}"
 
 
@@ -69,6 +97,7 @@ class ProofNode:
     combined_rank: float = 0.0
     exhausted: bool = False
     note: Optional[str] = None
+    closure_reason: NodeClosureReason = NodeClosureReason.NONE
     """Free-text annotation for terminal states the graph can't infer on its
     own — e.g. why a node was force-marked dead (cycle, depth limit, no
     candidates) — useful for inspecting/visualizing a finished search."""
@@ -100,6 +129,7 @@ class ProofNode:
             "stv": None if self.stv is None else {"strength": self.stv.strength, "confidence": self.stv.confidence},
             "combined_rank": self.combined_rank,
             "note": self.note,
+            "closure_reason": self.closure_reason,
         }
 
 
@@ -191,6 +221,7 @@ class ProofHypergraph:
         self._next_edge_id = 0
         self.nodes: Dict[int, ProofNode] = {}
         self.edges: Dict[int, ProofHyperedge] = {}
+        self.search_end_reason: Optional[SearchEndReason] = None
 
         self.root_id = self._new_node(goal=root_goal, depth=0, gnn_probability=1.0, stv=None)
 
@@ -221,11 +252,15 @@ class ProofHypergraph:
         self,
         source_id: int,
         tactic: TacticCandidate,
-        ranked_subgoals: List[Tuple[Goal, STV]],
+        ranked_subgoals: List[Tuple[Goal, Optional[STV]]],
     ) -> ProofHyperedge:
         """Record a tactic application from ``source_id`` producing the given
-        ``(subgoal, stv)`` children (already scored by PLN and capped to the
-        chosen top-k — see ``HybridReasoner.rank_subgoals``).
+        ``(subgoal, stv)`` children. Every Lean-returned obligation must be
+        present; PLN scores affect expansion order but never remove children.
+
+        ``stv=None`` means the node is unscored (PLN disabled); ``local_score``
+        already handles ``None`` by treating it as 1.0, and ``potential()`` in
+        ``pln_reward`` already returns 0.0 for ``None`` — no behavior change.
 
         An empty ``ranked_subgoals`` list models the "no-goal" terminal state
         (the tactic fully discharges ``source_id``'s goal): the edge is
@@ -254,6 +289,7 @@ class ProofHypergraph:
                 child = self.nodes[child_id]
                 child.status = NodeStatus.DEAD
                 child.exhausted = True
+                child.closure_reason = NodeClosureReason.CYCLE
                 child.note = "cycle: identical to an ancestor goal"
             child_ids.append(child_id)
 
@@ -273,13 +309,49 @@ class ProofHypergraph:
             self.nodes[edge.source_id].note = note
         self._propagate(edge.source_id)
 
-    def mark_node_exhausted(self, node_id: int, *, note: Optional[str] = None) -> None:
+    def mark_node_exhausted(
+        self,
+        node_id: int,
+        *,
+        reason: NodeClosureReason,
+        note: Optional[str] = None,
+    ) -> None:
         """No more tactic candidates remain for ``node_id`` (top-k exhausted,
         depth limit reached, or the GNN returned no viable prediction).
         Lets ``_recompute_node`` decide DEAD vs. staying EXPANDED/SOLVED.
         """
+        if reason not in {
+            NodeClosureReason.CANDIDATES_EXHAUSTED,
+            NodeClosureReason.NO_CANDIDATES,
+            NodeClosureReason.DEPTH_LIMIT,
+            NodeClosureReason.CYCLE,
+        }:
+            raise ValueError(f"Invalid local exhaustion reason: {reason}")
         node = self.nodes[node_id]
         node.exhausted = True
+        node.closure_reason = reason
+        if note:
+            node.note = note
+        self._propagate(node_id)
+
+    def mark_node_unelaborated(self, node_id: int, *, note: Optional[str] = None) -> None:
+        """Close a node structurally while retaining unknown learning evidence."""
+        node = self.nodes[node_id]
+        if node.status != NodeStatus.SOLVED:
+            node.status = NodeStatus.DEAD
+        node.exhausted = True
+        node.closure_reason = NodeClosureReason.ELABORATION_ERROR
+        if note:
+            node.note = note
+        self._propagate(node_id)
+
+    def mark_node_infrastructure_failed(self, node_id: int, *, note: Optional[str] = None) -> None:
+        """Close a node after backend failure without creating numeric evidence."""
+        node = self.nodes[node_id]
+        if node.status != NodeStatus.SOLVED:
+            node.status = NodeStatus.DEAD
+        node.exhausted = True
+        node.closure_reason = NodeClosureReason.INFRASTRUCTURE_FAILURE
         if note:
             node.note = note
         self._propagate(node_id)
@@ -353,6 +425,7 @@ class ProofHypergraph:
             "root_id": self.root_id,
             "solved": self.is_solved(),
             "exhausted": self.is_exhausted(),
+            "search_end_reason": self.search_end_reason,
             "num_nodes": len(self.nodes),
             "num_edges": len(self.edges),
             "nodes": [node.summary() for node in self.nodes.values()],
