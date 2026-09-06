@@ -92,7 +92,7 @@ USER maths_ai
 WORKDIR /workspace
 
 # ---------- core ----------
-# Core service: always running, serves proof/inference requests
+# Core service: HTTP API server (FastAPI/uvicorn) serving /health, /prove, /gnn/predict_tactic, /pln/evaluate
 FROM base AS core
 
 # Copy application code
@@ -107,7 +107,7 @@ RUN chmod +x /entrypoint.sh && chmod +x /workspace/docker/commands/*.sh
 USER maths_ai
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["python", "-m", "maths_ai.hybrid_reasoner.joint_inference"]
+CMD ["python", "-m", "maths_ai.api"]
 
 # ---------- experimental ----------
 # Experimental service: sandbox for experiments/, on demand

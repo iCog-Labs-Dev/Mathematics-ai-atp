@@ -2,15 +2,18 @@
 #
 # Architecture:
 #   - asset-fetch: init service that downloads model+corpus from HF Hub once
-#   - core: batch joint-prover service
+#   - api: HTTP API server (FastAPI/uvicorn) serving /health, /prove, /gnn/predict_tactic, /pln/evaluate
+#   - core: batch joint-prover (profile: batch) for one-off CLI runs
 #   - experimental: on-demand sandbox for experiments/ (profile: experimental)
 #   - training: batch job service for training (profile: training)
 #
 # Usage:
-#   docker compose up                                   # asset-fetch, then run the core proof job
+#   docker compose up                                   # fetch assets, then start the API server
+#   docker compose up api                               # start only the API server
+#   curl http://localhost:8000/health                    # check API health
+#   curl -X POST http://localhost:8000/prove -H 'Content-Type: application/json' -d '{"goal": "..."}'
 #   docker compose --profile experimental up experimental
-#   docker compose run --rm training prepare-dataset ...
-#   docker compose run --rm training train --stages baseline,pointer
+#   docker compose --profile batch run --rm core --goal_statement '...'
 #
 # Volume layout:
 #   - models-corpus-cache: shared volume for model+corpus (read-only for core/experimental)
@@ -36,7 +39,38 @@ services:
     networks:
       - maths_ai_network
 
-  # Core service - batch joint prover
+  # API service - serves proof/inference requests over HTTP
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: core
+    container_name: maths_ai-api
+    depends_on:
+      asset-fetch:
+        condition: service_completed_successfully
+    ports:
+      - "${MATHS_AI_API_PORT:-8000}:8000"
+    volumes:
+      - models-corpus-cache:/data:ro
+    environment:
+      - MATHS_AI_DATA_ROOT=/data
+      - MATHS_AI_MODEL_CONFIG=/workspace/maths_ai/config/models/premise_gnn.yaml
+      - MATHS_AI_CORPUS_CONFIG=/workspace/maths_ai/config/corpus/lemma_corpus_v1.yaml
+      - MATHS_AI_LEAN_PROJECT=/opt/lean_project
+      - MATHS_AI_API_HOST=0.0.0.0
+      - MATHS_AI_API_PORT=8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - maths_ai_network
+
+  # Core service - batch joint prover (for one-off proof runs)
   core:
     build:
       context: .
@@ -53,6 +87,10 @@ services:
       - MATHS_AI_MODEL_CONFIG=/workspace/maths_ai/config/models/premise_gnn.yaml
       - MATHS_AI_CORPUS_CONFIG=/workspace/maths_ai/config/corpus/lemma_corpus_v1.yaml
       - MATHS_AI_LEAN_PROJECT=/opt/lean_project
+    # Override CMD to run batch prover instead of API
+    command: ["python", "-m", "maths_ai.hybrid_reasoner.joint_inference"]
+    profiles:
+      - batch
     networks:
       - maths_ai_network
 

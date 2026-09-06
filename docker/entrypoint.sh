@@ -4,7 +4,10 @@
 # This script:
 # 1. Checks if assets are pre-loaded in /data (from Docker build)
 # 2. If not, runs fetch_assets.py to download model and corpus from HuggingFace Hub
-# 3. Executes the command passed as arguments
+# 3. Executes the command passed as arguments (default: API server)
+#
+# Default CMD runs the HTTP API server (python -m maths_ai.api).
+# Override with --profile batch to run the batch prover instead.
 
 set -euo pipefail
 
@@ -48,7 +51,8 @@ fi
 
 if [ "$#" -eq 0 ]; then
     echo "ERROR: no command provided. Pass a command such as:" >&2
-    echo "  python -m maths_ai.hybrid_reasoner.joint_inference --goal_statement '...'" >&2
+    echo "  python -m maths_ai.api                                          # start the HTTP API server" >&2
+    echo "  python -m maths_ai.hybrid_reasoner.joint_inference --goal_statement '...'  # batch prover" >&2
     exit 2
 fi
 

@@ -16,6 +16,7 @@ The current implementation is research-oriented rather than a finished end-user 
 ## Repository structure
 
 - `maths_ai/` — core library for proof search, inference, data models, and utilities
+  - `api/` — FastAPI HTTP server exposing /health, /prove, /gnn/predict_tactic, /pln/evaluate
   - `core/` — shared configuration and runtime settings
   - `data/` — preprocessing and representation helpers
   - `data_models/` — proof-related data structures
@@ -78,6 +79,26 @@ uv add -r requirements.txt
 ```bash
 ./scripts/run_prover.sh --hypotheses "COMMA SEPARATED HYPOTHESESES" --goal_statement "GOAL EXPRESSION"
 ```
+
+### Running the API server
+
+```bash
+uv run python -m maths_ai.api
+curl http://localhost:8000/health
+curl -X POST http://localhost:8000/prove -H 'Content-Type: application/json' \
+  -d '{"goal": "∀ (n : Nat), n + 0 = n"}'
+```
+
+### Docker (API server)
+
+```bash
+docker compose up
+curl http://localhost:8000/health
+curl -X POST http://localhost:8000/prove -H 'Content-Type: application/json' \
+  -d '{"goal": "∀ (n : Nat), n + 0 = n"}'
+```
+
+See `docker-compose.yml` for all services and profiles.
 
 Most of the real research logic lives in the packages under `maths_ai/` and the experimental folders under `experiments/`.
 

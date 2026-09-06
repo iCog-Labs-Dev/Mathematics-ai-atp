@@ -1,6 +1,9 @@
 annotated-types
 faiss-cpu
+fastapi
 graphviz
+httpx
+uvicorn
 huggingface_hub
 iniconfig
 packaging

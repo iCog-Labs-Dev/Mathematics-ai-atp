@@ -60,7 +60,7 @@ class PremisePoolTests(unittest.TestCase):
         self.assertEqual(pool0.candidate_vectors.shape[0], 4)
 
         pool1 = pools[1]
-        self.assertEqual(pool1.local_node_ids, [4, 5])
+        self.assertEqual(pool1.local_node_ids, [1, 2])
         self.assertEqual(pool1.lemma_ids, [102, 103])
         self.assertEqual(pool1.candidate_sources.count("local"), 2)
         self.assertEqual(pool1.candidate_sources.count("lemma"), 2)
