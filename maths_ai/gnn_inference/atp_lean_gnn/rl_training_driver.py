@@ -13,6 +13,7 @@ Design decisions and alternatives are recorded in
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import random
 import re
@@ -35,6 +36,7 @@ from .dataset import DATASET_NAME, iter_dataset_rows
 from .pln_reward import RewardConfig
 from .pln_rl_training import make_dag_featurizer, train_step_onpolicy
 from .reporting import console_print
+from .rl_resources import ResourcePlan, plan_resources
 from .rl_reasoner import RLHybridReasoner, RLSearchResult
 from .state import parse_state
 from .training import load_prepared_metadata
@@ -116,6 +118,20 @@ class RLTrainingConfig:
     run_root: Path = Path("runs/rl_actor_critic")
     device: str = "auto"
 
+    # Live collection resources. Replicas are read-only until the round update
+    # completes, preserving the on-policy boundary.
+    resource_policy: str = "auto"
+    collection_workers: int = 1
+    pantograph_server_pool_size: int = 1
+    collection_devices: list[str] | None = None
+    update_device: str | None = None
+    cpu_reserve: int = 2
+    gpu_strategy: str = "replicated_inference"
+    resource_check: str = "strict"
+    worker_queue_size: int = 0
+    server_start_timeout_s: float = 120.0
+    worker_shutdown_timeout_s: float = 10.0
+
     # Lean environment the Pantograph server runs in. `source_root` is the Lake
     # project whose compiled artifacts the REPL should see; leaving it None starts a
     # core-Lean server that cannot elaborate Mathlib notation such as `ℕ` or `⌊…⌋₊`.
@@ -150,6 +166,28 @@ class RLTrainingConfig:
                 continue
             out[key] = str(value) if isinstance(value, Path) else value
         return out
+
+    def resource_plan(self) -> ResourcePlan:
+        """Resolve and validate the effective live-collection topology."""
+        update_device = self.update_device or self.device
+        if update_device == "auto":
+            update_device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        if self.gpu_strategy != "replicated_inference":
+            raise ValueError(
+                "Only gpu_strategy='replicated_inference' is implemented; DDP is separate."
+            )
+        collection_devices = self.collection_devices
+        if collection_devices is None and self.resource_policy == "auto" and torch.cuda.is_available():
+            collection_devices = [f"cuda:{index}" for index in range(torch.cuda.device_count())]
+        return plan_resources(
+            collection_workers=self.collection_workers,
+            server_pool_size=self.pantograph_server_pool_size,
+            collection_devices=collection_devices,
+            update_device=update_device,
+            resource_policy=self.resource_policy,
+            cpu_reserve=self.cpu_reserve,
+            resource_check=self.resource_check,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -350,19 +388,218 @@ def bc_weight_at_round(round_idx: int, cfg: RLTrainingConfig) -> float:
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class _LiveReasonerWorker:
+    """One isolated Pantograph subprocess and reasoner used by collection."""
+
+    worker_id: int
+    device: torch.device
+    reasoner: RLHybridReasoner
+    server: Any
+
+
+class LiveReasonerPool:
+    """Bounded collection workers with one reasoner/server per worker."""
+
+    def __init__(self, workers: list[_LiveReasonerWorker], plan: ResourcePlan, queue_size: int = 0):
+        self.workers = workers
+        self.plan = plan
+        self.queue_size = max(int(queue_size), 0)
+
+    @property
+    def primary(self) -> RLHybridReasoner:
+        return self.workers[0].reasoner
+
+    @classmethod
+    async def create(
+        cls,
+        *,
+        model: ActorCriticWithArgsClassifier,
+        node_vocab: dict[str, int],
+        tactic_vocab: dict[str, int],
+        cfg: RLTrainingConfig,
+        env: PantographEnv,
+        plan: ResourcePlan,
+    ) -> "LiveReasonerPool":
+        """Start all servers and construct isolated reasoners."""
+        from maths_ai.hybrid_reasoner.joint_inference import PantographExecutor
+
+        replicas: dict[str, ActorCriticWithArgsClassifier] = {}
+        workers: list[_LiveReasonerWorker] = []
+        async def start_server():
+            return await asyncio.wait_for(
+                create_model_sexpr_server(env),
+                timeout=cfg.server_start_timeout_s,
+            )
+
+        server_results = await asyncio.gather(
+            *(start_server() for _ in range(plan.worker_count)),
+            return_exceptions=True,
+        )
+        errors = [result for result in server_results if isinstance(result, BaseException)]
+        started = [result for result in server_results if not isinstance(result, BaseException)]
+        if errors:
+            for server in started:
+                server._close()
+            raise RuntimeError(
+                f"Pantograph worker startup failed ({len(errors)}/{plan.worker_count}); "
+                f"first error: {errors[0]}"
+            ) from errors[0]
+        try:
+            for worker_id, server in enumerate(started):
+                device = plan.collection_devices[worker_id % len(plan.collection_devices)]
+                key = str(device)
+                replica = replicas.get(key)
+                if replica is None:
+                    replica = model if device == plan.update_device else copy.deepcopy(model).to(device)
+                    replica.eval()
+                    replicas[key] = replica
+                reasoner = RLHybridReasoner(
+                    model=replica,
+                    node_vocab=node_vocab,
+                    tactic_vocab=tactic_vocab,
+                    executor=PantographExecutor(server),
+                    device=device,
+                    top_k_tactics=cfg.top_k_tactics,
+                    max_depth=cfg.max_depth,
+                    max_nodes=cfg.max_nodes,
+                    use_pln=cfg.use_pln,
+                    env=env,
+                )
+                workers.append(_LiveReasonerWorker(worker_id, device, reasoner, server))
+        except BaseException:
+            for server in started:
+                server._close()
+            raise
+        return cls(workers, plan, cfg.worker_queue_size)
+
+    async def close(self, timeout_s: float) -> None:
+        """Close every server without allowing one broken process to hang shutdown."""
+        async def close_one(server: Any) -> None:
+            try:
+                server._close()
+            except Exception:
+                return
+
+        await asyncio.wait_for(
+            asyncio.gather(*(close_one(worker.server) for worker in self.workers)),
+            timeout=timeout_s,
+        )
+
+    def synchronize(self, model: ActorCriticWithArgsClassifier) -> float:
+        """Copy the updated canonical model to every distinct collection device."""
+        start = time.perf_counter()
+        state = model.state_dict()
+        seen: set[int] = set()
+        for worker in self.workers:
+            replica = worker.reasoner.model
+            if id(replica) in seen:
+                continue
+            seen.add(id(replica))
+            if replica is not model:
+                replica.load_state_dict(state)
+                replica.to(worker.device)
+                replica.eval()
+        return time.perf_counter() - start
+
+    async def collect_round(
+        self,
+        batch: list[TheoremItem],
+        *,
+        timeout_s: float,
+        greedy: bool = False,
+    ) -> tuple[list[RLSearchResult], dict[str, float]]:
+        """Collect a batch concurrently and return results in input order."""
+        started_at = time.perf_counter()
+        queue: asyncio.Queue[tuple[int, TheoremItem] | None] = asyncio.Queue(
+            maxsize=self.plan.worker_count + self.queue_size
+        )
+        records: list[tuple[int, RLSearchResult]] = []
+        solved = 0
+        failed = 0
+        per_worker: dict[int, int] = {worker.worker_id: 0 for worker in self.workers}
+        per_worker_failures: dict[int, int] = {worker.worker_id: 0 for worker in self.workers}
+
+        async def run_worker(worker: _LiveReasonerWorker) -> None:
+            nonlocal solved, failed
+            while True:
+                item = await queue.get()
+                if item is None:
+                    queue.task_done()
+                    return
+                index, theorem = item
+                per_worker[worker.worker_id] += 1
+                try:
+                    result = await asyncio.wait_for(
+                        worker.reasoner.prove(
+                            theorem.goal.expression,
+                            hypotheses=theorem.goal.hypotheses,
+                            greedy=greedy,
+                        ),
+                        timeout=timeout_s,
+                    )
+                    records.append((index, result))
+                    if result.graph.is_solved():
+                        solved += 1
+                except asyncio.TimeoutError:
+                    failed += 1
+                    per_worker_failures[worker.worker_id] += 1
+                    console_print(
+                        f"  [collect worker={worker.worker_id}] timeout on: "
+                        f"{theorem.goal.expression[:60]}"
+                    )
+                except Exception as exc:  # noqa: BLE001 — isolate one theorem failure
+                    failed += 1
+                    per_worker_failures[worker.worker_id] += 1
+                    console_print(
+                        f"  [collect worker={worker.worker_id}] error on: "
+                        f"{theorem.goal.expression[:60]} — {exc}"
+                    )
+                finally:
+                    queue.task_done()
+
+        tasks = [asyncio.create_task(run_worker(worker)) for worker in self.workers]
+        for index, theorem in enumerate(batch):
+            await queue.put((index, theorem))
+        for _ in tasks:
+            await queue.put(None)
+        await queue.join()
+        await asyncio.gather(*tasks)
+        records.sort(key=lambda pair: pair[0])
+        stats = {
+            "attempted": float(len(batch)),
+            "collected": float(len(records)),
+            "solved": float(solved),
+            "searches_failed": float(failed),
+            "worker_count": float(self.plan.worker_count),
+            "server_count": float(len(self.workers)),
+            "collection_wall_clock_s": time.perf_counter() - started_at,
+        }
+        for device in self.plan.collection_devices:
+            if device.type == "cuda":
+                index = device.index or 0
+                stats[f"cuda_{index}_allocated_bytes"] = float(torch.cuda.memory_allocated(device))
+                stats[f"cuda_{index}_reserved_bytes"] = float(torch.cuda.memory_reserved(device))
+        for worker_id, count in per_worker.items():
+            stats[f"worker_{worker_id}_attempted"] = float(count)
+            stats[f"worker_{worker_id}_failed"] = float(per_worker_failures[worker_id])
+        return [result for _, result in records], stats
+
 async def collect_round(
     reasoner: RLHybridReasoner,
     batch: list[TheoremItem],
     *,
     timeout_s: float,
     greedy: bool = False,
+    reasoner_pool: LiveReasonerPool | None = None,
 ) -> tuple[list[RLSearchResult], dict[str, float]]:
-    """Sequential collect with per-theorem fault isolation.
+    """Collect with per-theorem fault isolation.
 
-    A theorem whose search raises or times out contributes no result; the round
-    trains on the survivors. Sequential because one reasoner holds one action
-    stash at a time (refinement 6).
+    A pool uses isolated reasoners and Pantograph servers concurrently. The
+    single-reasoner path remains available for tests and small runs.
     """
+    if reasoner_pool is not None:
+        return await reasoner_pool.collect_round(batch, timeout_s=timeout_s, greedy=greedy)
     results: list[RLSearchResult] = []
     solved = 0
     failed = 0
@@ -440,6 +677,7 @@ async def evaluate_proof_rate(
     eval_items: list[TheoremItem],
     *,
     timeout_s: float = 60.0,
+    reasoner_pool: LiveReasonerPool | None = None,
 ) -> dict[str, float]:
     """Greedy proof rate on the fixed held-out pool — the model-selection metric.
 
@@ -452,7 +690,11 @@ async def evaluate_proof_rate(
     reasoner.model.eval()
     try:
         _results, stats = await collect_round(
-            reasoner, eval_items, timeout_s=timeout_s, greedy=True
+            reasoner,
+            eval_items,
+            timeout_s=timeout_s,
+            greedy=True,
+            reasoner_pool=reasoner_pool,
         )
     finally:
         if was_training:
@@ -525,7 +767,9 @@ async def run_rl_training(
     and ``pool`` are injectable for tests (a mock executor and a synthetic pool);
     both default to the live Pantograph path and the configured data source.
     """
-    device = _resolve_device(cfg.device)
+    resource_plan = cfg.resource_plan()
+    device = resource_plan.update_device
+    console_print(f"RL resources: {resource_plan.describe()}")
     metadata = load_prepared_metadata(cfg.prepared_root)
     require_graph_representation(metadata.graph_representation)
     node_vocab, tactic_vocab = metadata.node_vocab, metadata.tactic_vocab
@@ -586,18 +830,20 @@ async def run_rl_training(
     torch.manual_seed(cfg.seed)
 
     # Reasoner (live Pantograph unless a factory is injected).
+    live_reasoner_pool: LiveReasonerPool | None = None
     if reasoner_factory is None:
         env = pantograph_env(cfg)
         env.verify()
         console_print(f"Pantograph environment: {env.describe()}")
-        reasoner = await _create_live_reasoner(
+        live_reasoner_pool = await LiveReasonerPool.create(
             model=model,
             node_vocab=node_vocab,
             tactic_vocab=tactic_vocab,
             cfg=cfg,
-            device=device,
             env=env,
+            plan=resource_plan,
         )
+        reasoner = live_reasoner_pool.primary
     else:
         reasoner = reasoner_factory(model, node_vocab, tactic_vocab, cfg)
 
@@ -630,7 +876,10 @@ async def run_rl_training(
             break
 
         results, collect_stats = await collect_round(
-            reasoner, batch, timeout_s=cfg.theorem_timeout_s
+            reasoner,
+            batch,
+            timeout_s=cfg.theorem_timeout_s,
+            reasoner_pool=live_reasoner_pool,
         )
 
         # Indexed by optimizer steps taken, not loop iterations: a dead round leaves
@@ -653,6 +902,8 @@ async def run_rl_training(
                 max_update_nodes=cfg.max_update_nodes,
                 max_update_edges=cfg.max_update_edges,
             )
+            if live_reasoner_pool is not None:
+                collect_stats["replica_sync_s"] = live_reasoner_pool.synchronize(model)
         else:
             metrics = {
                 "num_transitions": 0.0,
@@ -730,7 +981,10 @@ async def run_rl_training(
 
         if cfg.eval_every > 0 and (round_idx + 1) % cfg.eval_every == 0 and pool.eval_items:
             eval_stats = await evaluate_proof_rate(
-                reasoner, pool.eval_items, timeout_s=cfg.theorem_timeout_s
+                reasoner,
+                pool.eval_items,
+                timeout_s=cfg.theorem_timeout_s,
+                reasoner_pool=live_reasoner_pool,
             )
             console_print(f"  Eval: proof rate {eval_stats['proof_rate']:.3f}")
             with open(metrics_path, "a") as f:
@@ -752,6 +1006,11 @@ async def run_rl_training(
         node_vocab=node_vocab, tactic_vocab=tactic_vocab,
         graph_representation=metadata.graph_representation,
     )
+    if live_reasoner_pool is not None:
+        try:
+            await live_reasoner_pool.close(cfg.worker_shutdown_timeout_s)
+        except asyncio.TimeoutError:
+            console_print("Warning: timed out while closing Pantograph worker servers.")
     return last_metrics
 
 

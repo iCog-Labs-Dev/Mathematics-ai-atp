@@ -607,3 +607,43 @@ uv run python -m maths_ai.gnn_inference.scripts.rl_smoke \
   --source-root /abs/path/to/mathlib-lake-project \
   --pantograph-repl /abs/path/to/Pantograph/.lake/build/bin/repl
 ```
+
+## 13. Hardware-aware live collection
+
+The RL driver can run independent theorem searches concurrently. Each collection
+worker owns one `RLHybridReasoner` and one Pantograph subprocess because both hold
+state that cannot be shared between simultaneous searches. Collection completes for
+the round before the existing single optimizer step runs, so all workers use one
+on-policy model snapshot.
+
+The default `rl_actor_critic.json` configuration uses four workers, four Pantograph
+servers, and read-only actor replicas on `cuda:0` and `cuda:1`. The canonical model
+and optimizer remain on the configured update device. After an optimizer step, the
+updated parameters are copied to every collection replica before the next round.
+
+The relevant fields are:
+
+```json
+{
+  "collection_workers": 4,
+  "pantograph_server_pool_size": 4,
+  "collection_devices": ["cuda:0", "cuda:1"],
+  "update_device": null,
+  "cpu_reserve": 2,
+  "resource_check": "warn",
+  "gpu_strategy": "replicated_inference"
+}
+```
+
+`update_device: null` follows the existing `device` setting. On a CUDA host,
+`device: "auto"` selects `cuda:0`; on a CPU-only host, the collection device list is
+reduced to CPU when `resource_check` is `warn`. Use `resource_check: "strict"` to
+fail immediately when the requested worker or device topology is unavailable.
+
+The driver logs the effective CPU, worker, server, and GPU topology before starting
+the theorem pool. Per-round metrics include collection wall-clock time, worker
+attempt/failure counts, and replica synchronization time. Increase the worker count
+only after checking Lean process memory, theorem timeout rate, and collection time.
+
+The current implementation does not enable distributed gradient training. A separate
+DDP launcher is required before both GPUs can participate in one gradient reduction.
