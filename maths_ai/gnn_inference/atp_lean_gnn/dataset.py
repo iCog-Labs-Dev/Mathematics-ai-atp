@@ -33,6 +33,10 @@ class DatasetRow:
     split: str
     row_index: int
     dataset_name: str = DATASET_NAME
+    target_state: str = ""
+    repo_url: str = ""
+    repo_commit: str = ""
+    file_path: str = ""
 
     def metadata(self) -> dict[str, object]:
         return {
@@ -42,7 +46,33 @@ class DatasetRow:
             "row_index": self.row_index,
             "theorem": self.theorem,
             "tactic": self.tactic,
+            "target_state": self.target_state,
+            "url": self.repo_url,
+            "commit": self.repo_commit,
+            "file_path": self.file_path,
         }
+
+
+def _dataset_row_from_sample(
+    sample: dict[str, object],
+    *,
+    split: str,
+    row_index: int,
+    dataset_name: str,
+) -> DatasetRow:
+    """Preserve the source coordinates required for exact Lean replay."""
+    return DatasetRow(
+        state=str(sample["state"]),
+        theorem=str(sample.get("full_name", "")),
+        tactic=str(sample.get("tactic", "")),
+        target_state=str(sample.get("target_state", "")),
+        repo_url=str(sample.get("url", "")),
+        repo_commit=str(sample.get("commit", "")),
+        file_path=str(sample.get("file_path", "")),
+        split=split,
+        row_index=row_index,
+        dataset_name=dataset_name,
+    )
 
 
 def canonicalize_split_name(split: str) -> str:
@@ -86,10 +116,8 @@ def load_dataset_row(
     ds = _load_hf_split(canonical_split, dataset_name=dataset_name)
     for index, sample in enumerate(ds):
         if index == row_index:
-            return DatasetRow(
-                state=sample["state"],
-                theorem=sample.get("full_name", ""),
-                tactic=sample.get("tactic", ""),
+            return _dataset_row_from_sample(
+                sample,
                 split=canonical_split,
                 row_index=index,
                 dataset_name=dataset_name,
@@ -120,10 +148,8 @@ def stream_split(
     for index, sample in enumerate(ds):
         if limit is not None and index >= limit:
             return
-        yield DatasetRow(
-            state=sample["state"],
-            theorem=sample.get("full_name", ""),
-            tactic=sample.get("tactic", ""),
+        yield _dataset_row_from_sample(
+            sample,
             split=canonical_split,
             row_index=index,
             dataset_name=dataset_name,

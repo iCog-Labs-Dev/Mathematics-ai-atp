@@ -10,7 +10,7 @@ import torch
 from maths_ai.gnn_inference.atp_lean_gnn import (
     BaselineConfig,
     DatasetRow,
-    GraphSAGEClassifierConfig,
+    ModelSpec,
     PreparedGraphDataset,
     TrainingLoopConfig,
     build_dataloaders,
@@ -26,6 +26,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.cache import SplitReport, prepare_outpu
 from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
 from maths_ai.gnn_inference.atp_lean_gnn.pyg import build_vocab_from_labels, dag_to_pyg
 from maths_ai.gnn_inference.atp_lean_gnn.training import build_baseline_model
+from maths_ai.gnn_inference.scripts.pack_prepared_dataset import pack_prepared_dataset
 
 
 class TrainingPipelineTests(unittest.TestCase):
@@ -155,8 +156,14 @@ class TrainingPipelineTests(unittest.TestCase):
             seed=7,
             device="cpu",
             edge_mode="bidirectional",
-            use_node_type=True,
-            model=GraphSAGEClassifierConfig(hidden_dim=16, num_layers=2, dropout=0.1),
+            model=ModelSpec.from_dict({
+                "architecture": "graphsage",
+                "hidden_dim": 16,
+                "dropout": 0.1,
+                "encoder": {"num_layers": 2},
+                "use_node_type": True,
+                "max_args": 3,
+            }),
             training=TrainingLoopConfig(
                 batch_size=2,
                 epochs=1,
@@ -189,6 +196,46 @@ class TrainingPipelineTests(unittest.TestCase):
         )
         self.assertNotIn(int(sample.state_node_index.item()), source_nodes)
 
+    def test_preparation_writes_graph_size_sidecars_for_budget_sampling(self) -> None:
+        metadata = load_prepared_metadata(self.prepared_root)
+        dataset = PreparedGraphDataset(metadata, split="train", edge_mode="forward")
+        sizes = dataset.graph_sizes()
+        bidirectional_sizes = PreparedGraphDataset(
+            metadata,
+            split="train",
+            edge_mode="bidirectional",
+        ).graph_sizes()
+
+        self.assertEqual(len(sizes), len(dataset))
+        self.assertTrue(all(size.nodes > 0 and size.edges >= 0 for size in sizes))
+        self.assertTrue(
+            all(
+                bidirectional.edges >= forward.edges
+                for forward, bidirectional in zip(sizes, bidirectional_sizes)
+            )
+        )
+        for path in dataset.files:
+            self.assertTrue(path.with_suffix(".size.json").exists())
+
+        budgeted = BaselineConfig(
+            prepared_root=self.prepared_root,
+            run_root=self.run_root,
+            device="cpu",
+            model=self._tiny_config().model,
+            training=TrainingLoopConfig(
+                batch_size=2,
+                epochs=1,
+                num_workers=0,
+                pin_memory=False,
+                persistent_workers=False,
+                max_batch_nodes=max(size.nodes for size in sizes),
+                max_batch_edges=max(size.edges for size in bidirectional_sizes),
+                use_amp=False,
+            ),
+        ).normalized()
+        _, loaders = build_dataloaders(metadata, budgeted)
+        self.assertEqual(len(list(loaders["train"])), len(dataset))
+
     def test_bidirectional_transform_preserves_nodes_and_adds_reverse_edges(self) -> None:
         metadata = load_prepared_metadata(self.prepared_root)
         forward_sample = PreparedGraphDataset(metadata, split="train", edge_mode="forward")[0]
@@ -208,6 +255,72 @@ class TrainingPipelineTests(unittest.TestCase):
             int(bidirectional_sample.edge_index.shape[1]),
             int(forward_sample.edge_index.shape[1]),
         )
+
+    def test_graph_budgeting_scans_pt_files_when_sidecars_are_missing(self) -> None:
+        for path in (self.prepared_root / "train" / "pyg").glob("*.size.json"):
+            path.unlink()
+        metadata = load_prepared_metadata(self.prepared_root)
+        dataset = PreparedGraphDataset(metadata, split="train", edge_mode="bidirectional")
+        sizes = dataset.graph_sizes()
+
+        self.assertEqual(dataset.graph_size_source, "pt_scan")
+        self.assertEqual(len(sizes), len(dataset))
+        self.assertTrue(all(size.nodes > 0 and size.edges >= 0 for size in sizes))
+
+        config = BaselineConfig(
+            prepared_root=self.prepared_root,
+            run_root=self.run_root,
+            device="cpu",
+            model=self._tiny_config().model,
+            training=TrainingLoopConfig(
+                batch_size=2,
+                epochs=1,
+                num_workers=0,
+                pin_memory=False,
+                persistent_workers=False,
+                max_batch_nodes=max(size.nodes for size in sizes),
+                max_batch_edges=max(size.edges for size in sizes),
+                use_amp=False,
+            ),
+        ).normalized()
+        _, loaders = build_dataloaders(metadata, config)
+        self.assertEqual(loaders["train"].batch_sampler.oversize_indices, [])
+        self.assertEqual(len(list(loaders["train"])), len(dataset))
+
+    def test_graph_budgeting_uses_packed_cache_without_sidecars(self) -> None:
+        pack_prepared_dataset(
+            self.prepared_root,
+            edge_mode="bidirectional",
+            chunk_size=1,
+            io_threads=0,
+            force=True,
+        )
+        for path in (self.prepared_root / "train" / "pyg").glob("*.size.json"):
+            path.unlink()
+
+        metadata = load_prepared_metadata(self.prepared_root)
+        config = BaselineConfig(
+            prepared_root=self.prepared_root,
+            run_root=self.run_root,
+            device="cpu",
+            model=self._tiny_config().model,
+            training=TrainingLoopConfig(
+                batch_size=2,
+                epochs=1,
+                num_workers=0,
+                pin_memory=False,
+                persistent_workers=False,
+                cache_in_memory=True,
+                max_batch_nodes=100,
+                max_batch_edges=100,
+                use_amp=False,
+            ),
+        ).normalized()
+        datasets, loaders = build_dataloaders(metadata, config)
+
+        self.assertTrue(datasets["train"].packed_cache_loaded)
+        self.assertEqual(datasets["train"].graph_size_source, "packed_cache")
+        self.assertGreater(len(list(loaders["train"])), 0)
 
     def test_model_forward_returns_batch_logits(self) -> None:
         metadata = load_prepared_metadata(self.prepared_root)
@@ -271,8 +384,14 @@ class TrainingPipelineTests(unittest.TestCase):
             seed=7,
             device="cpu",
             edge_mode="bidirectional",
-            use_node_type=True,
-            model=GraphSAGEClassifierConfig(hidden_dim=16, num_layers=2, dropout=0.1),
+            model=ModelSpec.from_dict({
+                "architecture": "graphsage",
+                "hidden_dim": 16,
+                "dropout": 0.1,
+                "encoder": {"num_layers": 2},
+                "use_node_type": True,
+                "max_args": 3,
+            }),
             training=TrainingLoopConfig(
                 batch_size=2,
                 epochs=2,

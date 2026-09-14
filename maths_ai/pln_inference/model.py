@@ -9,6 +9,8 @@ a directory of ``.metta``/``.log`` files.
 
 from __future__ import annotations
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import os
 import random
 import shutil
@@ -72,6 +74,7 @@ class PLNInference:
         fallback_high: float = 1.0,
         random_seed: Optional[int] = None,
         normalize_variables: bool = False,
+        max_concurrency: int = 8,
     ) -> None:
         self.petta_bin = petta_bin or os.environ.get("PETTA_BIN") or shutil.which("petta")
         self.axioms_path = Path(axioms_path) if axioms_path else _DEFAULT_AXIOMS_FILE
@@ -84,10 +87,52 @@ class PLNInference:
         self.fallback_high = fallback_high
         self._rng = random.Random(random_seed)
         self._normalizer = VariableNormalizer(normalize=normalize_variables)
+        # The bounded executor is created per active wave of evaluations and shut down
+        # when the final queued evaluation completes.
+        self._max_concurrency = max_concurrency
+        self._executor: ThreadPoolExecutor | None = None
+        self._active_evaluations = 0
 
-     
     # Public API
-     
+
+    async def evaluate_async(
+        self,
+        expression: str,
+        hypotheses: Optional[Sequence[str]] = None,
+        *,
+        loop: Optional[asyncio.AbstractEventLoop] = None,
+    ) -> PLNResult:
+        """Non-blocking ``evaluate``: run the blocking subprocess in a bounded thread pool.
+
+        ``evaluate`` calls ``subprocess.run`` (up to ``timeout`` seconds), which does not
+        yield and would freeze the event loop — stalling every other concurrent proof
+        search. ``subprocess.run`` releases the GIL while waiting on the ``petta`` process,
+        so a thread executor gives genuine concurrency here. The pool is bounded by
+        ``max_concurrency`` so many searches cannot spawn unbounded ``petta`` processes.
+        """
+        running_loop = asyncio.get_running_loop()
+        if loop is not None and loop is not running_loop:
+            raise ValueError("evaluate_async received an event loop that is not running here.")
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(max_workers=self._max_concurrency)
+        hyps = list(hypotheses) if hypotheses is not None else None
+        future = self._executor.submit(self.evaluate, expression, hyps)
+        self._active_evaluations += 1
+        try:
+            # Polling keeps the event loop responsive and avoids depending on executor
+            # callback wakeups, which are unavailable in some sandboxed runtimes.
+            while not future.done():
+                await asyncio.sleep(0.005)
+            return future.result()
+        except asyncio.CancelledError:
+            future.cancel()
+            raise
+        finally:
+            self._active_evaluations -= 1
+            if self._active_evaluations == 0 and self._executor is not None:
+                self._executor.shutdown(wait=True, cancel_futures=True)
+                self._executor = None
+
     def evaluate(self, expression: str, hypotheses: Optional[Sequence[str]] = None) -> PLNResult:
         """Score ``expression``'s provability given ``hypotheses``.
 

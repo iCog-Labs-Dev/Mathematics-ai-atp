@@ -17,3 +17,10 @@ runs/
 PeTTa/
 PeTTaChainer/
 
+.aider*
+
+
+.lake/
+
+.claude/.venv-stale/
+.venv-stale/

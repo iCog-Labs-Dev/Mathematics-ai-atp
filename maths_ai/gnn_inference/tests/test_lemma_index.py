@@ -21,16 +21,25 @@ class TestLemmaIndex(unittest.TestCase):
             index_path = index_dir / "faiss.index"
             vectors_path = index_dir / "lemma_vectors.npy"
             ids_path = index_dir / "lemma_ids.json"
+            names_path = index_dir / "lemma_names.json"
+            manifest_path = index_dir / "manifest.json"
 
             index = faiss.IndexFlatL2(dim)
             index.add(vectors)
             faiss.write_index(index, str(index_path))
             np.save(vectors_path, vectors)
             ids_path.write_text(json.dumps([7, 11]), encoding="utf-8")
+            names_path.write_text(json.dumps(["Foo.seven", "Foo.eleven"]), encoding="utf-8")
+            manifest_path.write_text(
+                json.dumps({"encoder_fingerprint": "test-encoder"}),
+                encoding="utf-8",
+            )
 
             loaded = LemmaIndex.load(index_path)
 
             self.assertEqual(loaded.lemma_ids, [7, 11])
+            self.assertEqual(loaded.lemma_names, ["Foo.seven", "Foo.eleven"])
+            self.assertEqual(loaded.encoder_fingerprint, "test-encoder")
             self.assertTrue(np.array_equal(loaded.lemma_vectors, vectors))
             self.assertEqual(loaded.index.ntotal, 2)
 

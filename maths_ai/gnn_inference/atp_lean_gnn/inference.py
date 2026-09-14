@@ -8,19 +8,39 @@ tactic string.
 from __future__ import annotations
 
 import re
-import torch
-from torch_geometric.data import Batch
 
-from .argument_selector import TacticWithArgsClassifier
-from .graph import DAGBuilder, GraphNode, proof_state_to_dag
+from .graph import DAGBuilder, GraphNode, proof_state_to_dag, goal_state_to_proof_state
 from .labels import get_tactic_arity
 from .lemma_corpus import LemmaRecord
-from .lemma_index import LemmaIndex
-from .premise_pool import build_unified_pools
-from .premise_scoring import PremiseScorer
-from .pyg import build_premise_mask, dag_to_pyg
 from .state import ProofState, parse_state
-from .training import transform_edge_index
+
+try:
+    import torch
+    from torch_geometric.data import Batch
+    from .argument_selector import TacticWithArgsClassifier
+    from .actor_critic import ActorCriticWithArgsClassifier
+    from .lemma_index import LemmaIndex
+    from .premise_pool import build_unified_pools
+    from .premise_scoring import PremiseScorer
+    from .pyg import build_premise_mask, dag_to_pyg
+    from .training import transform_edge_index
+except ImportError:
+    class _DummyTorch:
+        @staticmethod
+        def no_grad():
+            def decorator(fn):
+                return fn
+            return decorator
+    torch = _DummyTorch()
+    Batch = None
+    TacticWithArgsClassifier = None
+    ActorCriticWithArgsClassifier = None
+    LemmaIndex = None
+    build_unified_pools = None
+    PremiseScorer = None
+    build_premise_mask = None
+    dag_to_pyg = None
+    transform_edge_index = None
 
 # ── Tactic-aware argument filtering rules ──────────────────────────────────
 # Fresh name only: generate a new identifier, reject all candidates
@@ -34,19 +54,35 @@ _NO_ARGS_TACTICS = frozenset({"constructor", "assumption", "trivial", "omega", "
 
 def _resolve_local_node_name(node: GraphNode, dag: DAGBuilder) -> str:
     """Attempt to extract a readable hypothesis or variable name from a node."""
-    if node.label == "Hyp" and node.children:
+    if node.label in ("Hyp", "Let") and node.children:
+        # If 4-child Hyp(FV{i}, name, HypRole:role, type): child 1 is the name node
+        if len(node.children) >= 2 and dag.nodes[node.children[0]].label.startswith("FV"):
+            name_node = dag.nodes[node.children[1]]
+            return name_node.label
         name_node = dag.nodes[node.children[0]]
         return name_node.label
+
+    # If an FV{i} node was selected directly, look up the Hyp parent's name child
+    if node.label.startswith("FV") and node.label[2:].isdigit():
+        for n in dag.nodes:
+            if n.label in ("Hyp", "Let") and len(n.children) >= 2 and n.children[0] == node.id:
+                return dag.nodes[n.children[1]].label
+
     return node.label
 
 
 def _extract_fresh_names_from_dag(dag: DAGBuilder) -> list[str]:
-    """Walk the DAG and collect fresh variable names from ∀-bound leaf nodes."""
+    """Walk the DAG and collect fresh variable names from ∀-bound leaf nodes.
+
+    Only returns variables at binder_depth == 1 (the outermost forall),
+    excluding variables nested inside type annotations like ``Set α``.
+    """
     from .graph import BINDER_KIND_FORALL
     return [
         node.label for node in dag.nodes
         if node.is_bound == 1 and node.binder_kind == BINDER_KIND_FORALL
-        and not node.children  # leaf variable node
+        and node.binder_depth == 1
+        and not node.children
     ]
 
 
@@ -124,7 +160,7 @@ class InferencePipeline:
 
     def __init__(
         self,
-        model: TacticWithArgsClassifier,
+        model: TacticWithArgsClassifier | ActorCriticWithArgsClassifier,
         scorer: PremiseScorer,
         lemma_index: LemmaIndex,
         node_vocab: dict[str, int],
@@ -160,6 +196,24 @@ class InferencePipeline:
         
         # 1. Graph construction
         dag = proof_state_to_dag(state)
+        return self._predict_from_dag(dag, top_k=top_k)
+
+    @torch.no_grad()
+    def predict_from_goal_state(self, goal_state, *, top_k: int = 1) -> InferenceResult:
+        """Predict tactics from a Pantograph GoalState with S-expressions.
+
+        This method extracts S-expressions from the GoalState (requires
+        patch_pantograph_for_sexp() to have been called) and builds the DAG
+        directly from S-expressions for both goal and hypothesis types.
+        """
+        from .graph import goal_state_to_proof_state, proof_state_to_dag
+        
+        text_state, hyp_sexps, goal_sexp = goal_state_to_proof_state(goal_state)
+        dag = proof_state_to_dag(text_state, goal_sexp=goal_sexp, hyp_sexps=hyp_sexps)
+        return self._predict_from_dag(dag, top_k=top_k)
+
+    def _predict_from_dag(self, dag: DAGBuilder, *, top_k: int = 1) -> InferenceResult:
+        """Core prediction logic from a pre-built DAG."""
         data = dag_to_pyg(dag, self.node_vocab)
         
         try:
@@ -178,10 +232,10 @@ class InferencePipeline:
         data.edge_index = transform_edge_index(data.edge_index, edge_mode="bidirectional")
         batch = Batch.from_data_list([data])
 
-        node_embeddings = self.model.backbone.encode_nodes(batch)
-        state_emb = self.model.backbone.readout(node_embeddings, batch)
-        
-        tactic_logits = self.model.backbone.classifier(state_emb)
+        encoded = self.model.encode_graph(batch)
+        node_embeddings = encoded.node_embeddings
+        state_emb = encoded.state_embeddings
+        tactic_logits = self.model.predict_tactics(encoded)
         tactic_probs = torch.softmax(tactic_logits.squeeze(0), dim=-1)
         top_candidates = _top_tactic_candidates(tactic_probs, self.id_to_tactic, top_k=top_k)
 

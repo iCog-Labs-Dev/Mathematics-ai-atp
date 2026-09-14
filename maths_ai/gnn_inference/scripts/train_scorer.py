@@ -27,11 +27,13 @@ if __package__ in {None, ""}:
         sys.path.insert(0, repo_root_str)
 
 from maths_ai.gnn_inference.atp_lean_gnn.lemma_index import LemmaIndex
+from maths_ai.gnn_inference.atp_lean_gnn.checkpointing import build_model_from_checkpoint
 from maths_ai.gnn_inference.atp_lean_gnn.logger import TrainingLogger
 from maths_ai.gnn_inference.atp_lean_gnn.premise_scoring import PremiseScorer, PremiseScorerConfig
 from maths_ai.gnn_inference.atp_lean_gnn.premise_training import evaluate_model_with_premises, train_one_epoch_with_premises
 from maths_ai.gnn_inference.atp_lean_gnn.reporting import console_print
 from maths_ai.gnn_inference.atp_lean_gnn.training import build_dataloaders, load_pointer_config, load_prepared_metadata
+from maths_ai.gnn_inference.atp_lean_gnn.training_safety import resolve_amp_dtype
 
 
 def _create_run_dir(run_root: Path) -> Path:
@@ -56,7 +58,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    use_amp = device.type == "cuda"
     
     # Load configs
     config = load_pointer_config(Path(args.config))
@@ -77,47 +78,30 @@ def main(argv: list[str] | None = None) -> int:
     # Build Dataloaders
     datasets, loaders = build_dataloaders(metadata, config)
 
-    # Load baseline model and wrap it in TacticWithArgsClassifier
-    from maths_ai.gnn_inference.atp_lean_gnn.argument_selector import TacticWithArgsClassifier
-    
-    model = TacticWithArgsClassifier(
-        num_node_labels=len(metadata.node_vocab),
-        num_tactics=len(metadata.tactic_vocab),
-        hidden_dim=config.model.hidden_dim,
-        num_layers=config.model.num_layers,
-        dropout=config.model.dropout,
-        use_node_type=config.use_node_type,
-        max_args=getattr(config, "max_args", 3),
-    )
-    
+    # Reconstruct the exact pointer encoder that produced the lemma index.
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
-    state_dict = ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt
-    
-    # Adjust state dict keys if they come from a pure baseline (GraphSAGEStateClassifier)
-    adjusted_state_dict = {}
-    for k, v in state_dict.items():
-        if not k.startswith("backbone.") and not k.startswith("tactic_embedding.") and not k.startswith("argument_selector."):
-            adjusted_state_dict[f"backbone.{k}"] = v
-        else:
-            adjusted_state_dict[k] = v
-            
-    model.load_state_dict(adjusted_state_dict, strict=False)
-
-    has_trained_tactic_embedding = any(
-        k.startswith("tactic_embedding.") for k in adjusted_state_dict
+    model, checkpoint_manifest, checkpoint_spec = build_model_from_checkpoint(
+        ckpt,
+        node_vocab=metadata.node_vocab,
+        tactic_vocab=metadata.tactic_vocab,
+        expected_model_kind="tactic_with_args",
     )
-    if not has_trained_tactic_embedding:
-        with torch.no_grad():
-            model.tactic_embedding.weight.copy_(model.backbone.classifier.weight)
+    lemma_index.validate_encoder_fingerprint(str(checkpoint_manifest["encoder_fingerprint"]))
+    amp_dtype = resolve_amp_dtype(
+        architecture=checkpoint_spec.architecture,
+        device=device,
+        requested=config.training.use_amp,
+    )
+    use_amp = amp_dtype is not None
 
-    # Freeze the GNN backbone (keeps embeddings compatible with FAISS index)
-    for param in model.backbone.parameters():
+    # Freeze the encoder so the query space remains compatible with the lemma index.
+    for param in model.encoder.parameters():
         param.requires_grad = False
 
     model = model.to(device)
 
     # Build Premise Scorer
-    scorer = PremiseScorer(hidden_dim=config.model.hidden_dim, mode=p_config.scoring_mode)
+    scorer = PremiseScorer(hidden_dim=checkpoint_spec.hidden_dim, mode=p_config.scoring_mode)
     scorer = scorer.to(device)
 
     # Only train: tactic_embedding, argument_selector, and scorer
@@ -126,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
         + list(model.argument_selector.parameters())
         + list(scorer.parameters())
     )
-    frozen_count = sum(p.numel() for p in model.backbone.parameters())
+    frozen_count = sum(p.numel() for p in model.encoder.parameters())
     trainable_count = sum(p.numel() for p in trainable_params)
     console_print(
         f"Parameters — frozen backbone: {frozen_count:,}, "
@@ -138,7 +122,10 @@ def main(argv: list[str] | None = None) -> int:
         lr=config.training.learning_rate,
         weight_decay=config.training.weight_decay,
     )
-    grad_scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
+    grad_scaler = torch.amp.GradScaler(
+        device.type,
+        enabled=amp_dtype == torch.float16,
+    )
 
     best_val_mrr = -1.0
 
@@ -161,6 +148,7 @@ def main(argv: list[str] | None = None) -> int:
             log_every_batches=config.training.log_every_batches,
             use_amp=use_amp,
             pin_memory=config.training.pin_memory,
+            amp_dtype=amp_dtype,
         )
 
         val_metrics = evaluate_model_with_premises(
@@ -177,6 +165,7 @@ def main(argv: list[str] | None = None) -> int:
             log_every_batches=config.training.log_every_batches,
             use_amp=use_amp,
             pin_memory=config.training.pin_memory,
+            amp_dtype=amp_dtype,
         )
 
         console_print(
@@ -192,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
                 "scorer_state_dict": scorer.state_dict(),
+                "encoder_fingerprint": checkpoint_manifest["encoder_fingerprint"],
                 "val_metrics": val_metrics,
             }, run_dir / "best.pt")
 

@@ -15,11 +15,12 @@ from torch.optim import AdamW
 from torch_geometric.loader import DataLoader
 
 from .argument_selector import TacticWithArgsClassifier, compute_combined_loss
-from .labels import get_tactic_arity
+from .labels import get_tactic_arity, parse_tactic_arguments
 from .lemma_index import LemmaIndex
 from .premise_pool import build_unified_pools
 from .premise_scoring import PremiseScorer, compute_premise_ranking_loss
 from .reporting import console_print
+from .training_safety import require_finite_loss
 
 
 def _format_elapsed(seconds: float) -> str:
@@ -60,14 +61,48 @@ def _extract_arg_targets(
     if hasattr(batch, "arg_node_indices") and hasattr(batch, "arg_count"):
         flat_targets = batch.arg_node_indices.to(device=device, dtype=torch.long)
         counts = batch.arg_count.tolist()
+        ptr = batch.ptr.to(device=device, dtype=torch.long)
         offset = 0
         for i, count in enumerate(counts):
             n_copy = min(count, max_args)
             if n_copy > 0:
-                targets[i, :n_copy] = flat_targets[offset : offset + n_copy]
+                sample_targets = flat_targets[offset : offset + n_copy].clone()
+                valid = sample_targets >= 0
+                sample_targets[valid] += ptr[i]
+                targets[i, :n_copy] = sample_targets
             offset += count
             
     return targets
+
+
+def _recover_lemma_targets(
+    batch,
+    node_targets: Tensor,
+    lemma_targets: Tensor,
+    lemma_index: LemmaIndex | None,
+) -> tuple[Tensor, int, int]:
+    """Recover external lemma ids from raw tactic arguments and indexed names."""
+
+    name_to_id = getattr(lemma_index, "name_to_id", {}) if lemma_index is not None else {}
+    if not hasattr(batch, "tactic_raw"):
+        return lemma_targets, 0, 0
+    raw_tactics = batch.tactic_raw
+    if not isinstance(raw_tactics, (list, tuple)):
+        raw_tactics = [raw_tactics]
+    recovered = lemma_targets.clone()
+    recovered_count = 0
+    unresolved_count = 0
+    for row, raw_tactic in enumerate(raw_tactics):
+        _, arguments = parse_tactic_arguments(str(raw_tactic))
+        for column, argument in enumerate(arguments[: recovered.size(1)]):
+            if node_targets[row, column] < 0 and recovered[row, column] < 0:
+                lemma_id = int(name_to_id.get(argument, -1))
+                recovered[row, column] = lemma_id
+                if lemma_id >= 0:
+                    recovered_count += 1
+                else:
+                    unresolved_count += 1
+    return recovered, recovered_count, unresolved_count
 
 
 def _extract_arg_lemma_ids(
@@ -109,10 +144,11 @@ def train_one_epoch_with_premises(
     log_every_batches: int,
     use_amp: bool,
     pin_memory: bool,
+    amp_dtype: torch.dtype | None = None,
 ) -> dict[str, float | int]:
     """Train one epoch with combined tactic + argument + premise ranking loss."""
     model.train()
-    model.backbone.eval()  # frozen backbone stays in eval mode
+    model.encoder.eval()
     scorer.train()
 
     total_tactic_loss = 0.0
@@ -120,6 +156,8 @@ def train_one_epoch_with_premises(
     total_premise_loss = 0.0
     total_combined_loss = 0.0
     total_examples = 0
+    total_recovered_lemmas = 0
+    total_unresolved_lemmas = 0
     total_batches = len(loader)
     start_time = time.perf_counter()
 
@@ -136,11 +174,23 @@ def train_one_epoch_with_premises(
         tactic_names = _extract_tactic_names(batch)
         arg_targets = _extract_arg_targets(batch, model.max_args, device)
         arg_lemma_targets = _extract_arg_lemma_ids(batch, model.max_args, device)
+        arg_lemma_targets, recovered_count, unresolved_count = _recover_lemma_targets(
+            batch,
+            arg_targets,
+            arg_lemma_targets,
+            lemma_index,
+        )
+        total_recovered_lemmas += recovered_count
+        total_unresolved_lemmas += unresolved_count
         tactic_arities = [get_tactic_arity(n) for n in tactic_names]
 
         optimizer.zero_grad(set_to_none=True)
 
-        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+        with torch.amp.autocast(
+            device_type=device.type,
+            enabled=use_amp,
+            dtype=amp_dtype,
+        ):
             # Forward pass through model
             tactic_logits, arg_logits_list = model(
                 batch,
@@ -162,8 +212,9 @@ def train_one_epoch_with_premises(
 
             # Recompute embeddings (detached) for the premise scoring branch
             with torch.no_grad():
-                node_embeddings = model.backbone.encode_nodes(batch)
-                state_emb = model.backbone.readout(node_embeddings, batch)
+                encoded = model.encode_graph(batch)
+                node_embeddings = encoded.node_embeddings
+                state_emb = encoded.state_embeddings
             node_embeddings = node_embeddings.detach()
             state_emb = state_emb.detach()
 
@@ -199,6 +250,18 @@ def train_one_epoch_with_premises(
             # Total loss
             total_loss = ta_loss + premise_loss_weight * p_loss
 
+        require_finite_loss(
+            total_loss,
+            architecture=model.model_spec.architecture,
+            amp_dtype=amp_dtype,
+            epoch=epoch,
+            batch_index=batch_index,
+            components={
+                "tactic_loss": ta_metrics["tactic_loss"],
+                "argument_loss": ta_metrics["arg_loss"],
+                "premise_loss": p_metrics["premise_loss"],
+            },
+        )
         grad_scaler.scale(total_loss).backward()
         grad_scaler.unscale_(optimizer)
         trainable_params = [p for p in list(model.parameters()) + list(scorer.parameters()) if p.requires_grad]
@@ -234,6 +297,8 @@ def train_one_epoch_with_premises(
         "premise_loss": total_premise_loss / n,
         "combined_loss": total_combined_loss / n,
         "example_count": total_examples,
+        "recovered_lemma_count": total_recovered_lemmas,
+        "unresolved_lemma_count": total_unresolved_lemmas,
     }
 
 
@@ -253,6 +318,7 @@ def evaluate_model_with_premises(
     log_every_batches: int | None = None,
     use_amp: bool = False,
     pin_memory: bool = False,
+    amp_dtype: torch.dtype | None = None,
 ) -> dict[str, float | int]:
     """Evaluate model with combined tactic + argument + premise metrics."""
     model.eval()
@@ -272,6 +338,8 @@ def evaluate_model_with_premises(
     premise_mrr_sum = 0.0
 
     total_count = 0
+    total_recovered_lemmas = 0
+    total_unresolved_lemmas = 0
     total_batches = len(loader)
     start_time = time.perf_counter()
 
@@ -289,9 +357,21 @@ def evaluate_model_with_premises(
         tactic_names = _extract_tactic_names(batch)
         arg_targets = _extract_arg_targets(batch, model.max_args, device)
         arg_lemma_targets = _extract_arg_lemma_ids(batch, model.max_args, device)
+        arg_lemma_targets, recovered_count, unresolved_count = _recover_lemma_targets(
+            batch,
+            arg_targets,
+            arg_lemma_targets,
+            lemma_index,
+        )
+        total_recovered_lemmas += recovered_count
+        total_unresolved_lemmas += unresolved_count
         tactic_arities = [get_tactic_arity(n) for n in tactic_names]
 
-        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+        with torch.amp.autocast(
+            device_type=device.type,
+            enabled=use_amp,
+            dtype=amp_dtype,
+        ):
             tactic_logits, arg_logits_list = model(
                 batch, tactic_names=tactic_names
             )
@@ -307,8 +387,9 @@ def evaluate_model_with_premises(
             )
 
             with torch.no_grad():
-                node_embeddings = model.backbone.encode_nodes(batch)
-                state_emb = model.backbone.readout(node_embeddings, batch)
+                encoded = model.encode_graph(batch)
+                node_embeddings = encoded.node_embeddings
+                state_emb = encoded.state_embeddings
             tactic_ids = tactic_logits.argmax(dim=1)
             tactic_emb = model.tactic_embedding(tactic_ids)
             premise_mask = batch.premise_mask.to(
@@ -381,4 +462,6 @@ def evaluate_model_with_premises(
         "premise_target_present_count": premise_target_present,
         "premise_valid_count": premise_valid,
         "evaluated_count": total_count,
+        "recovered_lemma_count": total_recovered_lemmas,
+        "unresolved_lemma_count": total_unresolved_lemmas,
     }

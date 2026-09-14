@@ -12,8 +12,8 @@ from .dataset import canonicalize_split_name
 from .labels import UNKNOWN_TACTIC
 from .reporting import console_print
 from .training import (
+    _amp_dtype,
     _load_checkpoint,
-    _use_cuda_amp,
     build_baseline_model,
     load_baseline_config,
     load_prepared_metadata,
@@ -243,10 +243,16 @@ def analyze_saved_run(
     device = resolve_device(config.device)
     model = build_baseline_model(metadata, config).to(device)
     checkpoint_path = run_directory / "best.pt"
-    checkpoint = _load_checkpoint(checkpoint_path, device=device)
+    checkpoint = _load_checkpoint(
+        checkpoint_path,
+        device=device,
+        metadata=metadata,
+        expected_model_kind="supervised_tactic",
+        expected_model_spec=config.model,
+    )
     model.load_state_dict(checkpoint["model_state_dict"])
 
-    use_amp = _use_cuda_amp(device, config)
+    amp_dtype = _amp_dtype(device, config)
     id_to_tactic = _invert_vocab(metadata.tactic_vocab)
     records: list[dict[str, object]] = []
     loss_sum = 0.0
@@ -262,7 +268,11 @@ def analyze_saved_run(
             true_tactic_names = _normalize_batch_strings(batch.tactic_name, batch_size)
 
             batch = batch.to(device, non_blocking=(device.type == "cuda" and config.training.pin_memory))
-            with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+            with torch.amp.autocast(
+                device_type=device.type,
+                enabled=amp_dtype is not None,
+                dtype=amp_dtype,
+            ):
                 logits = model(batch)
                 probabilities = logits.softmax(dim=1)
                 known_mask = batch.y.view(-1) != metadata.unknown_tactic_id
@@ -367,8 +377,8 @@ def compare_saved_runs(run_dirs: list[str | Path]) -> dict[str, object]:
                 "top1_gap": float(summary["best_validation"]["top1_accuracy"]) - float(summary["test_evaluation"]["top1_accuracy"]),
                 "edge_mode": config.edge_mode,
                 "hidden_dim": config.model.hidden_dim,
-                "num_layers": config.model.num_layers,
-                "use_node_type": config.use_node_type,
+                "num_layers": int(config.model.encoder["num_layers"]),
+                "use_node_type": config.model.use_node_type,
                 "amp_enabled": bool(summary.get("amp_enabled", False)),
             }
         )

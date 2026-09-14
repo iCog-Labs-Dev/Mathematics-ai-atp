@@ -4,11 +4,18 @@ from typing import List, Optional, cast
 import torch
 
 from maths_ai.data_models.proof_components import TacticCandidate
-from maths_ai.gnn_inference.atp_lean_gnn.argument_selector import TacticWithArgsClassifier
+from maths_ai.gnn_inference.atp_lean_gnn.checkpointing import build_model_from_checkpoint
 from maths_ai.gnn_inference.atp_lean_gnn.lemma_corpus import load_lemma_corpus
 from maths_ai.gnn_inference.atp_lean_gnn.lemma_index import LemmaIndex
-from maths_ai.gnn_inference.atp_lean_gnn.premise_scoring import PremiseScorer
-from maths_ai.gnn_inference.atp_lean_gnn.training import load_baseline_config, load_prepared_metadata
+from maths_ai.gnn_inference.atp_lean_gnn.premise_scoring import (
+    PremiseScorer,
+    load_scorer_checkpoint,
+)
+from maths_ai.gnn_inference.atp_lean_gnn.training import (
+    load_actor_critic_config,
+    load_pointer_config,
+    load_prepared_metadata,
+)
 
 from .model import GNNPredictor
 
@@ -20,6 +27,7 @@ class GNNModelEngine:
         tactic_predictor_model_path: Path,
         argument_predictor_model_path: Path,
         *,
+        model_type: str = "pointer",
         index_path: Optional[Path] = None,
         corpus_path: Optional[Path] = None,
         scorer_mode: str = "dot",
@@ -39,30 +47,41 @@ class GNNModelEngine:
         """
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
 
-        config = load_baseline_config(config_path)
+        if model_type == "actor_critic":
+            config = load_actor_critic_config(config_path)
+        else:
+            config = load_pointer_config(config_path)
+
         metadata = load_prepared_metadata(config.prepared_root)
 
-        tactic_model = TacticWithArgsClassifier(
-            num_node_labels=len(metadata.node_vocab),
-            num_tactics=len(metadata.tactic_vocab),
-            hidden_dim=config.model.hidden_dim,
-            num_layers=config.model.num_layers,
-            dropout=config.model.dropout,
-            use_node_type=config.use_node_type,
-            max_args=getattr(config, "max_args", 3),
-        )
         tactic_checkpoint = torch.load(tactic_predictor_model_path, map_location=self.device, weights_only=False)
-        tactic_model.load_state_dict(tactic_checkpoint.get("model_state_dict", tactic_checkpoint))
+        expected_kind = "actor_critic_with_args" if model_type == "actor_critic" else "tactic_with_args"
+        tactic_model, checkpoint_manifest, checkpoint_spec = build_model_from_checkpoint(
+            tactic_checkpoint,
+            node_vocab=metadata.node_vocab,
+            tactic_vocab=metadata.tactic_vocab,
+            expected_model_kind=expected_kind,
+        )
+
         tactic_model = tactic_model.to(self.device)
         tactic_model.eval()
 
-        argument_model = PremiseScorer(hidden_dim=config.model.hidden_dim, mode=scorer_mode)
+        argument_model = PremiseScorer(hidden_dim=checkpoint_spec.hidden_dim, mode=scorer_mode)
         argument_checkpoint = torch.load(argument_predictor_model_path, map_location=self.device, weights_only=False)
-        argument_model.load_state_dict(argument_checkpoint.get("scorer_state_dict", argument_checkpoint))
+        expected_fingerprint = str(checkpoint_manifest["encoder_fingerprint"])
+        load_scorer_checkpoint(
+            argument_model,
+            argument_checkpoint,
+            expected_encoder_fingerprint=expected_fingerprint,
+        )
         argument_model = argument_model.to(self.device)
         argument_model.eval()
 
-        lemma_index = self._load_lemma_index(index_path, config.model.hidden_dim)
+        lemma_index = self._load_lemma_index(
+            index_path,
+            checkpoint_spec.hidden_dim,
+            expected_fingerprint,
+        )
         lemma_corpus = self._load_lemma_corpus(corpus_path)
 
         self.gnn_inference = GNNPredictor(
@@ -77,9 +96,15 @@ class GNNModelEngine:
         )
 
     @staticmethod
-    def _load_lemma_index(index_path: Optional[Path], hidden_dim: int) -> LemmaIndex:
+    def _load_lemma_index(
+        index_path: Optional[Path],
+        hidden_dim: int,
+        encoder_fingerprint: str,
+    ) -> LemmaIndex:
         if index_path is not None and Path(index_path).exists():
-            return LemmaIndex.load(index_path)
+            lemma_index = LemmaIndex.load(index_path)
+            lemma_index.validate_encoder_fingerprint(encoder_fingerprint)
+            return lemma_index
 
         import faiss
         import numpy as np
@@ -88,6 +113,7 @@ class GNNModelEngine:
             index=faiss.IndexFlatL2(hidden_dim),
             lemma_ids=[],
             lemma_vectors=np.empty((0, hidden_dim), dtype=np.float32),
+            encoder_fingerprint=encoder_fingerprint,
         )
 
     @staticmethod
@@ -109,7 +135,7 @@ class GNNModelEngine:
         """
         predictions = self.gnn_inference.predict_tactics_with_arguments(goal_expression, top_k=top_k)
         print(*predictions, "\n")
-        return [
+        result =  [
             TacticCandidate(
                 tactic_name=str(prediction["tactic_name"]),
                 arguments=[str(argument) for argument in cast(list, prediction["selected_arguments"])],
@@ -117,3 +143,9 @@ class GNNModelEngine:
             )
             for prediction in predictions
         ]
+
+        for res in result:
+            if res.tactic_name == "rw":
+                res.arguments = "[" + ",".join(res.arguments) + "]"
+
+        return result

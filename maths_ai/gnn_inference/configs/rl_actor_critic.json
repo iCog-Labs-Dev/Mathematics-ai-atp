@@ -1,0 +1,54 @@
+{
+  "warmstart_checkpoint": "/home/jovyan/Nol/Mathematics-ai-atp/runs/actor_critic_gnn/run_20260729_060637/best.pt",
+  "prepared_root": "/home/jovyan/Nol/Mathematics-ai-atp/maths_ai/_support_files/artifacts/prepared/v1",
+  "run_root": "runs/rl_actor_critic",
+  "device": "auto",
+  "seed": 42,
+
+  "source_root": null,
+  "pantograph_repl": null,
+  "pantograph_imports": null,
+  "server_timeout_s": 120,
+
+  "data_source": "dataset",
+  "theorem_file": null,
+  "leandojo_split": "train",
+  "max_pool_size": 5000,
+  "max_state_chars": 400,
+  "eval_pool_size": 200,
+
+  "curriculum_start_size": 200,
+  "curriculum_growth_factor": 1.5,
+  "curriculum_solve_threshold": 0.3,
+  "curriculum_window_rounds": 10,
+
+  "bc_anneal_start": 0.5,
+  "bc_anneal_end": 0.05,
+  "bc_anneal_rounds": 200,
+
+  "num_rounds": 500,
+  "theorems_per_round": 8,
+  "theorem_timeout_s": 120.0,
+  "checkpoint_every": 20,
+  "eval_every": 25,
+  "max_dead_rounds": 3,
+
+  "top_k_tactics": 4,
+  "max_depth": 8,
+  "max_nodes": 64,
+  "use_pln": false,
+
+  "learning_rate": 0.0001,
+  "weight_decay": 0.0001,
+  "grad_clip": 1.0,
+  "critic_weight": 0.5,
+  "entropy_weight": 0.01,
+  "arg_loss_weight": 0.5,
+  "max_update_nodes": 50000,
+  "max_update_edges": 250000,
+
+  "reward_gamma": 0.99,
+  "reward_step_penalty": 0.01,
+  "reward_terminal_success": 1.0,
+  "reward_terminal_failure": 0.0
+}

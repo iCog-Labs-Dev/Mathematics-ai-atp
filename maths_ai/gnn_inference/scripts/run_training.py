@@ -415,7 +415,8 @@ def run_scorer(config: dict[str, Any]) -> dict[str, Any]:
     from maths_ai.gnn_inference.scripts.train_scorer import _create_run_dir
     from maths_ai.gnn_inference.atp_lean_gnn.training import load_pointer_config, load_prepared_metadata, build_dataloaders
     from maths_ai.gnn_inference.atp_lean_gnn.premise_scoring import PremiseScorer, PremiseScorerConfig
-    from maths_ai.gnn_inference.atp_lean_gnn.argument_selector import TacticWithArgsClassifier
+    from maths_ai.gnn_inference.atp_lean_gnn.training_safety import resolve_amp_dtype
+    from maths_ai.gnn_inference.atp_lean_gnn.checkpointing import build_model_from_checkpoint
     from maths_ai.gnn_inference.atp_lean_gnn.lemma_index import LemmaIndex
     from maths_ai.gnn_inference.atp_lean_gnn.logger import TrainingLogger
     from maths_ai.gnn_inference.atp_lean_gnn.premise_training import evaluate_model_with_premises, train_one_epoch_with_premises
@@ -424,7 +425,6 @@ def run_scorer(config: dict[str, Any]) -> dict[str, Any]:
     from torch.optim import AdamW
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    use_amp = device.type == "cuda" and scorer_cfg["use_amp"]
 
     # Load pointer config to get model architecture
     pointer_config_path = pointer_run_dir / "config.json"
@@ -485,37 +485,30 @@ def run_scorer(config: dict[str, Any]) -> dict[str, Any]:
 
     datasets, loaders = build_dataloaders(metadata, p_config)
 
-    # Build model
-    model = TacticWithArgsClassifier(
-        num_node_labels=len(metadata.node_vocab),
-        num_tactics=len(metadata.tactic_vocab),
-        hidden_dim=p_config.model.hidden_dim,
-        num_layers=p_config.model.num_layers,
-        dropout=p_config.model.dropout,
-        use_node_type=p_config.use_node_type,
-        max_args=getattr(p_config, "max_args", 3),
-    )
-
     ckpt = torch.load(pointer_checkpoint, map_location=device, weights_only=False)
-    state_dict = ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt
-    adjusted_state_dict = {}
-    for k, v in state_dict.items():
-        if not k.startswith("backbone.") and not k.startswith("tactic_embedding.") and not k.startswith("argument_selector."):
-            adjusted_state_dict[f"backbone.{k}"] = v
-        else:
-            adjusted_state_dict[k] = v
-    model.load_state_dict(adjusted_state_dict, strict=False)
+    model, checkpoint_manifest, checkpoint_spec = build_model_from_checkpoint(
+        ckpt,
+        node_vocab=metadata.node_vocab,
+        tactic_vocab=metadata.tactic_vocab,
+        expected_model_kind="tactic_with_args",
+    )
+    if lemma_index is not None:
+        lemma_index.validate_encoder_fingerprint(
+            str(checkpoint_manifest["encoder_fingerprint"])
+        )
 
-    has_trained_tactic_embedding = any(k.startswith("tactic_embedding.") for k in adjusted_state_dict)
-    if not has_trained_tactic_embedding:
-        with torch.no_grad():
-            model.tactic_embedding.weight.copy_(model.backbone.classifier.weight)
+    amp_dtype = resolve_amp_dtype(
+        architecture=checkpoint_spec.architecture,
+        device=device,
+        requested=bool(scorer_cfg["use_amp"] and p_config.training.use_amp),
+    )
+    use_amp = amp_dtype is not None
 
-    for param in model.backbone.parameters():
+    for param in model.encoder.parameters():
         param.requires_grad = False
     model = model.to(device)
 
-    scorer = PremiseScorer(hidden_dim=p_config.model.hidden_dim, mode=p_config_obj.scoring_mode).to(device)
+    scorer = PremiseScorer(hidden_dim=checkpoint_spec.hidden_dim, mode=p_config_obj.scoring_mode).to(device)
 
     trainable_params = (
         list(model.tactic_embedding.parameters())
@@ -523,7 +516,10 @@ def run_scorer(config: dict[str, Any]) -> dict[str, Any]:
         + list(scorer.parameters())
     )
     optimizer = AdamW(trainable_params, lr=p_config.training.learning_rate, weight_decay=p_config.training.weight_decay)
-    grad_scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
+    grad_scaler = torch.amp.GradScaler(
+        device.type,
+        enabled=amp_dtype == torch.float16,
+    )
 
     best_val_mrr = -1.0
     for epoch in range(1, scorer_cfg["epochs"] + 1):
@@ -537,6 +533,7 @@ def run_scorer(config: dict[str, Any]) -> dict[str, Any]:
             k=p_config_obj.k, epoch=epoch, total_epochs=scorer_cfg["epochs"],
             log_every_batches=p_config.training.log_every_batches,
             use_amp=use_amp, pin_memory=p_config.training.pin_memory,
+            amp_dtype=amp_dtype,
         )
 
         val_metrics = evaluate_model_with_premises(
@@ -548,6 +545,7 @@ def run_scorer(config: dict[str, Any]) -> dict[str, Any]:
             k=p_config_obj.k, split_name="val",
             log_every_batches=p_config.training.log_every_batches,
             use_amp=use_amp, pin_memory=p_config.training.pin_memory,
+            amp_dtype=amp_dtype,
         )
 
         console_print(
@@ -563,6 +561,7 @@ def run_scorer(config: dict[str, Any]) -> dict[str, Any]:
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
                 "scorer_state_dict": scorer.state_dict(),
+                "encoder_fingerprint": checkpoint_manifest["encoder_fingerprint"],
                 "val_metrics": val_metrics,
             }, run_dir / "best.pt")
 

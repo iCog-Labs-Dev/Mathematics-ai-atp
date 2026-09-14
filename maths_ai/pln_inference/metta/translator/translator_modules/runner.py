@@ -90,10 +90,12 @@ def extract_stv_scores(log_text: str) -> list[tuple[float, float]]:
 
     proof_scores: list[tuple[float, float]] = []
 
-    for strength, confidence in stv_pattern.findall(log_text):
-        proof_scores.append((float(strength), float(confidence)))
+    for line in log_text.splitlines():
+        for strength, confidence in stv_pattern.findall(line):
+            proof_scores.append((float(strength), float(confidence)))
 
     return proof_scores
+
 
 
 def score_from_stv(strength: float, confidence: float) -> float:
