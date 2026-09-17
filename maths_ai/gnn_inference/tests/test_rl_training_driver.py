@@ -417,6 +417,8 @@ class RoundLoopTests(unittest.TestCase):
             rows = [json.loads(l) for l in (run_dir / "metrics.jsonl").read_text().splitlines()]
             self.assertEqual(len(rows), 2)
             self.assertGreater(rows[0]["num_transitions"] + rows[0]["num_failures"], 0)
+            self.assertEqual([row["model_generation"] for row in rows], [1.0, 2.0])
+            self.assertEqual([row["replica_generation"] for row in rows], [1.0, 2.0])
 
     def test_params_change_after_training(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -526,6 +528,7 @@ class DeadRoundTests(unittest.TestCase):
             rows = [json.loads(l) for l in (run_dir / "metrics.jsonl").read_text().splitlines()]
             self.assertEqual([r["bc_weight"] for r in rows], [0.5, 0.5])
             self.assertEqual([r["anneal_rounds_done"] for r in rows], [0, 0])
+            self.assertEqual([r["model_generation"] for r in rows], [0.0, 0.0])
 
     def test_unelaborated_roots_do_not_advance_the_anneal(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -695,7 +698,16 @@ class PLNKillSwitchConfigTests(unittest.TestCase):
             async def create_server(self):
                 return _FakeServer()
 
-        async def _record_reasoner(reasoner, items, *, timeout_s):
+        async def _record_reasoner(
+            reasoner,
+            items,
+            *,
+            timeout_s,
+            reasoner_pool,
+            model_generation,
+        ):
+            self.assertIsNotNone(reasoner_pool)
+            self.assertEqual(model_generation, 0)
             observed.append(
                 (reasoner.use_pln, reasoner.petta_chainer, reasoner.dts_sampler)
             )
