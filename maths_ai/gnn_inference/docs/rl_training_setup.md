@@ -465,3 +465,65 @@ uv run python maths_ai/gnn_inference/scripts/rl_train.py \
 | every PLN result `is_fallback=True` | petta not found (only relevant when `use_pln=true`) | install petta / set `PETTA_BIN`; or switch to `"use_pln": false` |
 | strict Pantograph server creation fails | missing or mismatched `source_root`, `pantograph_repl`, Lean toolchain, or `Mathlib` import | run `setup_sexpr_environment.py` with the same paths and rebuild the custom REPL |
 | `ModuleNotFoundError: datasets` | streaming dep not installed | `uv add datasets` |
+
+## 8. Hardware-aware live collection
+
+The RL driver can run independent theorem searches concurrently. Each collection
+worker owns one `RLHybridReasoner` and one Pantograph subprocess because the reasoner
+holds pending actions, its search graph, edge visits, and virtual losses while its
+subprocess owns one response stream. Every search in a collection round uses the same
+verified model generation.
+
+The portable `rl_actor_critic.json` configuration uses one worker and automatic
+device selection. Each effective worker owns exactly one Pantograph server; there is
+no separately adjustable server count. The canonical model and both optimizers remain
+on the update device. Replica synchronization runs once after the complete update
+phase, including all on-policy and HTPS optimizer steps, and before evaluation or the
+next collection round.
+
+The portable fields are:
+
+```json
+{
+  "collection_workers": 1,
+  "collection_devices": null,
+  "update_device": null,
+  "cpu_reserve": 2,
+  "resource_check": "warn"
+}
+```
+
+`update_device: null` follows the existing `device` setting. On a CUDA host,
+`device: "auto"` selects `cuda:0`. `collection_devices: null` selects visible CUDA
+devices automatically, but only devices with an assigned worker remain active. On a
+CPU-only host collection uses the update device. Use `resource_check: "strict"` to
+reject unavailable workers or devices instead of reducing the requested topology.
+
+For the target 12-core, two-RTX-3090 host, use this explicit profile after measuring
+one-worker process memory:
+
+```json
+{
+  "collection_workers": 4,
+  "collection_devices": ["cuda:0", "cuda:1"],
+  "update_device": "cuda:0",
+  "cpu_reserve": 2,
+  "resource_check": "strict"
+}
+```
+
+The monotonic deadline passed to `prove()` is cooperative. Legacy search checks it
+between expansions, and PUCT search checks it between simulation batches, so completed
+experience is returned with `SearchEndReason.DEADLINE`. The outer timeout adds grace
+for the in-flight Pantograph call. If that hard timeout expires, the driver discards
+the partial result, closes the server, and reconstructs the complete worker before
+assigning another theorem. Other workers continue processing.
+
+Startup logs contain effective CPU limits, worker/server count, active devices, GPU
+free and total memory, and canonical parameter bytes. Per-round metrics include
+cooperative deadlines, hard timeouts, worker replacements, queue wait, search and
+collection time, on-policy and HTPS update time and step counts, synchronization time,
+canonical and replica generations, per-worker outcomes, and active CUDA memory.
+
+The current implementation keeps both gradient optimizers on one update device.
+Distributed gradient training requires a separate design and launcher.

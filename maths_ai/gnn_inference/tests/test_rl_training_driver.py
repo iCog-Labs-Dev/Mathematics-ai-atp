@@ -24,6 +24,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver import (
     RLTrainingConfig,
     TheoremItem,
     TheoremPool,
+    _create_live_reasoner_pool,
     bc_weight_at_round,
     build_theorem_pool,
     collect_round,
@@ -31,6 +32,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver import (
     run_rl_training,
     save_checkpoint,
 )
+from maths_ai.gnn_inference.atp_lean_gnn.rl_resources import ResourcePlan
 from maths_ai.gnn_inference.tests.model_helpers import (
     actor_critic,
     pantograph_goal,
@@ -49,6 +51,12 @@ class _FakeGoalState:
 
 
 class _FakeServer:
+    def __init__(self):
+        self.closed = False
+
+    def _close(self):
+        self.closed = True
+
     async def goal_start_async(self, expression):
         return _FakeGoalState()
 
@@ -214,6 +222,98 @@ class ConfigTests(unittest.TestCase):
             loaded = RLTrainingConfig.from_json(path)
             self.assertEqual(loaded.to_dict(), cfg.to_dict())
             self.assertIsInstance(loaded.warmstart_checkpoint, Path)
+
+    def test_live_workers_receive_complete_puct_configuration(self):
+        class _Environment:
+            def describe(self):
+                return "test MCTS environment"
+
+        class _RecordingReasoner:
+            instances = []
+
+            def __init__(self, **kwargs):
+                self.model = kwargs["model"]
+                self.kwargs = kwargs
+                self._pending = {}
+                self._result = None
+                self.__class__.instances.append(self)
+
+        async def create_server(_environment):
+            return _FakeServer()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            cfg = _write_config(
+                tmp,
+                selection_policy="puct",
+                num_simulations=12,
+                sim_batch_size=3,
+                puct_c=1.75,
+                top_k_tactics=5,
+                max_depth=7,
+                max_nodes=33,
+                use_pln=False,
+            )
+            node_vocab = _build_node_vocab()
+            model = _make_model(node_vocab)
+            plan = ResourcePlan(
+                reported_cpu_count=8,
+                affinity_cpu_count=8,
+                quota_cpu_count=None,
+                usable_cpu_count=8,
+                requested_worker_count=2,
+                worker_count=2,
+                collection_devices=(torch.device("cpu"),),
+                update_device=torch.device("cpu"),
+                gpu_resources=(),
+            )
+            with (
+                patch(
+                    "maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver."
+                    "create_model_sexpr_server",
+                    new=create_server,
+                ),
+                patch(
+                    "maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver."
+                    "RLHybridReasoner",
+                    new=_RecordingReasoner,
+                ),
+                patch(
+                    "maths_ai.hybrid_reasoner.joint_inference.PantographExecutor",
+                    new=lambda server: server,
+                ),
+            ):
+                live_pool = asyncio.run(
+                    _create_live_reasoner_pool(
+                        model=model,
+                        node_vocab=node_vocab,
+                        tactic_vocab=TACTIC_VOCAB,
+                        cfg=cfg,
+                        env=_Environment(),
+                        plan=plan,
+                    )
+                )
+                try:
+                    self.assertEqual(len(_RecordingReasoner.instances), 2)
+                    self.assertEqual(
+                        len({id(reasoner) for reasoner in _RecordingReasoner.instances}),
+                        2,
+                    )
+                    self.assertEqual(
+                        len({id(reasoner._pending) for reasoner in _RecordingReasoner.instances}),
+                        2,
+                    )
+                    for reasoner in _RecordingReasoner.instances:
+                        self.assertEqual(reasoner.kwargs["selection_policy"], "puct")
+                        self.assertEqual(reasoner.kwargs["num_simulations"], 12)
+                        self.assertEqual(reasoner.kwargs["sim_batch_size"], 3)
+                        self.assertEqual(reasoner.kwargs["puct_c"], 1.75)
+                        self.assertEqual(reasoner.kwargs["top_k_tactics"], 5)
+                        self.assertEqual(reasoner.kwargs["max_depth"], 7)
+                        self.assertEqual(reasoner.kwargs["max_nodes"], 33)
+                        self.assertFalse(reasoner.kwargs["use_pln"])
+                finally:
+                    asyncio.run(live_pool.close())
 
     def test_config_missing_required_field_errors(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -457,6 +557,9 @@ class HTPSDriverTests(unittest.TestCase):
             for row in self._metric_rows(run_dir):
                 self.assertNotIn("tactic_imitation_loss", row)
                 self.assertNotIn("critic_soft_loss", row)
+                self.assertEqual(row["htps_optimizer_steps"], 0.0)
+                self.assertEqual(row["parameter_updates_this_round"], 1.0)
+                self.assertEqual(row["model_generation"], 1.0)
 
     def test_enabled_step_logs_losses_and_queues_grow(self):
         # QED executor ⇒ every root is SOLVED: the critic queue gets hard 1.0
@@ -473,6 +576,11 @@ class HTPSDriverTests(unittest.TestCase):
             self.assertGreater(rows[-1]["imitation_samples_mined"], 0)
             self.assertIn("tactic_imitation_loss", rows[-1])
             self.assertIn("critic_soft_loss", rows[-1])
+            self.assertEqual(rows[-1]["onpolicy_optimizer_step"], 1.0)
+            self.assertEqual(rows[-1]["htps_optimizer_steps"], 2.0)
+            self.assertEqual(rows[-1]["parameter_updates_this_round"], 3.0)
+            self.assertEqual(rows[-1]["model_generation"], 3.0)
+            self.assertEqual(rows[-1]["replica_generation"], 3.0)
 
     def test_checkpoint_roundtrips_optimizer_htps_and_queues(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -510,6 +618,79 @@ class HTPSDriverTests(unittest.TestCase):
             state2 = torch.load(run_dir / "last.pt", weights_only=False)
             self.assertEqual(state2["tactic_queue"], state["tactic_queue"])
             self.assertEqual(state2["critic_queue"], state["critic_queue"])
+
+    def test_htps_only_update_advances_model_generation(self):
+        no_onpolicy_step = {
+            "num_transitions": 0.0,
+            "num_failures": 0.0,
+            "unknown_label_count": 0.0,
+            "structural_unknown_label_count": 0.0,
+            "semantic_unknown_label_count": 0.0,
+            "total_label_count": 0.0,
+            "onpolicy_optimizer_step": 0.0,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            cfg = _write_config(
+                tmp,
+                num_rounds=1,
+                htps_steps_per_round=1,
+                htps_batch_size=4,
+            )
+            with patch(
+                "maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver."
+                "train_step_onpolicy",
+                return_value=no_onpolicy_step,
+            ):
+                asyncio.run(
+                    run_rl_training(
+                        cfg,
+                        reasoner_factory=_qed_factory,
+                        pool=_pool(),
+                    )
+                )
+            run_dir = next((tmp / "runs").iterdir())
+            row = self._metric_rows(run_dir)[-1]
+            self.assertEqual(row["onpolicy_optimizer_step"], 0.0)
+            self.assertEqual(row["htps_optimizer_steps"], 1.0)
+            self.assertEqual(row["parameter_updates_this_round"], 1.0)
+            self.assertEqual(row["model_generation"], 1.0)
+
+    def test_no_update_round_keeps_model_generation_unchanged(self):
+        no_onpolicy_step = {
+            "num_transitions": 0.0,
+            "num_failures": 0.0,
+            "unknown_label_count": 0.0,
+            "structural_unknown_label_count": 0.0,
+            "semantic_unknown_label_count": 0.0,
+            "total_label_count": 0.0,
+            "onpolicy_optimizer_step": 0.0,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            cfg = _write_config(
+                tmp,
+                num_rounds=1,
+                htps_steps_per_round=0,
+                max_dead_rounds=2,
+            )
+            with patch(
+                "maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver."
+                "train_step_onpolicy",
+                return_value=no_onpolicy_step,
+            ):
+                asyncio.run(
+                    run_rl_training(
+                        cfg,
+                        reasoner_factory=_qed_factory,
+                        pool=_pool(),
+                    )
+                )
+            run_dir = next((tmp / "runs").iterdir())
+            row = self._metric_rows(run_dir)[-1]
+            self.assertEqual(row["parameter_updates_this_round"], 0.0)
+            self.assertEqual(row["model_generation"], 0.0)
+            self.assertEqual(row["replica_generation"], 0.0)
 
     def test_pre_validity_checkpoint_resume_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

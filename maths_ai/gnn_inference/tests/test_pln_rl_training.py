@@ -146,6 +146,7 @@ class HTPSStyleStepTests(unittest.TestCase):
         self.assertLess(last["htps_total_loss"], first["htps_total_loss"])
         self.assertEqual(first["num_imitation_rows"], 2.0)
         self.assertEqual(first["num_critic_rows"], 2.0)
+        self.assertEqual(first["htps_optimizer_step"], 1.0)
 
     def test_does_not_touch_the_onpolicy_optimizer(self):
         model, featurize, tactic_batch, critic_batch = self._setup()
@@ -164,6 +165,7 @@ class HTPSStyleStepTests(unittest.TestCase):
         metrics = train_step_htps_style(model, opt, [], [], featurize)
         self.assertEqual(metrics["htps_total_loss"], 0.0)
         self.assertEqual(metrics["num_imitation_rows"], 0.0)
+        self.assertEqual(metrics["htps_optimizer_step"], 0.0)
         after = list(model.parameters())
         self.assertTrue(all(torch.equal(b, a) for b, a in zip(before, after)))
 

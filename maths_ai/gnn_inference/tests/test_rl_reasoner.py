@@ -11,7 +11,11 @@ from torch.optim import AdamW
 from torch_geometric.data import Batch
 
 from maths_ai.data_models.proof_components import STV, TacticCandidate
-from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph, TacticOutcome
+from maths_ai.hybrid_reasoner.hypergraph import (
+    ProofHypergraph,
+    SearchEndReason,
+    TacticOutcome,
+)
 from maths_ai.hybrid_reasoner.joint_inference import MaterializedGoal
 from maths_ai.pln_inference.model import PLNResult
 
@@ -460,6 +464,39 @@ class MCTSSearchTests(unittest.TestCase):
         self.assertEqual(len(result.graph.nodes), 1)
         self.assertFalse(result.graph.is_solved())
         self.assertEqual(executor.applications, 0)
+        self.assertEqual(result.graph.end_reason, SearchEndReason.DEADLINE)
+
+    def test_cancellation_releases_in_flight_virtual_losses(self):
+        reasoner, _model, _vocab = _make_reasoner(
+            _QEDExecutor(),
+            selection_policy="puct",
+            num_simulations=6,
+            sim_batch_size=2,
+        )
+        graph, _leaf_ids = self._two_leaf_graph()
+        expansion_started = asyncio.Event()
+
+        async def block_expansion(self, graph, leaf_ids):
+            del self, graph, leaf_ids
+            expansion_started.set()
+            await asyncio.Event().wait()
+
+        reasoner._expand_leaves = MethodType(block_expansion, reasoner)
+
+        async def run_and_cancel():
+            task = asyncio.create_task(reasoner._prove_mcts(graph, None))
+            await expansion_started.wait()
+            self.assertGreater(
+                sum(edge.visit_stats.virtual_loss for edge in graph.edges.values()),
+                0,
+            )
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(run_and_cancel())
+        for edge in graph.edges.values():
+            self.assertEqual(edge.visit_stats.virtual_loss, 0)
 
     def test_batched_expansion_attributes_failures_to_the_right_node(self):
         # Regression for the per-node stash (Decision 1.1): one simulation's

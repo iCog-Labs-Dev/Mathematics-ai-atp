@@ -711,7 +711,8 @@ def train_step_htps_style(
     device = device or torch.device("cpu")
     if not tactic_batch and not critic_batch:
         return {"tactic_imitation_loss": 0.0, "critic_soft_loss": 0.0, "htps_total_loss": 0.0,
-                "num_imitation_rows": 0.0, "num_critic_rows": 0.0}
+                "num_imitation_rows": 0.0, "num_critic_rows": 0.0,
+                "htps_optimizer_step": 0.0}
 
     imitation_datas: list[Data] = []
     tactic_labels: list[int] = []
@@ -793,5 +794,6 @@ def train_step_htps_style(
         "htps_total_loss": float(total.item()),
         "num_imitation_rows": float(n_imitation),
         "num_critic_rows": float(len(critic_batch)),
+        "htps_optimizer_step": 1.0,
         **_oov_metrics([*imitation_datas, *critic_datas]),
     }

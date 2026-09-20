@@ -20,6 +20,7 @@ import random
 import re
 import time
 from collections import deque
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -30,7 +31,7 @@ from torch.optim import AdamW
 from maths_ai.data_models.proof_components import Goal, LeanGoalSeed
 from maths_ai.hybrid_reasoner.pantograph_env import PantographEnv
 from maths_ai.hybrid_reasoner.pantograph_model_sexpr import create_model_sexpr_server
-from maths_ai.hybrid_reasoner.hypergraph import BackupSource
+from maths_ai.hybrid_reasoner.hypergraph import BackupSource, SearchEndReason
 from maths_ai.hybrid_reasoner.selection_policy import resolve_search_params
 
 from .actor_critic import ActorCriticWithArgsClassifier
@@ -41,6 +42,8 @@ from .dataset import DATASET_NAME, iter_dataset_rows
 from .pln_reward import RewardConfig
 from .pln_rl_training import make_dag_featurizer, train_step_htps_style, train_step_onpolicy
 from .reporting import console_print
+from .rl_live_collection import LiveReasonerPool
+from .rl_resources import ResourcePlan, plan_resources
 from .rl_reasoner import RLHybridReasoner, RLSearchResult
 from .search_harvest import (
     CriticSample,
@@ -150,6 +153,17 @@ class RLTrainingConfig:
     run_root: Path = Path("runs/rl_actor_critic")
     device: str = "auto"
 
+    # Live collection resources. Replicas are read-only until the round update
+    # completes, preserving the on-policy boundary.
+    collection_workers: int = 1
+    collection_devices: list[str] | None = None
+    update_device: str | None = None
+    cpu_reserve: int = 2
+    resource_check: str = "strict"
+    worker_queue_size: int = 0
+    server_start_timeout_s: float = 120.0
+    worker_shutdown_timeout_s: float = 10.0
+
     source_root: Path | None = None
     pantograph_repl: Path | None = None
     pantograph_imports: list[str] | None = None
@@ -189,6 +203,23 @@ class RLTrainingConfig:
                 continue
             out[key] = str(value) if isinstance(value, Path) else value
         return out
+
+    def resource_plan(self) -> ResourcePlan:
+        """Resolve and validate the effective live-collection topology."""
+        requested_update_device = self.update_device or self.device
+        update_device = requested_update_device
+        if requested_update_device == "auto":
+            update_device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        collection_devices = self.collection_devices
+        if collection_devices is None and requested_update_device != "auto":
+            collection_devices = [update_device]
+        return plan_resources(
+            collection_workers=self.collection_workers,
+            collection_devices=collection_devices,
+            update_device=update_device,
+            cpu_reserve=self.cpu_reserve,
+            resource_check=self.resource_check,
+        )
 
 
 def pantograph_env(cfg: RLTrainingConfig) -> PantographEnv:
@@ -383,12 +414,13 @@ async def collect_round(
     *,
     timeout_s: float,
     greedy: bool = False,
+    reasoner_pool: LiveReasonerPool | None = None,
+    model_generation: int = 0,
 ) -> tuple[list[RLSearchResult], dict[str, float]]:
-    """Sequential collect with per-theorem fault isolation.
+    """Collect with per-theorem fault isolation.
 
-    A theorem whose search raises or times out contributes no result; the round
-    trains on the survivors. Sequential because one reasoner holds one action
-    stash at a time (refinement 6).
+    A pool uses isolated reasoners and Pantograph servers concurrently. The
+    single-reasoner path remains available for tests and small runs.
 
     Timeout handling: ``prove`` receives a monotonic ``deadline`` and stops
     cleanly between expansions / simulation batches, returning the partial
@@ -397,9 +429,19 @@ async def collect_round(
     backstop at ``timeout_s * 1.25`` for a hang inside a single Lean call,
     where cancellation (and the loss of that search) is the only option left.
     """
+    if reasoner_pool is not None:
+        collected = await reasoner_pool.collect_round(
+            batch,
+            timeout_s=timeout_s,
+            greedy=greedy,
+            model_generation=model_generation,
+        )
+        return collected.results, collected.stats
     results: list[RLSearchResult] = []
     solved = 0
     failed = 0
+    cooperative_deadlines = 0
+    hard_timeouts = 0
     for item in batch:
         try:
             deadline = time.monotonic() + timeout_s
@@ -415,8 +457,11 @@ async def collect_round(
             results.append(result)
             if result.graph.is_solved():
                 solved += 1
+            if result.graph.end_reason == SearchEndReason.DEADLINE:
+                cooperative_deadlines += 1
         except asyncio.TimeoutError:
             failed += 1
+            hard_timeouts += 1
             console_print(f"  [collect] timeout on: {item.goal.expression[:60]}")
         except Exception as exc:  # noqa: BLE001 — a single search may not kill the run
             failed += 1
@@ -426,6 +471,8 @@ async def collect_round(
         "collected": float(len(results)),
         "solved": float(solved),
         "searches_failed": float(failed),
+        "searches_cooperative_deadline": float(cooperative_deadlines),
+        "searches_hard_timed_out": float(hard_timeouts),
     }
     return results, stats
 
@@ -513,6 +560,8 @@ async def evaluate_proof_rate(
     eval_items: list[TheoremItem],
     *,
     timeout_s: float = 60.0,
+    reasoner_pool: LiveReasonerPool | None = None,
+    model_generation: int = 0,
 ) -> dict[str, float]:
     """Greedy proof rate on the fixed held-out pool — the model-selection metric.
 
@@ -525,7 +574,12 @@ async def evaluate_proof_rate(
     reasoner.model.eval()
     try:
         _results, stats = await collect_round(
-            reasoner, eval_items, timeout_s=timeout_s, greedy=True
+            reasoner,
+            eval_items,
+            timeout_s=timeout_s,
+            greedy=True,
+            reasoner_pool=reasoner_pool,
+            model_generation=model_generation,
         )
     finally:
         if was_training:
@@ -544,18 +598,74 @@ async def evaluate_proof_rate(
 # ---------------------------------------------------------------------------
 
 
-def _resolve_device(device: str) -> torch.device:
-    if device == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return torch.device(device)
-
-
 def _create_run_dir(run_root: Path) -> Path:
     run_root.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     run_dir = run_root / stamp
     run_dir.mkdir(parents=True, exist_ok=False)
     return run_dir
+
+
+async def _create_live_reasoner_pool(
+    *,
+    model: ActorCriticWithArgsClassifier,
+    node_vocab: dict[str, int],
+    tactic_vocab: dict[str, int],
+    cfg: RLTrainingConfig,
+    env: PantographEnv,
+    plan: ResourcePlan,
+    model_generation: int = 0,
+) -> LiveReasonerPool:
+    """Create workers whose reasoners preserve the complete MCTS configuration."""
+    from maths_ai.hybrid_reasoner.joint_inference import PantographExecutor
+
+    async def server_factory(_worker_id: int):
+        return await create_model_sexpr_server(env)
+
+    def reasoner_factory(worker_id, device, replica, server):
+        del worker_id
+        return RLHybridReasoner(
+            model=replica,
+            node_vocab=node_vocab,
+            tactic_vocab=tactic_vocab,
+            executor=PantographExecutor(server),
+            device=device,
+            top_k_tactics=cfg.top_k_tactics,
+            max_depth=cfg.max_depth,
+            max_nodes=cfg.max_nodes,
+            selection_policy=cfg.selection_policy,
+            num_simulations=cfg.num_simulations,
+            sim_batch_size=cfg.sim_batch_size,
+            puct_c=cfg.puct_c,
+            use_pln=cfg.use_pln,
+            env=env,
+        )
+
+    async def search_factory(reasoner, theorem, greedy, deadline):
+        return await reasoner.prove(
+            theorem.goal.expression,
+            hypotheses=theorem.goal.hypotheses,
+            greedy=greedy,
+            deadline=deadline,
+        )
+
+    return await LiveReasonerPool.create(
+        model=model,
+        plan=plan,
+        server_factory=server_factory,
+        reasoner_factory=reasoner_factory,
+        search_factory=search_factory,
+        is_solved=lambda result: result.graph.is_solved(),
+        is_cooperative_deadline=lambda result: (
+            result.graph.end_reason == SearchEndReason.DEADLINE
+        ),
+        startup_timeout_s=cfg.server_start_timeout_s,
+        shutdown_timeout_s=cfg.worker_shutdown_timeout_s,
+        queue_size=cfg.worker_queue_size,
+        environment_description=env.describe(),
+        model_generation=model_generation,
+        log=console_print,
+    )
 
 
 async def run_rl_training(
@@ -565,13 +675,35 @@ async def run_rl_training(
     reasoner_factory=None,
     pool: TheoremPool | None = None,
 ) -> dict[str, float]:
+    """Run training while guaranteeing cleanup of every live Pantograph worker."""
+
+    async with AsyncExitStack() as live_stack:
+        return await _run_rl_training_impl(
+            cfg,
+            resume_run_dir=resume_run_dir,
+            reasoner_factory=reasoner_factory,
+            pool=pool,
+            live_stack=live_stack,
+        )
+
+
+async def _run_rl_training_impl(
+    cfg: RLTrainingConfig,
+    *,
+    resume_run_dir: Path | None,
+    reasoner_factory,
+    pool: TheoremPool | None,
+    live_stack: AsyncExitStack,
+) -> dict[str, float]:
     """The round loop: collect → one gradient step → anneal/checkpoint/eval.
 
     ``reasoner_factory(model, node_vocab, tactic_vocab, cfg) -> RLHybridReasoner``
     and ``pool`` are injectable for tests (a mock executor and a synthetic pool);
     both default to the live Pantograph path and the configured data source.
     """
-    device = _resolve_device(cfg.device)
+    resource_plan = cfg.resource_plan()
+    device = resource_plan.update_device
+    console_print(f"RL resources: {resource_plan.describe()}")
     metadata = load_prepared_metadata(cfg.prepared_root)
     require_graph_representation(metadata.graph_representation)
     node_vocab, tactic_vocab = metadata.node_vocab, metadata.tactic_vocab
@@ -585,9 +717,13 @@ async def run_rl_training(
         expected_model_kind="actor_critic_with_args",
     )
     model = model.to(device)
+    model_parameter_bytes = sum(
+        parameter.numel() * parameter.element_size() for parameter in model.parameters()
+    )
     console_print(
         f"Warm start (strict, {model_spec.architecture}): {cfg.warmstart_checkpoint}"
     )
+    console_print(f"Canonical model parameters: {model_parameter_bytes} bytes")
 
     optimizer = AdamW(model.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
     # Decoupled HTPS-style step: separate optimizer instance over the SAME
@@ -688,30 +824,23 @@ async def run_rl_training(
     torch.manual_seed(cfg.seed)
 
     # Reasoner (live Pantograph unless a factory is injected).
+    model_generation = 0
+    live_reasoner_pool: LiveReasonerPool | None = None
     if reasoner_factory is None:
-        from maths_ai.hybrid_reasoner.joint_inference import PantographExecutor
-
-        environment = pantograph_env(cfg)
-        environment.verify()
-        console_print(f"Pantograph environment: {environment.describe()}")
-        server = await create_model_sexpr_server(environment)
-        executor = PantographExecutor(server)
-        reasoner = RLHybridReasoner(
+        env = pantograph_env(cfg)
+        env.verify()
+        console_print(f"Pantograph environment: {env.describe()}")
+        live_reasoner_pool = await _create_live_reasoner_pool(
             model=model,
             node_vocab=node_vocab,
             tactic_vocab=tactic_vocab,
-            executor=executor,
-            device=device,
-            top_k_tactics=cfg.top_k_tactics,
-            max_depth=cfg.max_depth,
-            max_nodes=cfg.max_nodes,
-            selection_policy=cfg.selection_policy,
-            num_simulations=cfg.num_simulations,
-            sim_batch_size=cfg.sim_batch_size,
-            puct_c=cfg.puct_c,
-            use_pln=cfg.use_pln,
-            env=environment,
+            cfg=cfg,
+            env=env,
+            plan=resource_plan,
+            model_generation=model_generation,
         )
+        await live_stack.enter_async_context(live_reasoner_pool)
+        reasoner = live_reasoner_pool.primary
     else:
         reasoner = reasoner_factory(model, node_vocab, tactic_vocab, cfg)
 
@@ -744,17 +873,18 @@ async def run_rl_training(
             break
 
         results, collect_stats = await collect_round(
-            reasoner, batch, timeout_s=cfg.theorem_timeout_s
+            reasoner,
+            batch,
+            timeout_s=cfg.theorem_timeout_s,
+            reasoner_pool=live_reasoner_pool,
+            model_generation=model_generation,
         )
 
         bc_weight = bc_weight_at_round(onpolicy_steps, cfg)
+        onpolicy_started = time.perf_counter()
         if results:
-            # Exactly ONE optimizer step per collect round (on-policy invariant).
-            # The decoupled train_step_htps_style below is EXEMPT: it is supervised
-            # regression on stored (input, label) pairs through its own optimizer —
-            # the invariant belongs to the score-function estimator in
-            # compute_onpolicy_loss, whose recomputed log-probs are on-policy only
-            # under the parameters that sampled the actions.
+            # The score-function estimator performs at most one on-policy update
+            # before replay mining. HTPS updates below use their separate optimizer.
             metrics = train_step_onpolicy(
                 model,
                 optimizer,
@@ -780,36 +910,33 @@ async def run_rl_training(
                 "total_label_count": 0.0,
                 "onpolicy_optimizer_step": 0.0,
             }
-        onpolicy_steps += int(metrics.get("onpolicy_optimizer_step", 0.0))
+        metrics["onpolicy_update_s"] = time.perf_counter() - onpolicy_started
+        onpolicy_optimizer_steps = int(metrics.get("onpolicy_optimizer_step", 0.0))
+        onpolicy_steps += onpolicy_optimizer_steps
 
-        if metrics.get("onpolicy_optimizer_step", 0.0) == 0.0:
-            dead_rounds += 1
-            if dead_rounds >= cfg.max_dead_rounds:
-                raise RuntimeError(
-                    "RL training produced no valid actor or critic update for "
-                    f"{cfg.max_dead_rounds} consecutive rounds. Inspect unknown-label and "
-                    "whole-search error metrics, and verify the Pantograph environment at "
-                    f"{cfg.source_root}."
-                )
-        else:
-            dead_rounds = 0
-
-        # Decoupled HTPS-style step (Phases 2–3): mine every collected graph —
-        # solved or not — into the replay queues, then run the configured number
-        # of supervised steps on samples drawn from them.
+        # Mine every completed graph into replay before applying the configured
+        # supervised HTPS updates. Replicas are not read anywhere in this phase.
         imitation_mined = 0
-        for r in results:
+        for result in results:
             critic_queue.extend(
-                extract_critic_samples(r.graph, visit_threshold=cfg.visit_threshold)
+                extract_critic_samples(
+                    result.graph,
+                    visit_threshold=cfg.visit_threshold,
+                )
             )
             mined = extract_minimal_hypertree(
-                r.graph, r.edge_actions, mine_all_solved_nodes=cfg.mine_all_solved_nodes
+                result.graph,
+                result.edge_actions,
+                mine_all_solved_nodes=cfg.mine_all_solved_nodes,
             )
             imitation_mined += len(mined)
             tactic_queue.extend(mined)
         metrics["imitation_samples_mined"] = float(imitation_mined)
         metrics["tactic_queue_len"] = float(len(tactic_queue))
         metrics["critic_queue_len"] = float(len(critic_queue))
+
+        htps_optimizer_steps = 0
+        htps_started = time.perf_counter()
         for _ in range(cfg.htps_steps_per_round):
             if not tactic_queue and not critic_queue:
                 break
@@ -830,8 +957,17 @@ async def run_rl_training(
                 grad_clip=cfg.grad_clip,
                 device=device,
             )
-            metrics["tactic_imitation_loss"] = htps_metrics["tactic_imitation_loss"]
-            metrics["critic_soft_loss"] = htps_metrics["critic_soft_loss"]
+            htps_optimizer_steps += int(
+                htps_metrics.get("htps_optimizer_step", 0.0)
+            )
+            for key in (
+                "tactic_imitation_loss",
+                "critic_soft_loss",
+                "htps_total_loss",
+                "num_imitation_rows",
+                "num_critic_rows",
+            ):
+                metrics[key] = htps_metrics[key]
             for key in (
                 "unknown_label_count",
                 "structural_unknown_label_count",
@@ -839,6 +975,43 @@ async def run_rl_training(
                 "total_label_count",
             ):
                 metrics[f"htps_{key}"] = htps_metrics[key]
+        metrics["htps_update_s"] = time.perf_counter() - htps_started
+        metrics["htps_optimizer_steps"] = float(htps_optimizer_steps)
+
+        parameter_updates_this_round = (
+            onpolicy_optimizer_steps + htps_optimizer_steps
+        )
+        metrics["parameter_updates_this_round"] = float(
+            parameter_updates_this_round
+        )
+        if parameter_updates_this_round:
+            model_generation += parameter_updates_this_round
+            if live_reasoner_pool is not None:
+                collect_stats["replica_sync_s"] = live_reasoner_pool.synchronize(
+                    model,
+                    model_generation,
+                )
+                live_reasoner_pool.assert_generation(model_generation)
+            else:
+                collect_stats["replica_sync_s"] = 0.0
+            dead_rounds = 0
+        else:
+            collect_stats["replica_sync_s"] = 0.0
+            dead_rounds += 1
+
+        collect_stats["model_generation"] = float(model_generation)
+        collect_stats["replica_generation"] = float(
+            live_reasoner_pool.model_generation
+            if live_reasoner_pool is not None
+            else model_generation
+        )
+        if dead_rounds >= cfg.max_dead_rounds:
+            raise RuntimeError(
+                "RL training produced no valid on-policy or HTPS optimizer update for "
+                f"{cfg.max_dead_rounds} consecutive rounds. Inspect unknown-label and "
+                "whole-search error metrics, and verify the Pantograph environment at "
+                f"{cfg.source_root}."
+            )
 
         # Curriculum: grow when the recent training-window solve rate crosses threshold.
         solve_rate = collect_stats["solved"] / (collect_stats["attempted"] or 1.0)
@@ -888,8 +1061,14 @@ async def run_rl_training(
             )
 
         if cfg.eval_every > 0 and (round_idx + 1) % cfg.eval_every == 0 and pool.eval_items:
+            if live_reasoner_pool is not None:
+                live_reasoner_pool.assert_generation(model_generation)
             eval_stats = await evaluate_proof_rate(
-                reasoner, pool.eval_items, timeout_s=cfg.theorem_timeout_s
+                reasoner,
+                pool.eval_items,
+                timeout_s=cfg.theorem_timeout_s,
+                reasoner_pool=live_reasoner_pool,
+                model_generation=model_generation,
             )
             console_print(f"  Eval: proof rate {eval_stats['proof_rate']:.3f}")
             with open(metrics_path, "a") as f:
@@ -958,11 +1137,21 @@ def driver_main(argv: list[str] | None = None) -> int:
         cfg.eval_every = 0
 
         async def _eval() -> None:
-            device = _resolve_device(cfg.device)
+            environment = pantograph_env(cfg)
+            environment.verify()
+            console_print(f"Pantograph environment: {environment.describe()}")
+
+            resource_plan = cfg.resource_plan()
+            device = resource_plan.update_device
+            console_print(f"RL resources: {resource_plan.describe()}")
             metadata = load_prepared_metadata(cfg.prepared_root)
             require_graph_representation(metadata.graph_representation)
             node_vocab, tactic_vocab = metadata.node_vocab, metadata.tactic_vocab
-            checkpoint = torch.load(cfg.warmstart_checkpoint, map_location=device, weights_only=False)
+            checkpoint = torch.load(
+                cfg.warmstart_checkpoint,
+                map_location=device,
+                weights_only=False,
+            )
             model, _manifest, _model_spec = build_model_from_checkpoint(
                 checkpoint,
                 node_vocab=node_vocab,
@@ -972,26 +1161,29 @@ def driver_main(argv: list[str] | None = None) -> int:
             )
             model = model.to(device)
 
-            from maths_ai.hybrid_reasoner.joint_inference import PantographExecutor
-
-            environment = pantograph_env(cfg)
-            environment.verify()
-            server = await create_model_sexpr_server(environment)
-            reasoner = RLHybridReasoner(
-                model=model, node_vocab=node_vocab, tactic_vocab=tactic_vocab,
-                executor=PantographExecutor(server), device=device,
-                top_k_tactics=cfg.top_k_tactics,
-                max_depth=cfg.max_depth, max_nodes=cfg.max_nodes,
-                selection_policy=cfg.selection_policy,
-                num_simulations=cfg.num_simulations,
-                sim_batch_size=cfg.sim_batch_size,
-                puct_c=cfg.puct_c,
-                use_pln=cfg.use_pln,
+            live_pool = await _create_live_reasoner_pool(
+                model=model,
+                node_vocab=node_vocab,
+                tactic_vocab=tactic_vocab,
+                cfg=cfg,
                 env=environment,
+                plan=resource_plan,
+                model_generation=0,
             )
-            pool = build_theorem_pool(cfg)
-            stats = await evaluate_proof_rate(reasoner, pool.eval_items, timeout_s=cfg.theorem_timeout_s)
-            console_print(f"Proof rate: {stats['proof_rate']:.3f} ({stats['solved']:.0f}/{stats['attempted']:.0f})")
+            async with live_pool:
+                theorem_pool = build_theorem_pool(cfg)
+                live_pool.assert_generation(0)
+                stats = await evaluate_proof_rate(
+                    live_pool.primary,
+                    theorem_pool.eval_items,
+                    timeout_s=cfg.theorem_timeout_s,
+                    reasoner_pool=live_pool,
+                    model_generation=0,
+                )
+                console_print(
+                    f"Proof rate: {stats['proof_rate']:.3f} "
+                    f"({stats['solved']:.0f}/{stats['attempted']:.0f})"
+                )
 
         asyncio.run(_eval())
         return 0
