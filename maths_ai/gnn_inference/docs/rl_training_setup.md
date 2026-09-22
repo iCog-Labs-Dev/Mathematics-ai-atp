@@ -248,6 +248,15 @@ are required. Startup requests `printExprModelAST`, patches PyPantograph's narro
 and runs a live capability probe before loading theorem searches. Command-line values
 override the corresponding config values:
 
+The configured custom REPL is launched as `stdbuf -oL <repl> Init Mathlib`. The pinned
+Lean runtime otherwise block-buffers `ready.` and later newline-delimited JSON responses
+when stdout is connected to PyPantograph's pipe. stdin remains an open writable pipe so
+the server can accept `options.set`, `goal.start`, and `goal.tactic` after readiness.
+GNU `stdbuf` must therefore be available on `PATH`; it is supplied by `coreutils` on the
+supported Linux deployment. Closing stdin with `DEVNULL` or increasing the startup
+timeout does not provide a usable interactive server. Explicitly flushing every
+protocol response in the Pantograph fork is the longer-term portable correction.
+
 ```bash
 uv run python -m maths_ai.gnn_inference.scripts.rl_smoke \
   --source-root /abs/path/to/mathlib-lake-project \
@@ -588,6 +597,8 @@ reject mismatched fingerprints rather than using incompatible embeddings.
 | checkpoint has no version-3 manifest | an older checkpoint or bare state dictionary was supplied | run the audited offline migration, or retrain when no migration layout exists |
 | graph representation mismatch | checkpoint and prepared artifacts were built by different graph contracts | use the matching prepared root and migrate the checkpoint from that validated root |
 | model S-expression capability probe fails | the supplied REPL is upstream Pantograph, the options are unsupported, or required payload fields are absent | use the pinned setup script output and rebuild that exact environment |
+| custom Pantograph REPL requires GNU `stdbuf` | `stdbuf` is absent from the runtime `PATH`, so the pinned REPL cannot be launched with line-buffered stdout | install `coreutils` in the runtime environment and rerun preflight |
+| server does not emit `ready.` with stdin open | the REPL was launched directly or the host's `stdbuf` mechanism does not affect that executable | confirm the logged command contains `stdbuf -oL`; on an incompatible platform, patch the REPL to flush every protocol response explicitly |
 | checkpoint model kind is `tactic_with_args` | a pointer checkpoint was supplied directly to RL | train the matching supervised actor-critic first |
 | pointer and actor-critic model specifications differ | architecture, readout, dimensions, or another normalized model field does not match | use matching presets and identical complete `model` blocks |
 | vocabulary fingerprint does not match | the prepared vocabulary mapping differs from the checkpoint's mapping | use the prepared dataset that created the checkpoint |

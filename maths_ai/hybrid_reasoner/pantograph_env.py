@@ -23,7 +23,9 @@ Two seams inside PyPantograph do the work:
 
 from __future__ import annotations
 
+import asyncio
 import os
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -98,6 +100,7 @@ class PantographEnv:
                 raise RuntimeError(f"pantograph_repl is not a file: {repl}")
             if not os.access(repl, os.X_OK):
                 raise RuntimeError(f"pantograph_repl is not executable: {repl}")
+            self._stdbuf_path()
 
         self._verify_toolchains()
 
@@ -147,6 +150,33 @@ class PantographEnv:
             return repl.parent / "lean-toolchain"
         return Path(_get_proc_cwd()) / "lean-toolchain"
 
+    def _stdbuf_path(self) -> Path:
+        """Resolve the line-buffering launcher required by a custom REPL."""
+        if self.pantograph_repl is None:
+            raise RuntimeError("stdbuf resolution requires a configured pantograph_repl.")
+        executable = shutil.which("stdbuf")
+        if executable is None:
+            raise RuntimeError(
+                f"The custom Pantograph REPL at {self.pantograph_repl} requires GNU "
+                "stdbuf on PATH so its interactive stdout is line-buffered. Install "
+                "coreutils; direct execution can deadlock during the ready handshake."
+            )
+        return Path(executable).resolve()
+
+    def _configure_launch_command(
+        self,
+        server: Server,
+        *,
+        stdbuf_path: Path | None = None,
+    ) -> tuple[str, ...]:
+        """Install the effective subprocess command on a deferred server."""
+        if self.pantograph_repl is None:
+            return (str(server.proc_path), *(str(argument) for argument in server.args))
+        original_args = [str(argument) for argument in server.args]
+        server.proc_path = str(stdbuf_path or self._stdbuf_path())
+        server.args = ["-oL", str(self.pantograph_repl), *original_args]
+        return (str(server.proc_path), *server.args)
+
     # ------------------------------------------------------------------
     # Construction
     # ------------------------------------------------------------------
@@ -159,6 +189,7 @@ class PantographEnv:
         consults ``start``, so the deferred spawn still receives a fully resolved
         ``LEAN_PATH``.
         """
+        stdbuf_path = self._stdbuf_path() if self.pantograph_repl is not None else None
         server = await Server.create(
             imports=list(self.imports),
             project_path=str(self.source_root) if self.source_root else None,
@@ -166,9 +197,6 @@ class PantographEnv:
             timeout=self.timeout,
             start=False,
         )
-        if self.pantograph_repl is not None:
-            server.proc_path = str(self.pantograph_repl)
-
         # `get_lean_path_async` runs `lake env printenv LEAN_PATH` through
         # `utils.check_output`, which returns None on a non-zero exit rather than
         # raising. An unbuilt project therefore yields lean_path=None silently and
@@ -180,11 +208,28 @@ class PantographEnv:
                 f"Run `cd {self.source_root} && lake exe cache get && lake build` first."
             )
 
-        await server.restart_async()
+        command = self._configure_launch_command(server, stdbuf_path=stdbuf_path)
+        try:
+            await server.restart_async()
+        except asyncio.CancelledError:
+            server._close()
+            raise
+        except Exception as exc:
+            server._close()
+            rendered_command = " ".join(command)
+            raise RuntimeError(
+                "Pantograph startup failed for "
+                f"command={rendered_command!r} source_root={self.source_root or '<default>'} "
+                f"imports={list(self.imports)}: {type(exc).__name__}: {exc}"
+            ) from exc
         return server
 
     def describe(self) -> str:
         """One-line summary for run logs."""
         root = self.source_root or "<core Lean only>"
         repl = self.pantograph_repl or "<bundled>"
-        return f"source_root={root} repl={repl} imports={list(self.imports)}"
+        launcher = "stdbuf -oL" if self.pantograph_repl is not None else "direct"
+        return (
+            f"source_root={root} repl={repl} launcher={launcher} "
+            f"imports={list(self.imports)}"
+        )
