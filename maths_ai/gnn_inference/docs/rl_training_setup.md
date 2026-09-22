@@ -138,6 +138,15 @@ The helper checks the custom REPL, `Mathlib` environment, and model-S-expression
 before a training run. The first build may compile Lean core and Mathlib, which can take
 several minutes.
 
+The configured custom REPL is launched as `stdbuf -oL <repl> Init Mathlib`. The pinned
+Lean runtime otherwise block-buffers `ready.` and later newline-delimited JSON responses
+when stdout is connected to PyPantograph's pipe. stdin remains an open writable pipe so
+the server can accept `options.set`, `goal.start`, and `goal.tactic` after readiness.
+GNU `stdbuf` must therefore be available on `PATH`; it is supplied by `coreutils` on the
+supported Linux deployment. Closing stdin with `DEVNULL` or increasing the startup
+timeout does not provide a usable interactive server. Explicitly flushing every
+protocol response in the Pantograph fork is the longer-term portable correction.
+
 ### 3.3 petta (PLN) — required only when `use_pln=true`
 
 If you are running with `"use_pln": false` (terminal-reward-only mode), skip this
@@ -464,6 +473,8 @@ uv run python maths_ai/gnn_inference/scripts/rl_train.py \
 | `RuntimeError: rank_subgoals requires PLN; ... use_pln=False` | `rank_subgoals` called directly on a `use_pln=False` reasoner | this is a guard, not a config error; indicates a code path that expects PLN was reached — check that the calling code respects the flag |
 | every PLN result `is_fallback=True` | petta not found (only relevant when `use_pln=true`) | install petta / set `PETTA_BIN`; or switch to `"use_pln": false` |
 | strict Pantograph server creation fails | missing or mismatched `source_root`, `pantograph_repl`, Lean toolchain, or `Mathlib` import | run `setup_sexpr_environment.py` with the same paths and rebuild the custom REPL |
+| custom Pantograph REPL requires GNU `stdbuf` | `stdbuf` is absent from the runtime `PATH`, so the pinned REPL cannot be launched with line-buffered stdout | install `coreutils` in the runtime environment and rerun preflight |
+| server does not emit `ready.` with stdin open | the REPL was launched directly or the host's `stdbuf` mechanism does not affect that executable | confirm the logged command contains `stdbuf -oL`; on an incompatible platform, patch the REPL to flush every protocol response explicitly |
 | `ModuleNotFoundError: datasets` | streaming dep not installed | `uv add datasets` |
 
 ## 8. Hardware-aware live collection

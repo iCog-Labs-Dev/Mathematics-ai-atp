@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -20,6 +21,17 @@ PANTOGRAPH_PATCHED_FILES = {
     "Pantograph/Protocol.lean",
     "Repl.lean",
 }
+
+
+def _require_stdbuf() -> str:
+    """Return the GNU line-buffering launcher required by the custom REPL."""
+    executable = shutil.which("stdbuf")
+    if executable is None:
+        raise RuntimeError(
+            "GNU stdbuf is required to run the pinned Pantograph REPL "
+            "interactively. Install coreutils before provisioning the environment."
+        )
+    return str(Path(executable).resolve())
 
 
 def _run(*command: str, cwd: Path | None = None) -> None:
@@ -103,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-mathlib-cache", action="store_true")
     args = parser.parse_args(argv)
 
+    stdbuf = _require_stdbuf()
     output_root = args.output_root.resolve()
     mathlib = output_root / "mathlib4"
     pantograph = output_root / "Pantograph"
@@ -119,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     print("\nS-expression environment is ready:")
     print(f"  --source-root {mathlib}")
     print(f"  --pantograph-repl {repl}")
+    print(f"  line-buffer launcher {stdbuf} -oL")
     return 0
 
 

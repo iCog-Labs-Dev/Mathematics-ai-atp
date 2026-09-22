@@ -6,10 +6,27 @@ from unittest.mock import patch
 from maths_ai.gnn_inference.scripts.setup_sexpr_environment import (
     LEAN_TOOLCHAIN,
     _ensure_toolchain,
+    _require_stdbuf,
 )
 
 
 class SetupSExprEnvironmentTests(unittest.TestCase):
+    @patch(
+        "maths_ai.gnn_inference.scripts.setup_sexpr_environment.shutil.which",
+        return_value="/usr/bin/stdbuf",
+    )
+    def test_stdbuf_dependency_resolves_from_runtime_path(self, which):
+        self.assertEqual(_require_stdbuf(), "/usr/bin/stdbuf")
+        which.assert_called_once_with("stdbuf")
+
+    @patch(
+        "maths_ai.gnn_inference.scripts.setup_sexpr_environment.shutil.which",
+        return_value=None,
+    )
+    def test_missing_stdbuf_is_a_named_setup_error(self, _which):
+        with self.assertRaisesRegex(RuntimeError, "Install coreutils"):
+            _require_stdbuf()
+
     @patch("maths_ai.gnn_inference.scripts.setup_sexpr_environment._run")
     @patch("maths_ai.gnn_inference.scripts.setup_sexpr_environment._output")
     def test_already_installed_toolchain_is_not_reinstalled(self, output, run):
