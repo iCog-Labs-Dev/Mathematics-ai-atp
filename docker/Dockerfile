@@ -82,11 +82,10 @@ RUN git clone --depth 1 https://github.com/123nol/petta_chainer.git /opt/pettach
 ENV PATH="/workspace/docker/commands:/opt/venv/bin:/root/.local/bin:${PATH}"
 ENV PYTHONPATH="/workspace"
 
-# Create non-root user for security
-RUN useradd -m -u 1000 maths_ai
-
-# Create data directory for assets
-RUN mkdir -p /data/gnn_inference/runs
+# Create non-root user for security and grant it ownership of the asset volume.
+RUN useradd -m -u 1000 maths_ai && \
+    mkdir -p /data/gnn_inference/runs /data/maths_ai/gnn_inference/models && \
+    chown -R maths_ai:maths_ai /data
 
 USER maths_ai
 WORKDIR /workspace
