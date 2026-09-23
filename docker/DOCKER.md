@@ -11,39 +11,41 @@ This project uses a multi-stage Dockerfile with a shared base stage and three se
 
 ## Quick Start
 
-### Build Images
+### Docker Compose
+
+Run these commands from the repository root:
 
 ```bash
-# Build core image (joint prover)
-docker build --target core -t maths_ai-core -f docker/Dockerfile .
+# Build all Compose services
+docker compose build
 
-# Build experimental service (includes experiments/)
-docker build --target experimental -t maths_ai-experimental -f docker/Dockerfile .
+# Fetch assets and start the API
+docker compose up
 
-# Build training service (batch jobs, GPU-optional)
-docker build --target training -t maths_ai-training -f docker/Dockerfile .
+# Run the batch prover
+docker compose --profile batch run --rm core
+
+# Run training
+docker compose --profile training run --rm training
+
+# Open the experimental service
+docker compose --profile experimental run --rm experimental
 ```
 
-### Run Services
+### Direct Dockerfile Builds
+
+Use `-f docker/Dockerfile` when building a target directly from the repository
+root:
 
 ```bash
-# Core proof run
-docker run --rm --name maths_ai-core \
-  -v $(pwd)/data:/data \
-  maths_ai-core \
-  python -m maths_ai.hybrid_reasoner.joint_inference \
-  --goal_statement "forall (p q: Prop), Or p q -> Or q p"
+# Build the API image
+docker build -f docker/Dockerfile --target core -t maths_ai-core .
 
-# Experimental service (interactive)
-docker run -it --rm \
-  -v $(pwd)/data:/data \
-  -v $(pwd)/experiments:/workspace/experiments \
-  maths_ai-experimental bash
+# Build the training image
+docker build -f docker/Dockerfile --target training -t maths_ai-training .
 
-# Training service (batch, NVIDIA GPU required)
-docker run --rm --gpus all \
-  -v $(pwd)/data:/data \
-  maths_ai-training python -m maths_ai.gnn_inference.scripts.run_training --device cuda
+# Build the experimental image
+docker build -f docker/Dockerfile --target experimental -t maths_ai-experimental .
 ```
 
 ### Model Assets
