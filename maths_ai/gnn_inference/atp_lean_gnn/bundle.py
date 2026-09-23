@@ -44,6 +44,12 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _json_sha256(path: Path) -> str:
+    payload = _read_json(path)
+    canonical = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def _verify_hash(root: Path, relative_path: str, expected: str) -> Path:
     path = root / relative_path
     if not path.is_file():
@@ -102,9 +108,9 @@ def load_pointer_bundle(
     tactic_vocab_path = resolve_vocab_path(manifest["tactic_vocab"])
     node_vocab = _read_json(node_vocab_path)
     tactic_vocab = _read_json(tactic_vocab_path)
-    if _sha256(node_vocab_path) != manifest["node_vocab_sha256"]:
+    if _json_sha256(node_vocab_path) != manifest["node_vocab_sha256"]:
         raise ValueError("Node vocabulary hash does not match the pointer bundle manifest.")
-    if _sha256(tactic_vocab_path) != manifest["tactic_vocab_sha256"]:
+    if _json_sha256(tactic_vocab_path) != manifest["tactic_vocab_sha256"]:
         raise ValueError("Tactic vocabulary hash does not match the pointer bundle manifest.")
 
     model_config = config.get("model", {})
