@@ -21,15 +21,18 @@ DATA_ROOT="/data"
 ASSETS_EXIST=false
 
 # Check for model directories (from config yaml files)
-if [ -d "$DATA_ROOT/gnn_inference/runs/premise_gnn" ] || \
-   [ -d "$DATA_ROOT/gnn_inference/runs/pointer_gnn" ] || \
+if [ -d "$DATA_ROOT/maths_ai/gnn_inference/models/mathlib_sexpr_gnn/pointer-gat-gru" ] || \
+    [ -d "$DATA_ROOT/maths_ai/gnn_inference/models/mathlib_sexpr_gnn/tactic-baseline-gat" ] || \
+    [ -d "$DATA_ROOT/gnn_inference/runs/premise_gnn" ] || \
+    [ -d "$DATA_ROOT/gnn_inference/runs/pointer_gnn" ] || \
    [ -d "$DATA_ROOT/gnn_inference/runs/lemma_corpus_v1" ]; then
     ASSETS_EXIST=true
 fi
 
 # Also check for .snapshot_revision marker files
-if [ -f "$DATA_ROOT/gnn_inference/runs/premise_gnn/.snapshot_revision" ] || \
-   [ -f "$DATA_ROOT/gnn_inference/runs/pointer_gnn/.snapshot_revision" ] || \
+if [ -f "$DATA_ROOT/maths_ai/gnn_inference/models/mathlib_sexpr_gnn/.snapshot_revision" ] || \
+    [ -f "$DATA_ROOT/gnn_inference/runs/premise_gnn/.snapshot_revision" ] || \
+    [ -f "$DATA_ROOT/gnn_inference/runs/pointer_gnn/.snapshot_revision" ] || \
    [ -f "$DATA_ROOT/gnn_inference/runs/lemma_corpus_v1/.snapshot_revision" ]; then
     ASSETS_EXIST=true
 fi

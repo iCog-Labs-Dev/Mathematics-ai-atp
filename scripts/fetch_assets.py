@@ -103,6 +103,7 @@ def fetch_asset(config: dict, data_root: Path, hf_token: str | None = None) -> P
     revision = config['revision']
     repo_type = config['repo_type']
     local_subdir = config['local_subdir']
+    subfolder = config.get('subfolder')
     
     local_dir = data_root / local_subdir
     
@@ -117,7 +118,12 @@ def fetch_asset(config: dict, data_root: Path, hf_token: str | None = None) -> P
     # Create parent directory if needed
     local_dir.parent.mkdir(parents=True, exist_ok=True)
     
-    # Download from HuggingFace Hub
+    # Download from HuggingFace Hub. Bundle repositories keep shared vocabularies
+    # at the root, so restrict the snapshot to the selected bundle and vocab.
+    allow_patterns = None
+    if subfolder:
+        allow_patterns = [f"{subfolder}/**", "vocab/**"]
+
     try:
         print(f"  Downloading from HuggingFace Hub...")
         snapshot_download(
@@ -127,7 +133,8 @@ def fetch_asset(config: dict, data_root: Path, hf_token: str | None = None) -> P
             local_dir=str(local_dir),
             local_dir_use_symlinks=False,
             token=hf_token,
-            ignore_patterns=["*.msgpack", "*.h5", "*.tflite", "*.safetensors", "*.bin"],
+            allow_patterns=allow_patterns,
+            ignore_patterns=["*.msgpack", "*.h5", "*.tflite", "*.bin"],
         )
     except HfHubHTTPError as e:
         print(f"ERROR: Failed to resolve {repo_type} '{repo_id}' at revision '{revision}': {e}", file=sys.stderr)

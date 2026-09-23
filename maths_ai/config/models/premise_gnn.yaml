@@ -1,6 +1,7 @@
 name: premise_gnn
 source: huggingface
 repo_type: model
-repo_id: Melkamzer/iCog-Labs
-revision: v1.0.0
-local_subdir: gnn_inference/runs/sexpr_pointer_pipeline/premise_gnn
+repo_id: jajostrains/Mathlib-Sexpr-GNN
+revision: 53ccfea5927d70286a5211ae6936ead9db69f70a
+subfolder: tactic-baseline-gat
+local_subdir: maths_ai/gnn_inference/models/mathlib_sexpr_gnn
