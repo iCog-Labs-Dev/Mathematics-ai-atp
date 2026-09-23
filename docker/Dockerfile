@@ -40,12 +40,6 @@ ENV PATH="/root/.local/bin:${PATH}"
 COPY lean_project/ /opt/lean_project/
 WORKDIR /opt/lean_project
 
-# Configure git for reliable cloning (longer timeouts, HTTP/2)
-RUN git config --global http.lowSpeedLimit 0 && \
-    git config --global http.lowSpeedTime 999999 && \
-    git config --global http.postBuffer 524288000 && \
-    git config --global http.version HTTP/1.1
-
 # Build Lean project with Mathlib cache
 # Uses BuildKit cache mount for .lake directory
 RUN elan toolchain install leanprover/lean4:v4.15.0
@@ -74,10 +68,8 @@ ARG PETTA_REF=v1.0.3
 RUN git clone --depth 1 --branch ${PETTA_REF} https://github.com/trueagi-io/PeTTa.git /opt/petta \
     && uv pip install --python /opt/venv/bin/python /opt/petta
 
-# Install PeTTaChainer (vendor at pinned commit, replace git-import in MeTTa)
-ARG PETTACHAINER_REF=HEAD
-RUN git clone --depth 1 https://github.com/rTreutlein/PeTTaChainer.git /opt/pettachainer \
-    && git -C /opt/pettachainer checkout ${PETTACHAINER_REF}
+# Install PeTTaChainer (vendored locally to bypass missing/private GitHub repo)
+COPY experiments/pettaChainer_pln /opt/pettachainer
 
 ENV PATH="/workspace/docker/commands:/opt/venv/bin:/root/.local/bin:${PATH}"
 ENV PYTHONPATH="/workspace"
