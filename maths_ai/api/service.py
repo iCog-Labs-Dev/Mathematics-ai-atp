@@ -164,6 +164,7 @@ async def build_default_service(
     config_path: Optional[Path] = None,
     tactic_model_path: Optional[Path] = None,
     argument_model_path: Optional[Path] = None,
+    bundle_path: Optional[Path] = None,
     index_path: Optional[Path] = None,
     corpus_path: Optional[Path] = None,
     top_k_tactics: int = 3,
@@ -191,6 +192,7 @@ async def build_default_service(
     argument_model_path = argument_model_path or settings.argument_model_path
     index_path = index_path if index_path is not None else settings.lemma_index_path
     corpus_path = corpus_path if corpus_path is not None else settings.lemma_corpus_path
+    bundle_path = bundle_path if bundle_path is not None else settings.gnn_bundle_path
 
     server = await Server.create()
     try:
@@ -208,6 +210,7 @@ async def build_default_service(
             config_path=config_path,
             tactic_model_path=tactic_model_path,
             argument_model_path=argument_model_path,
+            bundle_path=bundle_path if bundle_path.exists() else None,
             index_path=index_path,
             corpus_path=corpus_path,
             executor=PantographExecutor(server=server),

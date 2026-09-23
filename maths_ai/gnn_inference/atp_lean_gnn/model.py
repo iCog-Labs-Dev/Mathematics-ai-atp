@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 from torch import nn
-from torch_geometric.nn import SAGEConv
+from torch_geometric.nn import GATv2Conv, SAGEConv
 
 from .pyg import NODE_TYPE_TO_ID
 
@@ -102,3 +102,84 @@ class GraphSAGEStateClassifier(nn.Module):
         node_embeddings = self.encode_nodes(data)
         graph_embeddings = self.readout(node_embeddings, data)
         return self.classifier(self.dropout(graph_embeddings))
+
+
+class PublishedAttentionReadout(nn.Module):
+    def __init__(self, hidden_dim: int) -> None:
+        super().__init__()
+        self.state_projection = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.node_projection = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.attention_score = nn.Linear(hidden_dim, 1, bias=False)
+        self.normalization = nn.LayerNorm(hidden_dim)
+        self.fusion = nn.Linear(hidden_dim * 3, hidden_dim)
+
+    def forward(self, node_embeddings: torch.Tensor, data) -> torch.Tensor:
+        state_indices = data.state_node_index.to(node_embeddings.device).view(-1)
+        state_embeddings = node_embeddings.index_select(0, state_indices)
+        batch_index = data.batch.to(node_embeddings.device)
+        graph_count = int(state_indices.numel())
+        pooled: list[torch.Tensor] = []
+        for graph_id in range(graph_count):
+            nodes = node_embeddings[batch_index == graph_id]
+            projected = self.node_projection(nodes)
+            weights = torch.softmax(self.attention_score(projected).squeeze(-1), dim=0)
+            pooled.append((weights.unsqueeze(-1) * nodes).sum(dim=0))
+        mean_embeddings = torch.stack(pooled)
+        fused = torch.cat(
+            [self.state_projection(state_embeddings), mean_embeddings, state_embeddings],
+            dim=-1,
+        )
+        return self.normalization(self.fusion(fused))
+
+
+class PublishedGATBackbone(nn.Module):
+    def __init__(
+        self,
+        *,
+        num_node_labels: int,
+        num_tactics: int,
+        num_node_types: int,
+        hidden_dim: int,
+        num_layers: int,
+        heads: int,
+        dropout: float,
+        use_node_type: bool,
+    ) -> None:
+        super().__init__()
+        self.label_embedding = nn.Embedding(num_node_labels, hidden_dim)
+        self.node_type_embedding = (
+            nn.Embedding(num_node_types, hidden_dim) if use_node_type else None
+        )
+        self.is_bound_embedding = nn.Embedding(2, hidden_dim)
+        self.binder_depth_embedding = nn.Embedding(10, hidden_dim)
+        self.binder_kind_embedding = nn.Embedding(6, hidden_dim)
+        self.convs = nn.ModuleList(
+            GATv2Conv(
+                hidden_dim,
+                hidden_dim // heads,
+                heads=heads,
+                concat=True,
+                dropout=dropout,
+                add_self_loops=True,
+            )
+            for _ in range(num_layers)
+        )
+        self.global_readout = PublishedAttentionReadout(hidden_dim)
+        self.dropout = nn.Dropout(dropout)
+        self.classifier = nn.Linear(hidden_dim, num_tactics)
+
+    def encode_nodes(self, data) -> torch.Tensor:
+        x = self.label_embedding(data.x)
+        if self.node_type_embedding is not None:
+            x = x + self.node_type_embedding(data.node_type)
+        x = x + self.is_bound_embedding(data.is_bound)
+        x = x + self.binder_depth_embedding(data.binder_depth)
+        x = x + self.binder_kind_embedding(data.binder_kind)
+        for index, conv in enumerate(self.convs):
+            x = F.relu(conv(x, data.edge_index))
+            if index < len(self.convs) - 1:
+                x = self.dropout(x)
+        return x
+
+    def readout(self, node_embeddings: torch.Tensor, data) -> torch.Tensor:
+        return self.global_readout(node_embeddings, data)

@@ -33,6 +33,12 @@ DATA_DIR = ROOT_DIR / "data"
 # hardcoded; every one can be overridden via its environment variable (e.g. in
 # Docker or by the API service) instead of assuming CLI-relative locations.
 GNN_RUNS_DIR = DATA_ROOT / "maths_ai" / "gnn_inference" / "runs"
+GNN_BUNDLE_PATH = Path(
+    os.getenv(
+        "MATHS_AI_GNN_BUNDLE",
+        str(DATA_ROOT / "maths_ai" / "gnn_inference" / "models" / "mathlib_sexpr_gnn" / "pointer-gat-gru"),
+    )
+)
 
 GNN_CONFIG_PATH = Path(
     os.getenv(
@@ -76,6 +82,7 @@ class Settings:
     logs_dir: Path = LOGS_DIR
     proof_depth: int = 20
     gnn_config_path: Path = GNN_CONFIG_PATH
+    gnn_bundle_path: Path = GNN_BUNDLE_PATH
     tactic_model_path: Path = TACTIC_MODEL_PATH
     argument_model_path: Path = ARGUMENT_MODEL_PATH
     lemma_index_path: Path = LEMMA_INDEX_PATH

@@ -5,6 +5,7 @@ from .argument_selector import (
     compute_combined_loss,
     resolve_arg_targets_to_padded,
 )
+from .bundle import PointerBundle, load_pointer_bundle
 from .argument_training import (
     evaluate_model_with_args,
     train_one_epoch_with_args,
@@ -82,6 +83,7 @@ __all__ = [
     "PreparedMetadata",
     "PremiseScorer",
     "PremiseScorerConfig",
+    "PointerBundle",
     "PreprocessConfig",
     "ProofState",
     "SplitReport",
@@ -121,6 +123,7 @@ __all__ = [
     "load_lemma_name_index",
     "load_metrics_history",
     "load_prepared_metadata",
+    "load_pointer_bundle",
     "load_run_summary",
     "normalize_tactic",
     "parse_state",

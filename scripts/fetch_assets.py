@@ -166,7 +166,7 @@ def main():
     scripts_dir = Path(__file__).resolve().parent
     workspace_root = scripts_dir.parent
     
-    default_model_config = workspace_root / "maths_ai" / "config" / "models" / "premise_gnn.yaml"
+    default_model_config = workspace_root / "maths_ai" / "config" / "models" / "pointer_gnn.yaml"
     default_corpus_config = workspace_root / "maths_ai" / "config" / "corpus" / "lemma_corpus_v1.yaml"
     
     model_config_path = get_config_path("MATHS_AI_MODEL_CONFIG", default_model_config)
