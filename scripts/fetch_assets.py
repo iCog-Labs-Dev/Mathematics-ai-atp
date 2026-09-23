@@ -131,7 +131,6 @@ def fetch_asset(config: dict, data_root: Path, hf_token: str | None = None) -> P
             revision=revision,
             repo_type=repo_type,
             local_dir=str(local_dir),
-            local_dir_use_symlinks=False,
             token=hf_token,
             allow_patterns=allow_patterns,
             ignore_patterns=["*.msgpack", "*.h5", "*.tflite", "*.bin"],
@@ -177,7 +176,7 @@ def main():
     data_root = Path(data_root_str).resolve()
     
     # Get HF token (optional, for private repos)
-    hf_token = os.getenv("HF_TOKEN")
+    hf_token = os.getenv("HF_TOKEN") or None
     
     print("=" * 60)
     print("Mathematics AI ATP - Asset Fetcher")
