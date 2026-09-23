@@ -1,6 +1,6 @@
-name: lemma_corpus_v1
+name: mathlib_normalized_sexpr
 source: huggingface
 repo_type: dataset
-repo_id: iCog-Labs/LemmaCorpus-v1
-revision: v1.0.0
-local_subdir: gnn_inference/runs/lemma_corpus_v1
+repo_id: jajostrains/Mathlib-Normalized-Sexpr
+revision: f44841f98193c09b20c6092198a22e98ff2cd7a8
+local_subdir: datasets/mathlib_normalized_sexpr
