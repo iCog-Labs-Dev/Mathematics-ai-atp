@@ -76,17 +76,16 @@ RUN git clone --depth 1 --branch ${PETTA_REF} https://github.com/trueagi-io/PeTT
 
 # Install PeTTaChainer (vendor at pinned commit, replace git-import in MeTTa)
 ARG PETTACHAINER_REF=HEAD
-RUN git clone --depth 1 https://github.com/rTreutlein/PeTTaChainer.git /opt/pettachainer \
-    && git -C /opt/pettachainer checkout ${PETTACHAINER_REF}
+RUN git clone --depth 1 https://github.com/123nol/petta_chainer.git /opt/pettachainer \
+    && if [ "${PETTACHAINER_REF}" != "HEAD" ]; then git -C /opt/pettachainer checkout "${PETTACHAINER_REF}"; fi
 
 ENV PATH="/workspace/docker/commands:/opt/venv/bin:/root/.local/bin:${PATH}"
 ENV PYTHONPATH="/workspace"
 
-# Create non-root user for security
-RUN useradd -m -u 1000 maths_ai
-
-# Create data directory for assets
-RUN mkdir -p /data/gnn_inference/runs
+# Create non-root user for security and grant it ownership of the asset volume.
+RUN useradd -m -u 1000 maths_ai && \
+    mkdir -p /data/gnn_inference/runs /data/maths_ai/gnn_inference/models && \
+    chown -R maths_ai:maths_ai /data
 
 USER maths_ai
 WORKDIR /workspace

@@ -103,6 +103,7 @@ def fetch_asset(config: dict, data_root: Path, hf_token: str | None = None) -> P
     revision = config['revision']
     repo_type = config['repo_type']
     local_subdir = config['local_subdir']
+    subfolder = config.get('subfolder')
     
     local_dir = data_root / local_subdir
     
@@ -117,7 +118,12 @@ def fetch_asset(config: dict, data_root: Path, hf_token: str | None = None) -> P
     # Create parent directory if needed
     local_dir.parent.mkdir(parents=True, exist_ok=True)
     
-    # Download from HuggingFace Hub
+    # Download from HuggingFace Hub. Bundle repositories keep shared vocabularies
+    # at the root, so restrict the snapshot to the selected bundle and vocab.
+    allow_patterns = None
+    if subfolder:
+        allow_patterns = [f"{subfolder}/**", "vocab/**"]
+
     try:
         print(f"  Downloading from HuggingFace Hub...")
         snapshot_download(
@@ -125,9 +131,9 @@ def fetch_asset(config: dict, data_root: Path, hf_token: str | None = None) -> P
             revision=revision,
             repo_type=repo_type,
             local_dir=str(local_dir),
-            local_dir_use_symlinks=False,
             token=hf_token,
-            ignore_patterns=["*.msgpack", "*.h5", "*.tflite", "*.safetensors", "*.bin"],
+            allow_patterns=allow_patterns,
+            ignore_patterns=["*.msgpack", "*.h5", "*.tflite", "*.bin"],
         )
     except HfHubHTTPError as e:
         print(f"ERROR: Failed to resolve {repo_type} '{repo_id}' at revision '{revision}': {e}", file=sys.stderr)
@@ -159,7 +165,7 @@ def main():
     scripts_dir = Path(__file__).resolve().parent
     workspace_root = scripts_dir.parent
     
-    default_model_config = workspace_root / "maths_ai" / "config" / "models" / "premise_gnn.yaml"
+    default_model_config = workspace_root / "maths_ai" / "config" / "models" / "pointer_gnn.yaml"
     default_corpus_config = workspace_root / "maths_ai" / "config" / "corpus" / "lemma_corpus_v1.yaml"
     
     model_config_path = get_config_path("MATHS_AI_MODEL_CONFIG", default_model_config)
@@ -170,7 +176,7 @@ def main():
     data_root = Path(data_root_str).resolve()
     
     # Get HF token (optional, for private repos)
-    hf_token = os.getenv("HF_TOKEN")
+    hf_token = os.getenv("HF_TOKEN") or None
     
     print("=" * 60)
     print("Mathematics AI ATP - Asset Fetcher")

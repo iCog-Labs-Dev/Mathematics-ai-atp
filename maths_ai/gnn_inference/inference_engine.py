@@ -5,6 +5,7 @@ import torch
 
 from maths_ai.data_models.proof_components import TacticCandidate
 from maths_ai.gnn_inference.atp_lean_gnn.argument_selector import TacticWithArgsClassifier
+from maths_ai.gnn_inference.atp_lean_gnn.bundle import load_pointer_bundle
 from maths_ai.gnn_inference.atp_lean_gnn.lemma_corpus import load_lemma_corpus
 from maths_ai.gnn_inference.atp_lean_gnn.lemma_index import LemmaIndex
 from maths_ai.gnn_inference.atp_lean_gnn.premise_scoring import PremiseScorer
@@ -14,6 +15,33 @@ from .model import GNNPredictor
 
 
 class GNNModelEngine:
+    @classmethod
+    def from_bundle(
+        cls,
+        bundle_path: Path,
+        *,
+        index_path: Optional[Path] = None,
+        corpus_path: Optional[Path] = None,
+        k: int = 500,
+        device: str = "cuda",
+    ) -> "GNNModelEngine":
+        instance = cls.__new__(cls)
+        instance.device = torch.device(device if torch.cuda.is_available() else "cpu")
+        loaded = load_pointer_bundle(bundle_path, device=instance.device)
+        lemma_index = instance._load_lemma_index(index_path, loaded.model.hidden_dim)
+        lemma_corpus = instance._load_lemma_corpus(corpus_path)
+        instance.gnn_inference = GNNPredictor(
+            tactic_model=loaded.model,
+            argument_model=loaded.scorer,
+            lemma_index=lemma_index,
+            node_vocab=loaded.node_vocab,
+            tactic_vocab=loaded.tactic_vocab,
+            device=instance.device,
+            k=k,
+            lemma_corpus=lemma_corpus,
+        )
+        return instance
+
     def __init__(
         self,
         config_path: Path,

@@ -27,11 +27,12 @@ services:
       dockerfile: docker/Dockerfile
       target: core
     container_name: maths_ai-asset-fetch
+    user: "0:0"
     volumes:
       - models-corpus-cache:/data
     environment:
       - MATHS_AI_DATA_ROOT=/data
-      - MATHS_AI_MODEL_CONFIG=/workspace/maths_ai/config/models/premise_gnn.yaml
+      - MATHS_AI_MODEL_CONFIG=/workspace/maths_ai/config/models/pointer_gnn.yaml
       - MATHS_AI_CORPUS_CONFIG=/workspace/maths_ai/config/corpus/lemma_corpus_v1.yaml
       # Required while the HF repos are private; read from the host environment.
       - HF_TOKEN=${HF_TOKEN:-}
@@ -55,7 +56,7 @@ services:
       - models-corpus-cache:/data:ro
     environment:
       - MATHS_AI_DATA_ROOT=/data
-      - MATHS_AI_MODEL_CONFIG=/workspace/maths_ai/config/models/premise_gnn.yaml
+      - MATHS_AI_MODEL_CONFIG=/workspace/maths_ai/config/models/pointer_gnn.yaml
       - MATHS_AI_CORPUS_CONFIG=/workspace/maths_ai/config/corpus/lemma_corpus_v1.yaml
       - MATHS_AI_LEAN_PROJECT=/opt/lean_project
       - MATHS_AI_API_HOST=0.0.0.0
@@ -84,7 +85,7 @@ services:
       - models-corpus-cache:/data:ro
     environment:
       - MATHS_AI_DATA_ROOT=/data
-      - MATHS_AI_MODEL_CONFIG=/workspace/maths_ai/config/models/premise_gnn.yaml
+      - MATHS_AI_MODEL_CONFIG=/workspace/maths_ai/config/models/pointer_gnn.yaml
       - MATHS_AI_CORPUS_CONFIG=/workspace/maths_ai/config/corpus/lemma_corpus_v1.yaml
       - MATHS_AI_LEAN_PROJECT=/opt/lean_project
     # Override CMD to run batch prover instead of API
@@ -107,7 +108,7 @@ services:
       - models-corpus-cache:/data:ro
     environment:
       - MATHS_AI_DATA_ROOT=/data
-      - MATHS_AI_MODEL_CONFIG=/workspace/maths_ai/config/models/premise_gnn.yaml
+      - MATHS_AI_MODEL_CONFIG=/workspace/maths_ai/config/models/pointer_gnn.yaml
       - MATHS_AI_CORPUS_CONFIG=/workspace/maths_ai/config/corpus/lemma_corpus_v1.yaml
       - MATHS_AI_LEAN_PROJECT=/opt/lean_project
     networks:

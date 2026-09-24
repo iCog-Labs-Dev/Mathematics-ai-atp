@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 
 from .labels import get_tactic_arity
-from .model import GraphSAGEStateClassifier
+from .model import GraphSAGEStateClassifier, PublishedGATBackbone
 from .pyg import NODE_TYPE_TO_ID
 
 
@@ -260,6 +260,47 @@ class TacticWithArgsClassifier(nn.Module):
             prev_arg_emb = selected_emb
 
         return tactic_logits, arg_logits_list
+
+
+class PublishedGRUPointer(nn.Module):
+    def __init__(self, hidden_dim: int, max_args: int) -> None:
+        super().__init__()
+        self.init_proj = nn.Linear(hidden_dim * 2, hidden_dim)
+        self.gru = nn.GRUCell(hidden_dim, hidden_dim)
+        self.out_proj = nn.Linear(hidden_dim, hidden_dim)
+        self.max_args = max_args
+
+
+class PublishedPointerClassifier(nn.Module):
+    def __init__(
+        self,
+        *,
+        num_node_labels: int,
+        num_tactics: int,
+        num_node_types: int,
+        hidden_dim: int,
+        num_layers: int,
+        heads: int,
+        dropout: float,
+        use_node_type: bool,
+        max_args: int,
+    ) -> None:
+        super().__init__()
+        self.backbone = PublishedGATBackbone(
+            num_node_labels=num_node_labels,
+            num_tactics=num_tactics,
+            num_node_types=num_node_types,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+            heads=heads,
+            dropout=dropout,
+            use_node_type=use_node_type,
+        )
+        self.tactic_embedding = nn.Embedding(num_tactics, hidden_dim)
+        self.argument_selector = PublishedGRUPointer(hidden_dim, max_args)
+        self.stop_head = nn.Linear(hidden_dim, 1)
+        self.max_args = max_args
+        self.hidden_dim = hidden_dim
 
 
 # ---------------------------------------------------------------------------

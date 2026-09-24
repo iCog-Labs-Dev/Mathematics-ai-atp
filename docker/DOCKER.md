@@ -5,46 +5,77 @@
 This project uses a multi-stage Dockerfile with a shared base stage and three service-specific targets:
 
 - **base** — Shared dependencies: Lean 4.15.0 + Mathlib4, SWI-Prolog 9.3+, petta, uv venv
-- **core** — Core batch service: runs the joint prover
+- **core** — Core API service: serves the HTTP API and can run proof jobs
 - **experimental** — Experimental service: sandbox for experiments on demand
 - **training** — Training service: batch job, GPU-optional, different lifecycle
 
 ## Quick Start
 
-### Build Images
+### Docker Compose
+
+Run these commands from the repository root:
 
 ```bash
-# Build core image (joint prover)
-docker build --target core -t maths_ai-core -f docker/Dockerfile .
+# Build all Compose services
+docker compose build
 
-# Build experimental service (includes experiments/)
-docker build --target experimental -t maths_ai-experimental -f docker/Dockerfile .
+# Fetch assets and start the API
+docker compose up
 
-# Build training service (batch jobs, GPU-optional)
-docker build --target training -t maths_ai-training -f docker/Dockerfile .
+# Run the batch prover
+docker compose --profile batch run --rm core
+
+# Run training
+docker compose --profile training run --rm training
+
+# Open the experimental service
+docker compose --profile experimental run --rm experimental
 ```
 
-### Run Services
+### Direct Dockerfile Builds
+
+Use `-f docker/Dockerfile` when building a target directly from the repository
+root:
 
 ```bash
-# Core proof run
-docker run --rm --name maths_ai-core \
-  -v $(pwd)/data:/data \
+# Build the API image
+docker build -f docker/Dockerfile --target core -t maths_ai-core .
+
+# Build the training image
+docker build -f docker/Dockerfile --target training -t maths_ai-training .
+
+# Build the experimental image
+docker build -f docker/Dockerfile --target experimental -t maths_ai-experimental .
+```
+
+### Model Assets
+
+The entrypoint fetches assets into `/data` unless the first argument is
+`skip-fetch`. The default model configuration downloads the pinned public
+`jajostrains/Mathlib-Sexpr-GNN` pointer bundle, including its Safetensors
+weights and shared vocabularies. The runtime bundle is stored at:
+
+```text
+/data/maths_ai/gnn_inference/models/mathlib_sexpr_gnn/pointer-gat-gru
+```
+
+To persist downloaded assets, mount a host directory at `/data`:
+
+```bash
+docker run --rm \
+  -v "$(pwd)/data:/data" \
   maths_ai-core \
-  python -m maths_ai.hybrid_reasoner.joint_inference \
-  --goal_statement "forall (p q: Prop), Or p q -> Or q p"
-
-# Experimental service (interactive)
-docker run -it --rm \
-  -v $(pwd)/data:/data \
-  -v $(pwd)/experiments:/workspace/experiments \
-  maths_ai-experimental bash
-
-# Training service (batch, NVIDIA GPU required)
-docker run --rm --gpus all \
-  -v $(pwd)/data:/data \
-  maths_ai-training python -m maths_ai.gnn_inference.scripts.run_training --device cuda
+  python -m maths_ai.api
 ```
+
+The model repository is public, so `HF_TOKEN` is optional. To override the
+bundle location, set `MATHS_AI_GNN_BUNDLE` to the bundle directory inside the
+container. Legacy `.pt` checkpoint settings remain available for local
+training runs.
+
+The published bundle does not include the FAISS lemma index. Inference can
+still use local-context arguments, but library-lemma retrieval remains empty
+until a compatible index and corpus are supplied separately.
 
 ## Architecture
 
@@ -102,6 +133,7 @@ docker build --target core \
 |----------|---------|-------------|
 | `MATHS_AI_LEAN_PROJECT` | `/opt/lean_project` | Lean project root |
 | `MATHS_AI_DATA_ROOT` | `/data` | Data directory for assets |
+| `MATHS_AI_GNN_BUNDLE` | `/data/maths_ai/gnn_inference/models/mathlib_sexpr_gnn/pointer-gat-gru` | Published pointer bundle directory |
 | `PATH` | `/opt/venv/bin:...` | Includes venv, elan, uv |
 | `PYTHONPATH` | `/workspace` | Python module path |
 
@@ -109,7 +141,7 @@ docker build --target core \
 
 | Host Path | Container Path | Purpose |
 |-----------|----------------|---------|
-| `./data` | `/data` | Persistent data (GNN runs, datasets) |
+| `./data` | `/data` | Persistent model bundles, GNN runs, and datasets |
 | `./experiments` | `/workspace/experiments` | Experimental code (experimental target only) |
 
 ## Entrypoint

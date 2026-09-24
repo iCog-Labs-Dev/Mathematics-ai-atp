@@ -1,5 +1,6 @@
 import asyncio
 import argparse
+import json
 import random
 import re
 try:
@@ -143,6 +144,7 @@ class HybridReasoner:
         tactic_model_path: Path,
         argument_model_path: Path,
         *,
+        bundle_path: Optional[Path] = None,
         executor: PantographExecutor,
         index_path: Optional[Path] = None,
         corpus_path: Optional[Path] = None,
@@ -154,13 +156,20 @@ class HybridReasoner:
         dts_c: float = None,
         dts_random_seed: Optional[int] = None,
     ) -> None:
-        self.gnn_engine = GNNModelEngine(
-            config_path=config_path,
-            tactic_predictor_model_path=tactic_model_path,
-            argument_predictor_model_path=argument_model_path,
-            index_path=index_path,
-            corpus_path=corpus_path,
-        )
+        if bundle_path is not None and bundle_path.exists():
+            self.gnn_engine = GNNModelEngine.from_bundle(
+                bundle_path,
+                index_path=index_path,
+                corpus_path=corpus_path,
+            )
+        else:
+            self.gnn_engine = GNNModelEngine(
+                config_path=config_path,
+                tactic_predictor_model_path=tactic_model_path,
+                argument_predictor_model_path=argument_model_path,
+                index_path=index_path,
+                corpus_path=corpus_path,
+            )
         self.petta_chainer = PLNInference()
         self.atomic_tactics = {}
 
@@ -565,6 +574,7 @@ if __name__ == "__main__":
         config_path=settings.gnn_config_path,
         tactic_model_path=settings.tactic_model_path,
         argument_model_path=settings.argument_model_path,
+        bundle_path=settings.gnn_bundle_path,
         index_path=settings.lemma_index_path,
         corpus_path=settings.lemma_corpus_path,
         goal_statement=args.goal_statement,

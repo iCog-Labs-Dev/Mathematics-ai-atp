@@ -13,6 +13,7 @@ pydantic-core
 pygments
 pytest
 PyYAML
+safetensors
 pantograph @ git+https://github.com/stanford-centaur/PyPantograph
 torch
 torch-geometric
