@@ -1,0 +1,1191 @@
+{
+  "kind": "canonical-graph-expectations",
+  "note": "Expected canonical fields assembled independently from captured wire data using existing Goal and graph builders.",
+  "goals": {
+    "identity_intro": [
+      {
+        "canonical": {
+          "expression": "p",
+          "hypotheses": [
+            "p : Prop",
+            "h : p"
+          ],
+          "goal_model_sexp": "(:fv FV0)",
+          "locals": [
+            {
+              "user_name": "p",
+              "internal_name": "_uniq.8",
+              "context_index": 0,
+              "binder_role": ":explicit",
+              "is_instance": false,
+              "is_let": false,
+              "type_pp": "Prop",
+              "type_model_sexp": "(:sort Prop)",
+              "value_pp": null,
+              "value_model_sexp": null,
+              "model_sexp_version": 1
+            },
+            {
+              "user_name": "h",
+              "internal_name": "_uniq.11",
+              "context_index": 1,
+              "binder_role": ":explicit",
+              "is_instance": false,
+              "is_let": false,
+              "type_pp": "p",
+              "type_model_sexp": "(:fv FV0)",
+              "value_pp": null,
+              "value_model_sexp": null,
+              "model_sexp_version": 1
+            }
+          ],
+          "case_tag": null,
+          "model_sexp_version": 1
+        },
+        "state_fingerprint": "ab7f8187d855f8551bdc8689b255d3bb32215d644efc7b704cd77b34dc951011",
+        "dag_fingerprint": "07940e94400ec4fbe17d622e07cc6dabf32a6afd45033f2d276240b214494347",
+        "nodes": [
+          {
+            "id": 0,
+            "label": "FV0",
+            "node_type": "var",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 1,
+            "label": "p",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 2,
+            "label": "Prop",
+            "node_type": "type",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 3,
+            "label": "HypRole:explicit",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 4,
+            "label": "Hyp",
+            "node_type": "meta",
+            "children": [
+              0,
+              1,
+              3,
+              2
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 5,
+            "label": "h",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 6,
+            "label": "FV1",
+            "node_type": "var",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 7,
+            "label": "Hyp",
+            "node_type": "meta",
+            "children": [
+              6,
+              5,
+              3,
+              0
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 8,
+            "label": "Goal",
+            "node_type": "meta",
+            "children": [
+              0
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 9,
+            "label": "State",
+            "node_type": "meta",
+            "children": [
+              4,
+              7,
+              8
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          }
+        ],
+        "edges": [
+          [
+            0,
+            4
+          ],
+          [
+            1,
+            4
+          ],
+          [
+            3,
+            4
+          ],
+          [
+            2,
+            4
+          ],
+          [
+            6,
+            7
+          ],
+          [
+            5,
+            7
+          ],
+          [
+            3,
+            7
+          ],
+          [
+            0,
+            7
+          ],
+          [
+            0,
+            8
+          ],
+          [
+            4,
+            9
+          ],
+          [
+            7,
+            9
+          ],
+          [
+            8,
+            9
+          ]
+        ],
+        "expression_root_id": 0,
+        "state_root_id": 9
+      }
+    ],
+    "conjunction_split": [
+      {
+        "canonical": {
+          "expression": "True",
+          "hypotheses": [],
+          "goal_model_sexp": "(:c True)",
+          "locals": [],
+          "case_tag": "left",
+          "model_sexp_version": 1
+        },
+        "state_fingerprint": "18b9336a3e8b94d5a12d77c9df9a550ce47b807850a10112fba4e14000717a50",
+        "dag_fingerprint": "77b669ec2d0373fa89e911407b67c1aafa7604add866b9c69906d5b267e143cf",
+        "nodes": [
+          {
+            "id": 0,
+            "label": "True",
+            "node_type": "const",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 1,
+            "label": "Goal",
+            "node_type": "meta",
+            "children": [
+              0
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 2,
+            "label": "State",
+            "node_type": "meta",
+            "children": [
+              1
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          }
+        ],
+        "edges": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            2
+          ]
+        ],
+        "expression_root_id": 0,
+        "state_root_id": 2
+      },
+      {
+        "canonical": {
+          "expression": "True",
+          "hypotheses": [],
+          "goal_model_sexp": "(:c True)",
+          "locals": [],
+          "case_tag": "right",
+          "model_sexp_version": 1
+        },
+        "state_fingerprint": "18b9336a3e8b94d5a12d77c9df9a550ce47b807850a10112fba4e14000717a50",
+        "dag_fingerprint": "77b669ec2d0373fa89e911407b67c1aafa7604add866b9c69906d5b267e143cf",
+        "nodes": [
+          {
+            "id": 0,
+            "label": "True",
+            "node_type": "const",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 1,
+            "label": "Goal",
+            "node_type": "meta",
+            "children": [
+              0
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 2,
+            "label": "State",
+            "node_type": "meta",
+            "children": [
+              1
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          }
+        ],
+        "edges": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            2
+          ]
+        ],
+        "expression_root_id": 0,
+        "state_root_id": 2
+      }
+    ],
+    "instance_intro": [
+      {
+        "canonical": {
+          "expression": "x = x",
+          "hypotheses": [
+            "α : Type",
+            "inst : Inhabited α",
+            "x : α"
+          ],
+          "goal_model_sexp": "(:app (:c Eq) (:arg :implicit-type 0 (:fv FV0)) (:arg :explicit 1 (:fv FV2)) (:arg :explicit 2 (:fv FV2)))",
+          "locals": [
+            {
+              "user_name": "α",
+              "internal_name": "_uniq.74",
+              "context_index": 0,
+              "binder_role": ":explicit",
+              "is_instance": false,
+              "is_let": false,
+              "type_pp": "Type",
+              "type_model_sexp": "(:sort Type)",
+              "value_pp": null,
+              "value_model_sexp": null,
+              "model_sexp_version": 1
+            },
+            {
+              "user_name": "inst",
+              "internal_name": "_uniq.77",
+              "context_index": 1,
+              "binder_role": ":instance-implicit",
+              "is_instance": true,
+              "is_let": false,
+              "type_pp": "Inhabited α",
+              "type_model_sexp": "(:app (:c Inhabited) (:arg :explicit 0 (:fv FV0)))",
+              "value_pp": null,
+              "value_model_sexp": null,
+              "model_sexp_version": 1
+            },
+            {
+              "user_name": "x",
+              "internal_name": "_uniq.80",
+              "context_index": 2,
+              "binder_role": ":explicit",
+              "is_instance": false,
+              "is_let": false,
+              "type_pp": "α",
+              "type_model_sexp": "(:fv FV0)",
+              "value_pp": null,
+              "value_model_sexp": null,
+              "model_sexp_version": 1
+            }
+          ],
+          "case_tag": null,
+          "model_sexp_version": 1
+        },
+        "state_fingerprint": "24bcff92958ba55200fc499297df7551df7f512d20509fb1abc75b55f8c7839b",
+        "dag_fingerprint": "e6c34bc78e52445fa78c6f358beaf7a79aa46ea005ffe22c3d81add3361a3a58",
+        "nodes": [
+          {
+            "id": 0,
+            "label": "Eq",
+            "node_type": "const",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 1,
+            "label": "ArgRole::implicit-type",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 2,
+            "label": "ArgPosition:0",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 3,
+            "label": "FV0",
+            "node_type": "var",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 4,
+            "label": ":arg",
+            "node_type": "sapp",
+            "children": [
+              1,
+              2,
+              3
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 5,
+            "label": "ArgRole::explicit",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 6,
+            "label": "ArgPosition:1",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 7,
+            "label": "FV2",
+            "node_type": "var",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 8,
+            "label": ":arg",
+            "node_type": "sapp",
+            "children": [
+              5,
+              6,
+              7
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 9,
+            "label": "ArgPosition:2",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 10,
+            "label": ":arg",
+            "node_type": "sapp",
+            "children": [
+              5,
+              9,
+              7
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 11,
+            "label": ":app",
+            "node_type": "sapp",
+            "children": [
+              0,
+              4,
+              8,
+              10
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 12,
+            "label": "α",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 13,
+            "label": "Type",
+            "node_type": "type",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 14,
+            "label": "HypRole:explicit",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 15,
+            "label": "Hyp",
+            "node_type": "meta",
+            "children": [
+              3,
+              12,
+              14,
+              13
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 16,
+            "label": "inst",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 17,
+            "label": "Inhabited",
+            "node_type": "const",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 18,
+            "label": ":arg",
+            "node_type": "sapp",
+            "children": [
+              5,
+              2,
+              3
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 19,
+            "label": ":app",
+            "node_type": "sapp",
+            "children": [
+              17,
+              18
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 20,
+            "label": "FV1",
+            "node_type": "var",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 21,
+            "label": "HypRole:instance",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 22,
+            "label": "Hyp",
+            "node_type": "meta",
+            "children": [
+              20,
+              16,
+              21,
+              19
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 23,
+            "label": "x",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 24,
+            "label": "Hyp",
+            "node_type": "meta",
+            "children": [
+              7,
+              23,
+              14,
+              3
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 25,
+            "label": "Goal",
+            "node_type": "meta",
+            "children": [
+              11
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 26,
+            "label": "State",
+            "node_type": "meta",
+            "children": [
+              15,
+              22,
+              24,
+              25
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          }
+        ],
+        "edges": [
+          [
+            1,
+            4
+          ],
+          [
+            2,
+            4
+          ],
+          [
+            3,
+            4
+          ],
+          [
+            5,
+            8
+          ],
+          [
+            6,
+            8
+          ],
+          [
+            7,
+            8
+          ],
+          [
+            5,
+            10
+          ],
+          [
+            9,
+            10
+          ],
+          [
+            7,
+            10
+          ],
+          [
+            0,
+            11
+          ],
+          [
+            4,
+            11
+          ],
+          [
+            8,
+            11
+          ],
+          [
+            10,
+            11
+          ],
+          [
+            3,
+            15
+          ],
+          [
+            12,
+            15
+          ],
+          [
+            14,
+            15
+          ],
+          [
+            13,
+            15
+          ],
+          [
+            5,
+            18
+          ],
+          [
+            2,
+            18
+          ],
+          [
+            3,
+            18
+          ],
+          [
+            17,
+            19
+          ],
+          [
+            18,
+            19
+          ],
+          [
+            20,
+            22
+          ],
+          [
+            16,
+            22
+          ],
+          [
+            21,
+            22
+          ],
+          [
+            19,
+            22
+          ],
+          [
+            7,
+            24
+          ],
+          [
+            23,
+            24
+          ],
+          [
+            14,
+            24
+          ],
+          [
+            3,
+            24
+          ],
+          [
+            11,
+            25
+          ],
+          [
+            15,
+            26
+          ],
+          [
+            22,
+            26
+          ],
+          [
+            24,
+            26
+          ],
+          [
+            25,
+            26
+          ]
+        ],
+        "expression_root_id": 11,
+        "state_root_id": 26
+      }
+    ],
+    "let_intro": [
+      {
+        "canonical": {
+          "expression": "x = x",
+          "hypotheses": [
+            "n : ℕ",
+            "x : ℕ := n"
+          ],
+          "goal_model_sexp": "(:app (:c Eq) (:arg :implicit-type 0 (:c Nat)) (:arg :explicit 1 (:fv FV1)) (:arg :explicit 2 (:fv FV1)))",
+          "locals": [
+            {
+              "user_name": "n",
+              "internal_name": "_uniq.97",
+              "context_index": 0,
+              "binder_role": ":explicit",
+              "is_instance": false,
+              "is_let": false,
+              "type_pp": "ℕ",
+              "type_model_sexp": "(:c Nat)",
+              "value_pp": null,
+              "value_model_sexp": null,
+              "model_sexp_version": 1
+            },
+            {
+              "user_name": "x",
+              "internal_name": "_uniq.100",
+              "context_index": 1,
+              "binder_role": ":let",
+              "is_instance": false,
+              "is_let": true,
+              "type_pp": "ℕ",
+              "type_model_sexp": "(:c Nat)",
+              "value_pp": "n",
+              "value_model_sexp": "(:fv FV0)",
+              "model_sexp_version": 1
+            }
+          ],
+          "case_tag": null,
+          "model_sexp_version": 1
+        },
+        "state_fingerprint": "23f6e4d37c71e0e968a38bf6e4f34a627e34c90faca567d932f1130195b8728c",
+        "dag_fingerprint": "5b7a23b22a1ba0dddc3f7d3657259fac59225ea22967427b2e30573bb25aa46c",
+        "nodes": [
+          {
+            "id": 0,
+            "label": "Eq",
+            "node_type": "const",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 1,
+            "label": "ArgRole::implicit-type",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 2,
+            "label": "ArgPosition:0",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 3,
+            "label": "Nat",
+            "node_type": "const",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 4,
+            "label": ":arg",
+            "node_type": "sapp",
+            "children": [
+              1,
+              2,
+              3
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 5,
+            "label": "ArgRole::explicit",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 6,
+            "label": "ArgPosition:1",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 7,
+            "label": "FV1",
+            "node_type": "var",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 8,
+            "label": ":arg",
+            "node_type": "sapp",
+            "children": [
+              5,
+              6,
+              7
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 9,
+            "label": "ArgPosition:2",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 10,
+            "label": ":arg",
+            "node_type": "sapp",
+            "children": [
+              5,
+              9,
+              7
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 11,
+            "label": ":app",
+            "node_type": "sapp",
+            "children": [
+              0,
+              4,
+              8,
+              10
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 12,
+            "label": "n",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 13,
+            "label": "FV0",
+            "node_type": "var",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 14,
+            "label": "HypRole:explicit",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 15,
+            "label": "Hyp",
+            "node_type": "meta",
+            "children": [
+              13,
+              12,
+              14,
+              3
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 16,
+            "label": "x",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 17,
+            "label": "HypRole:let",
+            "node_type": "sconst",
+            "children": [],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 18,
+            "label": "Hyp",
+            "node_type": "meta",
+            "children": [
+              7,
+              16,
+              17,
+              3
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 19,
+            "label": "Goal",
+            "node_type": "meta",
+            "children": [
+              11
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          },
+          {
+            "id": 20,
+            "label": "State",
+            "node_type": "meta",
+            "children": [
+              15,
+              18,
+              19
+            ],
+            "is_bound": 0,
+            "binder_depth": 0,
+            "binder_kind": -1
+          }
+        ],
+        "edges": [
+          [
+            1,
+            4
+          ],
+          [
+            2,
+            4
+          ],
+          [
+            3,
+            4
+          ],
+          [
+            5,
+            8
+          ],
+          [
+            6,
+            8
+          ],
+          [
+            7,
+            8
+          ],
+          [
+            5,
+            10
+          ],
+          [
+            9,
+            10
+          ],
+          [
+            7,
+            10
+          ],
+          [
+            0,
+            11
+          ],
+          [
+            4,
+            11
+          ],
+          [
+            8,
+            11
+          ],
+          [
+            10,
+            11
+          ],
+          [
+            13,
+            15
+          ],
+          [
+            12,
+            15
+          ],
+          [
+            14,
+            15
+          ],
+          [
+            3,
+            15
+          ],
+          [
+            7,
+            18
+          ],
+          [
+            16,
+            18
+          ],
+          [
+            17,
+            18
+          ],
+          [
+            3,
+            18
+          ],
+          [
+            11,
+            19
+          ],
+          [
+            15,
+            20
+          ],
+          [
+            18,
+            20
+          ],
+          [
+            19,
+            20
+          ]
+        ],
+        "expression_root_id": 11,
+        "state_root_id": 20
+      }
+    ]
+  }
+}

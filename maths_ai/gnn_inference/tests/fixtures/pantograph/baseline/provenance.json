@@ -1,0 +1,310 @@
+{
+  "kind": "unmodified-custom-repl-baseline",
+  "repository_branch": "AC-branch",
+  "repository_revision": "216e074da75d8d5ca3011fd40146fd200f6a9715",
+  "worktree_status_at_capture": [
+    "M maths_ai/gnn_inference/atp_lean_gnn/__init__.py",
+    " M maths_ai/gnn_inference/configs/rl_actor_critic.json",
+    " M maths_ai/hybrid_reasoner/__init__.py",
+    "?? codex_patch.diff",
+    "?? commit_hardware.txt",
+    "?? latest_commit.diff",
+    "?? maths_ai/gnn_inference/docs/RL_DRIVER_PANTOGRAPH_INTEGRATION.md",
+    "?? maths_ai/gnn_inference/docs/dev_plans/ac_branch_validity_aware_targets.md",
+    "?? maths_ai/gnn_inference/docs/dev_plans/ac_hardware_utilization_remediation.md",
+    "?? maths_ai/gnn_inference/docs/dev_plans/ac_sidecar_free_graph_budget_batching.md",
+    "?? maths_ai/gnn_inference/docs/dev_plans/live_rl_model_sexpr_contract.md",
+    "?? maths_ai/gnn_inference/docs/dev_plans/mcts_ac_hardware_utilization_remediation.md",
+    "?? maths_ai/gnn_inference/docs/dev_plans/mcts_live_rl_model_sexpr_contract.md",
+    "?? maths_ai/gnn_inference/docs/dev_plans/pantograph_focused_repl_backport_and_python_repairs.md",
+    "?? maths_ai/gnn_inference/docs/dev_plans/pantograph_interactive_stdout_line_buffering.md",
+    "?? maths_ai/gnn_inference/docs/dev_plans/pluggable_actor_gnn_architectures.md",
+    "?? maths_ai/gnn_inference/docs/dev_plans/repository_owned_pantograph_async_client.md",
+    "?? maths_ai/gnn_inference/docs/dev_plans/rl_hardware_utilization.md",
+    "?? maths_ai/gnn_inference/docs/end-to-end-flow-2.md",
+    "?? maths_ai/gnn_inference/docs/github_issue_pantograph_goal_tactic_protocol_mismatch.md",
+    "?? maths_ai/gnn_inference/docs/github_issue_pantograph_interactive_startup.md",
+    "?? maths_ai/gnn_inference/docs/github_issue_pantograph_local_let_roundtrip.md",
+    "?? maths_ai/gnn_inference/docs/github_issue_rl_hardware_utilization.md",
+    "?? maths_ai/gnn_inference/docs/github_issue_rl_hardware_utilization_remediation.md",
+    "?? maths_ai/gnn_inference/docs/github_issue_sidecar_free_graph_budget_batching.md",
+    "?? maths_ai/gnn_inference/docs/legacy_pointer_warm_start_actor_critic.md",
+    "?? maths_ai/gnn_inference/docs/live_rl_pantograph_sexp.md",
+    "?? maths_ai/gnn_inference/docs/log_snippet.md",
+    "?? maths_ai/gnn_inference/docs/pantograph_client_options_report.md",
+    "?? maths_ai/gnn_inference/docs/pantograph_repl_update_feasibility.md",
+    "?? maths_ai/gnn_inference/docs/pantograph_server_restart_fix.md",
+    "?? maths_ai/gnn_inference/docs/proposed_solution.md",
+    "?? maths_ai/gnn_inference/docs/rl_driver_mathlib_environment_flags.md",
+    "?? maths_ai/gnn_inference/docs/rl_model_sexpr.md",
+    "?? maths_ai/gnn_inference/docs/rl_search_log_diagnosis.md",
+    "?? maths_ai/gnn_inference/docs/rl_search_log_fixes_implemented.md",
+    "?? maths_ai/gnn_inference/docs/rl_train.log",
+    "?? maths_ai/gnn_inference/docs/sexpr_pantograph_issue.md",
+    "?? maths_ai/gnn_inference/docs/unelaborated_names_AC.md",
+    "?? maths_ai/gnn_inference/scripts/capture_pantograph_fixtures.py",
+    "?? maths_ai/gnn_inference/scripts/check_ds.py",
+    "?? maths_ai/hybrid_reasoner/pantograph_protocol.py",
+    "?? maths_ai/sexpr_environment/",
+    "?? \"rl_train (1).log\""
+  ],
+  "python_executable": "/home/nolawi/new-maths/.venv/bin/python",
+  "python_version": "3.11.15 (main, May 10 2026, 19:28:18) [Clang 22.1.3 ]",
+  "installed_pantograph_version": "0.3.15",
+  "installed_pantograph_direct_url": {
+    "url": "https://github.com/stanford-centaur/PyPantograph",
+    "vcs_info": {
+      "vcs": "git",
+      "commit_id": "2c9fad2727c405c9976b766088ca761f14733f95"
+    }
+  },
+  "source_root": "/home/nolawi/new-maths/maths_ai/sexpr_environment/sexpr_environment/mathlib4",
+  "repl_source": "/home/nolawi/new-maths/maths_ai/sexpr_environment/sexpr_environment/Pantograph",
+  "verified_base": "/tmp/pantograph-owned-client-base",
+  "verified_base_commit": "73781c2d58456e4bf369dadd4a501e1b78a0b177",
+  "verified_base_origin": "https://github.com/jajos12/Pantograph.git",
+  "source_comparison": [
+    {
+      "path": ".gitignore",
+      "base_sha256": "6f054f08eb2daca7933e5b3f29ce7fb9a8715d8284d24935089ab198cb109d75",
+      "archive_sha256": null
+    },
+    {
+      "path": "LICENSE",
+      "base_sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+      "archive_sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    },
+    {
+      "path": "Main.lean",
+      "base_sha256": "305734044d2e0924f4881756de4e3a81713b96c196ffe8a6851b336cdc2f80d3",
+      "archive_sha256": "305734044d2e0924f4881756de4e3a81713b96c196ffe8a6851b336cdc2f80d3"
+    },
+    {
+      "path": "Pantograph.lean",
+      "base_sha256": "0531a6b79b743ecdaeeded3a024ffbb95e5403085acb29507af463865511166c",
+      "archive_sha256": "0531a6b79b743ecdaeeded3a024ffbb95e5403085acb29507af463865511166c"
+    },
+    {
+      "path": "Pantograph/Condensed.lean",
+      "base_sha256": "e3b7fc23e7b408872ed26e9bbd024e479328a9df212932b66302a148a50ffd1f",
+      "archive_sha256": "e3b7fc23e7b408872ed26e9bbd024e479328a9df212932b66302a148a50ffd1f"
+    },
+    {
+      "path": "Pantograph/Environment.lean",
+      "base_sha256": "7c7b68ab5f220e466a408ee7977e500b7bd3c56d3c27f6732016b0e57a30408a",
+      "archive_sha256": "7c7b68ab5f220e466a408ee7977e500b7bd3c56d3c27f6732016b0e57a30408a"
+    },
+    {
+      "path": "Pantograph/Expr.lean",
+      "base_sha256": "8e239c3b16a9789d38380d61297c566f9dea13f998c993353cc369445bb8d2c2",
+      "archive_sha256": "8e239c3b16a9789d38380d61297c566f9dea13f998c993353cc369445bb8d2c2"
+    },
+    {
+      "path": "Pantograph/Frontend.lean",
+      "base_sha256": "4425ad03bbc794db171f894c168684cf7d74e1633b8333cd8909f0a56872e29e",
+      "archive_sha256": "4425ad03bbc794db171f894c168684cf7d74e1633b8333cd8909f0a56872e29e"
+    },
+    {
+      "path": "Pantograph/Frontend/Basic.lean",
+      "base_sha256": "12f0de86aa4b5f9a774e8c39a89f1c56058a85805ab0034a58d3e3ef281d5867",
+      "archive_sha256": "12f0de86aa4b5f9a774e8c39a89f1c56058a85805ab0034a58d3e3ef281d5867"
+    },
+    {
+      "path": "Pantograph/Frontend/Elab.lean",
+      "base_sha256": "3f61d488c443024958b46ee862fab078d5427b55f4501f6cd0b03f36e637efa8",
+      "archive_sha256": "3f61d488c443024958b46ee862fab078d5427b55f4501f6cd0b03f36e637efa8"
+    },
+    {
+      "path": "Pantograph/Frontend/MetaTranslate.lean",
+      "base_sha256": "79143e772811cf19e3b0c87555a201e589cbc2af857b95d2ea3a5c737e325ea4",
+      "archive_sha256": "79143e772811cf19e3b0c87555a201e589cbc2af857b95d2ea3a5c737e325ea4"
+    },
+    {
+      "path": "Pantograph/Goal.lean",
+      "base_sha256": "73dc4c5fa8d90770c848b49039475df772e47a2c86e1006e8e25a9950a4bbe3e",
+      "archive_sha256": "73dc4c5fa8d90770c848b49039475df772e47a2c86e1006e8e25a9950a4bbe3e"
+    },
+    {
+      "path": "Pantograph/Library.lean",
+      "base_sha256": "d10d6978646b59638013a6e8842133cfc4890395d426da74958d1fc00514b155",
+      "archive_sha256": "d10d6978646b59638013a6e8842133cfc4890395d426da74958d1fc00514b155"
+    },
+    {
+      "path": "Pantograph/Protocol.lean",
+      "base_sha256": "c7886eb8026256b4b6b04c47596824c05eecb21d08847b20aed6a5624ea71d9f",
+      "archive_sha256": "c7886eb8026256b4b6b04c47596824c05eecb21d08847b20aed6a5624ea71d9f"
+    },
+    {
+      "path": "Pantograph/Serial.lean",
+      "base_sha256": "842c0b13cb2fe270b1de439bb7a3bdce1f490918107f2dc924af6ff0fc063efc",
+      "archive_sha256": "842c0b13cb2fe270b1de439bb7a3bdce1f490918107f2dc924af6ff0fc063efc"
+    },
+    {
+      "path": "Pantograph/Tactic.lean",
+      "base_sha256": "e491a2d53c3054e133841f5382a4ae7f2bb5b455b1b1d9474ed2f37c4e392654",
+      "archive_sha256": "e491a2d53c3054e133841f5382a4ae7f2bb5b455b1b1d9474ed2f37c4e392654"
+    },
+    {
+      "path": "Pantograph/Tactic/Assign.lean",
+      "base_sha256": "e7c04dd543d7c7c1c51d3ab9804e4fd6227371988d651460c23b72f4502ab177",
+      "archive_sha256": "e7c04dd543d7c7c1c51d3ab9804e4fd6227371988d651460c23b72f4502ab177"
+    },
+    {
+      "path": "Pantograph/Tactic/Congruence.lean",
+      "base_sha256": "b8129f2ef57d7e9d1cd9b09ce9310bf68e0182947a660998e212196f4277e1e1",
+      "archive_sha256": "b8129f2ef57d7e9d1cd9b09ce9310bf68e0182947a660998e212196f4277e1e1"
+    },
+    {
+      "path": "Pantograph/Tactic/MotivatedApply.lean",
+      "base_sha256": "b77203f9849a47ecaba0f630287d7df41b0716ddb908d0bd976af67765cc4c13",
+      "archive_sha256": "b77203f9849a47ecaba0f630287d7df41b0716ddb908d0bd976af67765cc4c13"
+    },
+    {
+      "path": "Pantograph/Tactic/NoConfuse.lean",
+      "base_sha256": "e8a70e53c23361a78b0fe0e779350c0f3a0aec8ededdc36f59918b127ff7fdd6",
+      "archive_sha256": "e8a70e53c23361a78b0fe0e779350c0f3a0aec8ededdc36f59918b127ff7fdd6"
+    },
+    {
+      "path": "Pantograph/Tactic/Prograde.lean",
+      "base_sha256": "76023846e7178d830d139346aab081658bafbd7cbe8939c3de3c8e6731930829",
+      "archive_sha256": "76023846e7178d830d139346aab081658bafbd7cbe8939c3de3c8e6731930829"
+    },
+    {
+      "path": "Pantograph/Version.lean",
+      "base_sha256": "5788a6204864323311c96af23def749e1d5fa6bdefb04499e69d23538506a224",
+      "archive_sha256": "5788a6204864323311c96af23def749e1d5fa6bdefb04499e69d23538506a224"
+    },
+    {
+      "path": "README.md",
+      "base_sha256": "a3b8fdd34457c2b24613cfa15001e6dde576b9c8f6844beb97d19d288f1cd26f",
+      "archive_sha256": "a3b8fdd34457c2b24613cfa15001e6dde576b9c8f6844beb97d19d288f1cd26f"
+    },
+    {
+      "path": "Repl.lean",
+      "base_sha256": "c79cd2ab46f4b7f39ecf1e2a3b7e834d31f37fc7f020a25348b8ffd29460fd18",
+      "archive_sha256": "c79cd2ab46f4b7f39ecf1e2a3b7e834d31f37fc7f020a25348b8ffd29460fd18"
+    },
+    {
+      "path": "Test/Common.lean",
+      "base_sha256": "915f0c47c78384ddf604b4163077171807c94588d4b9904531952225d7b4bf27",
+      "archive_sha256": "915f0c47c78384ddf604b4163077171807c94588d4b9904531952225d7b4bf27"
+    },
+    {
+      "path": "Test/Environment.lean",
+      "base_sha256": "613bf86efe1dbaee2146b7f0572f61ddc4750a23ff3e39a1d5fe8df7b61f6cfe",
+      "archive_sha256": "613bf86efe1dbaee2146b7f0572f61ddc4750a23ff3e39a1d5fe8df7b61f6cfe"
+    },
+    {
+      "path": "Test/Frontend.lean",
+      "base_sha256": "5849c73af61062627849500a226150befb48e41dbd7c87df2c7035568f0ef225",
+      "archive_sha256": "5849c73af61062627849500a226150befb48e41dbd7c87df2c7035568f0ef225"
+    },
+    {
+      "path": "Test/Integration.lean",
+      "base_sha256": "b0bee8b0b99be808b157da2aa71c8fd24ecd0ec943f058cdb50c944d9d27512f",
+      "archive_sha256": "b0bee8b0b99be808b157da2aa71c8fd24ecd0ec943f058cdb50c944d9d27512f"
+    },
+    {
+      "path": "Test/Library.lean",
+      "base_sha256": "5b1069032e1dbd0aa333d32b225b463e82ef67f9bc30bb54a2220c48ec53c889",
+      "archive_sha256": "5b1069032e1dbd0aa333d32b225b463e82ef67f9bc30bb54a2220c48ec53c889"
+    },
+    {
+      "path": "Test/Main.lean",
+      "base_sha256": "fd97485582f649d84efa6fbb964cfae69785f0f0615cb1fd5f9bf4b99bd4981e",
+      "archive_sha256": "fd97485582f649d84efa6fbb964cfae69785f0f0615cb1fd5f9bf4b99bd4981e"
+    },
+    {
+      "path": "Test/Metavar.lean",
+      "base_sha256": "6a4d7d3357cbfc8817b3f69cf738064c336af10a65573873b2a215d06f8ed942",
+      "archive_sha256": "6a4d7d3357cbfc8817b3f69cf738064c336af10a65573873b2a215d06f8ed942"
+    },
+    {
+      "path": "Test/Proofs.lean",
+      "base_sha256": "2b8a8ab8945dacfa30d049e38cadf6eb0ca7d34a9a37ab4c8093ff22c2bba389",
+      "archive_sha256": "2b8a8ab8945dacfa30d049e38cadf6eb0ca7d34a9a37ab4c8093ff22c2bba389"
+    },
+    {
+      "path": "Test/Serial.lean",
+      "base_sha256": "b4aee6c30c893b389d212f984436dd51b2da999507c64cf11009c28fa546ea91",
+      "archive_sha256": "b4aee6c30c893b389d212f984436dd51b2da999507c64cf11009c28fa546ea91"
+    },
+    {
+      "path": "Test/Tactic.lean",
+      "base_sha256": "d966367ed57e454f57c2da6d05810cfee5793b79a867b78b94b647f79aef722d",
+      "archive_sha256": "d966367ed57e454f57c2da6d05810cfee5793b79a867b78b94b647f79aef722d"
+    },
+    {
+      "path": "Test/Tactic/Congruence.lean",
+      "base_sha256": "37432712eae7591ef6f1a53dc32356cc578d6811a1c8b010e764122262d6f0ae",
+      "archive_sha256": "37432712eae7591ef6f1a53dc32356cc578d6811a1c8b010e764122262d6f0ae"
+    },
+    {
+      "path": "Test/Tactic/MotivatedApply.lean",
+      "base_sha256": "65f69a8eef0b47b381f7fdcc7f3999d006204224819fd7e68c346e9cd84b1663",
+      "archive_sha256": "65f69a8eef0b47b381f7fdcc7f3999d006204224819fd7e68c346e9cd84b1663"
+    },
+    {
+      "path": "Test/Tactic/NoConfuse.lean",
+      "base_sha256": "4bff765a17b16a08ee5de520f9a2c132db8f6d259f20ce5c691fe1ea4123ddd7",
+      "archive_sha256": "4bff765a17b16a08ee5de520f9a2c132db8f6d259f20ce5c691fe1ea4123ddd7"
+    },
+    {
+      "path": "Test/Tactic/Prograde.lean",
+      "base_sha256": "fe9428594f6e0fa680c289c8997ac388451c096b71ce29318564d8560e5a0b27",
+      "archive_sha256": "fe9428594f6e0fa680c289c8997ac388451c096b71ce29318564d8560e5a0b27"
+    },
+    {
+      "path": "doc/icon.svg",
+      "base_sha256": "5bb4c6c1b8e92945ff4a659f60e1801c5a343ff1749bc9e64fc1e6bf88ccdf00",
+      "archive_sha256": "5bb4c6c1b8e92945ff4a659f60e1801c5a343ff1749bc9e64fc1e6bf88ccdf00"
+    },
+    {
+      "path": "flake.lock",
+      "base_sha256": "05b15743d6e525c7f3e69d7905b6c7e9bc43d75e2942ee703e1a8c0aea1ece67",
+      "archive_sha256": "05b15743d6e525c7f3e69d7905b6c7e9bc43d75e2942ee703e1a8c0aea1ece67"
+    },
+    {
+      "path": "flake.nix",
+      "base_sha256": "5113171d4abc8de68ffb6e3f2a51b07c410d9d08c955be0abc075a52a8b5bb04",
+      "archive_sha256": "5113171d4abc8de68ffb6e3f2a51b07c410d9d08c955be0abc075a52a8b5bb04"
+    },
+    {
+      "path": "lake-manifest.json",
+      "base_sha256": "2657450ebbdaff9b20c2f6cfcc04781802b0177f9279895e892a02da54f17973",
+      "archive_sha256": "2657450ebbdaff9b20c2f6cfcc04781802b0177f9279895e892a02da54f17973"
+    },
+    {
+      "path": "lakefile.lean",
+      "base_sha256": "260e81382ba1ec4c3671c44e3e8751e13c85e5d02f7f43061dcf0602fd8ff136",
+      "archive_sha256": "260e81382ba1ec4c3671c44e3e8751e13c85e5d02f7f43061dcf0602fd8ff136"
+    },
+    {
+      "path": "lean-toolchain",
+      "base_sha256": "423ae714bbbb56154fe3934bc715dee2bd624ac1337c47b7cd4719fc155086c8",
+      "archive_sha256": "423ae714bbbb56154fe3934bc715dee2bd624ac1337c47b7cd4719fc155086c8"
+    }
+  ],
+  "source_comparison_result": "all source/build inputs identical",
+  "non_build_differences": [
+    ".gitignore"
+  ],
+  "toolchain": "leanprover/lean4:v4.10.0-rc1",
+  "mathlib_toolchain": "leanprover/lean4:v4.10.0-rc1",
+  "lean_version": "Lean (version 4.10.0-rc1, x86_64-unknown-linux-gnu, commit 3b58e0649156, Release)",
+  "repl": "/tmp/pantograph-owned-client-base/.lake/build/bin/repl",
+  "repl_sha256": "511e32d79635a4fe55f711f6fc1d42c6d5044203829b57eb37ab72e8227570c3",
+  "imports": [
+    "Mathlib"
+  ],
+  "options": {
+    "printJsonPretty": false,
+    "printExprPretty": true,
+    "printExprAST": true,
+    "printExprModelAST": true,
+    "noRepeat": false,
+    "automaticMode": true
+  },
+  "binary_provenance_boundary": "Executable hash observed; archive source equality alone does not prove its build origin.",
+  "stderr_tail": ""
+}

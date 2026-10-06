@@ -1,0 +1,656 @@
+{
+  "kind": "unmodified-custom-repl-baseline",
+  "readiness_line": "ready.",
+  "interactions": [
+    {
+      "label": "options_set",
+      "command": "options.set",
+      "request": {
+        "printJsonPretty": false,
+        "printExprPretty": true,
+        "printExprAST": true,
+        "printExprModelAST": true,
+        "noRepeat": false,
+        "automaticMode": true
+      },
+      "request_line": "options.set {\"printJsonPretty\":false,\"printExprPretty\":true,\"printExprAST\":true,\"printExprModelAST\":true,\"noRepeat\":false,\"automaticMode\":true}",
+      "response_line": "{}",
+      "response": {}
+    },
+    {
+      "label": "options_print",
+      "command": "options.print",
+      "request": {},
+      "request_line": "options.print {}",
+      "response_line": "{\"printJsonPretty\":false,\"printImplementationDetailHyps\":false,\"printExprPretty\":true,\"printExprModelAST\":true,\"printExprAST\":true,\"printDependentMVars\":false,\"printAuxDecls\":false,\"noRepeat\":false,\"automaticMode\":true}",
+      "response": {
+        "printJsonPretty": false,
+        "printImplementationDetailHyps": false,
+        "printExprPretty": true,
+        "printExprModelAST": true,
+        "printExprAST": true,
+        "printDependentMVars": false,
+        "printAuxDecls": false,
+        "noRepeat": false,
+        "automaticMode": true
+      }
+    },
+    {
+      "label": "unsupported_descriptor",
+      "command": "protocol.describe",
+      "request": {},
+      "request_line": "protocol.describe {}",
+      "response_line": "{\"error\":\"command\",\"desc\":\"Unknown command protocol.describe\"}",
+      "response": {
+        "error": "command",
+        "desc": "Unknown command protocol.describe"
+      }
+    },
+    {
+      "label": "initial_stat",
+      "command": "stat",
+      "request": {},
+      "request_line": "stat {}",
+      "response_line": "{\"nGoals\":0}",
+      "response": {
+        "nGoals": 0
+      }
+    },
+    {
+      "label": "identity_start",
+      "command": "goal.start",
+      "request": {
+        "expr": "∀ (p : Prop), p → p"
+      },
+      "request_line": "goal.start {\"expr\":\"∀ (p : Prop), p → p\"}",
+      "response_line": "{\"stateId\":0,\"root\":\"_uniq.7\"}",
+      "response": {
+        "stateId": 0,
+        "root": "_uniq.7"
+      }
+    },
+    {
+      "label": "identity_intro",
+      "command": "goal.tactic",
+      "request": {
+        "stateId": 0,
+        "goalId": 0,
+        "tactic": "intro p h"
+      },
+      "request_line": "goal.tactic {\"stateId\":0,\"goalId\":0,\"tactic\":\"intro p h\"}",
+      "response_line": "{\"nextStateId\":1,\"goals\":[{\"vars\":[{\"userName\":\"p\",\"type\":{\"sexp\":\"(:sort 0)\",\"pp\":\"Prop\",\"modelSexpVersion\":1,\"modelSexp\":\"(:sort Prop)\"},\"name\":\"_uniq.8\",\"isLet\":false,\"isInstance\":false,\"isInaccessible\":false,\"contextIndex\":0,\"binderRole\":\":explicit\"},{\"userName\":\"h\",\"type\":{\"sexp\":\"(:fv _uniq.8)\",\"pp\":\"p\",\"modelSexpVersion\":1,\"modelSexp\":\"(:fv FV0)\"},\"name\":\"_uniq.11\",\"isLet\":false,\"isInstance\":false,\"isInaccessible\":false,\"contextIndex\":1,\"binderRole\":\":explicit\"}],\"target\":{\"sexp\":\"(:fv _uniq.8)\",\"pp\":\"p\",\"modelSexpVersion\":1,\"modelSexp\":\"(:fv FV0)\"},\"name\":\"_uniq.12\",\"isConversion\":false}]}",
+      "response": {
+        "nextStateId": 1,
+        "goals": [
+          {
+            "vars": [
+              {
+                "userName": "p",
+                "type": {
+                  "sexp": "(:sort 0)",
+                  "pp": "Prop",
+                  "modelSexpVersion": 1,
+                  "modelSexp": "(:sort Prop)"
+                },
+                "name": "_uniq.8",
+                "isLet": false,
+                "isInstance": false,
+                "isInaccessible": false,
+                "contextIndex": 0,
+                "binderRole": ":explicit"
+              },
+              {
+                "userName": "h",
+                "type": {
+                  "sexp": "(:fv _uniq.8)",
+                  "pp": "p",
+                  "modelSexpVersion": 1,
+                  "modelSexp": "(:fv FV0)"
+                },
+                "name": "_uniq.11",
+                "isLet": false,
+                "isInstance": false,
+                "isInaccessible": false,
+                "contextIndex": 1,
+                "binderRole": ":explicit"
+              }
+            ],
+            "target": {
+              "sexp": "(:fv _uniq.8)",
+              "pp": "p",
+              "modelSexpVersion": 1,
+              "modelSexp": "(:fv FV0)"
+            },
+            "name": "_uniq.12",
+            "isConversion": false
+          }
+        ]
+      }
+    },
+    {
+      "label": "tactic_failure",
+      "command": "goal.tactic",
+      "request": {
+        "stateId": 1,
+        "goalId": 0,
+        "tactic": "exact True.intro"
+      },
+      "request_line": "goal.tactic {\"stateId\":1,\"goalId\":0,\"tactic\":\"exact True.intro\"}",
+      "response_line": "{\"tacticErrors\":[\"type mismatch\\n  True.intro\\nhas type\\n  True : Prop\\nbut is expected to have type\\n  p : Prop\"]}",
+      "response": {
+        "tacticErrors": [
+          "type mismatch\n  True.intro\nhas type\n  True : Prop\nbut is expected to have type\n  p : Prop"
+        ]
+      }
+    },
+    {
+      "label": "parse_failure",
+      "command": "goal.tactic",
+      "request": {
+        "stateId": 1,
+        "goalId": 0,
+        "tactic": "("
+      },
+      "request_line": "goal.tactic {\"stateId\":1,\"goalId\":0,\"tactic\":\"(\"}",
+      "response_line": "{\"parseError\":\"<pantograph>:1:1: unexpected end of input; expected '{'\"}",
+      "response": {
+        "parseError": "<pantograph>:1:1: unexpected end of input; expected '{'"
+      }
+    },
+    {
+      "label": "delete_parent",
+      "command": "goal.delete",
+      "request": {
+        "stateIds": [
+          0
+        ]
+      },
+      "request_line": "goal.delete {\"stateIds\":[0]}",
+      "response_line": "{}",
+      "response": {}
+    },
+    {
+      "label": "identity_after_parent_delete",
+      "command": "goal.tactic",
+      "request": {
+        "stateId": 1,
+        "goalId": 0,
+        "tactic": "exact h"
+      },
+      "request_line": "goal.tactic {\"stateId\":1,\"goalId\":0,\"tactic\":\"exact h\"}",
+      "response_line": "{\"nextStateId\":2,\"goals\":[]}",
+      "response": {
+        "nextStateId": 2,
+        "goals": []
+      }
+    },
+    {
+      "label": "identity_alternative",
+      "command": "goal.tactic",
+      "request": {
+        "stateId": 1,
+        "goalId": 0,
+        "tactic": "assumption"
+      },
+      "request_line": "goal.tactic {\"stateId\":1,\"goalId\":0,\"tactic\":\"assumption\"}",
+      "response_line": "{\"nextStateId\":3,\"goals\":[]}",
+      "response": {
+        "nextStateId": 3,
+        "goals": []
+      }
+    },
+    {
+      "label": "conjunction_start",
+      "command": "goal.start",
+      "request": {
+        "expr": "True ∧ True"
+      },
+      "request_line": "goal.start {\"expr\":\"True ∧ True\"}",
+      "response_line": "{\"stateId\":4,\"root\":\"_uniq.15\"}",
+      "response": {
+        "stateId": 4,
+        "root": "_uniq.15"
+      }
+    },
+    {
+      "label": "conjunction_split",
+      "command": "goal.tactic",
+      "request": {
+        "stateId": 4,
+        "goalId": 0,
+        "tactic": "constructor"
+      },
+      "request_line": "goal.tactic {\"stateId\":4,\"goalId\":0,\"tactic\":\"constructor\"}",
+      "response_line": "{\"nextStateId\":5,\"goals\":[{\"vars\":[],\"userName\":\"left\",\"target\":{\"sexp\":\"(:c True)\",\"pp\":\"True\",\"modelSexpVersion\":1,\"modelSexp\":\"(:c True)\"},\"name\":\"_uniq.22\",\"isConversion\":false},{\"vars\":[],\"userName\":\"right\",\"target\":{\"sexp\":\"(:c True)\",\"pp\":\"True\",\"modelSexpVersion\":1,\"modelSexp\":\"(:c True)\"},\"name\":\"_uniq.23\",\"isConversion\":false}]}",
+      "response": {
+        "nextStateId": 5,
+        "goals": [
+          {
+            "vars": [],
+            "userName": "left",
+            "target": {
+              "sexp": "(:c True)",
+              "pp": "True",
+              "modelSexpVersion": 1,
+              "modelSexp": "(:c True)"
+            },
+            "name": "_uniq.22",
+            "isConversion": false
+          },
+          {
+            "vars": [],
+            "userName": "right",
+            "target": {
+              "sexp": "(:c True)",
+              "pp": "True",
+              "modelSexpVersion": 1,
+              "modelSexp": "(:c True)"
+            },
+            "name": "_uniq.23",
+            "isConversion": false
+          }
+        ]
+      }
+    },
+    {
+      "label": "nonzero_index",
+      "command": "goal.tactic",
+      "request": {
+        "stateId": 5,
+        "goalId": 1,
+        "tactic": "trivial"
+      },
+      "request_line": "goal.tactic {\"stateId\":5,\"goalId\":1,\"tactic\":\"trivial\"}",
+      "response_line": "{\"nextStateId\":6,\"goals\":[{\"vars\":[],\"userName\":\"left\",\"target\":{\"sexp\":\"(:c True)\",\"pp\":\"True\",\"modelSexpVersion\":1,\"modelSexp\":\"(:c True)\"},\"name\":\"_uniq.22\",\"isConversion\":false}]}",
+      "response": {
+        "nextStateId": 6,
+        "goals": [
+          {
+            "vars": [],
+            "userName": "left",
+            "target": {
+              "sexp": "(:c True)",
+              "pp": "True",
+              "modelSexpVersion": 1,
+              "modelSexp": "(:c True)"
+            },
+            "name": "_uniq.22",
+            "isConversion": false
+          }
+        ]
+      }
+    },
+    {
+      "label": "finish_conjunction",
+      "command": "goal.tactic",
+      "request": {
+        "stateId": 6,
+        "goalId": 0,
+        "tactic": "trivial"
+      },
+      "request_line": "goal.tactic {\"stateId\":6,\"goalId\":0,\"tactic\":\"trivial\"}",
+      "response_line": "{\"nextStateId\":7,\"goals\":[]}",
+      "response": {
+        "nextStateId": 7,
+        "goals": []
+      }
+    },
+    {
+      "label": "focused_all_goals",
+      "command": "goal.tactic",
+      "request": {
+        "stateId": 5,
+        "goalId": 0,
+        "tactic": "all_goals trivial"
+      },
+      "request_line": "goal.tactic {\"stateId\":5,\"goalId\":0,\"tactic\":\"all_goals trivial\"}",
+      "response_line": "{\"nextStateId\":8,\"goals\":[{\"vars\":[],\"userName\":\"right\",\"target\":{\"sexp\":\"(:c True)\",\"pp\":\"True\",\"modelSexpVersion\":1,\"modelSexp\":\"(:c True)\"},\"name\":\"_uniq.23\",\"isConversion\":false}]}",
+      "response": {
+        "nextStateId": 8,
+        "goals": [
+          {
+            "vars": [],
+            "userName": "right",
+            "target": {
+              "sexp": "(:c True)",
+              "pp": "True",
+              "modelSexpVersion": 1,
+              "modelSexp": "(:c True)"
+            },
+            "name": "_uniq.23",
+            "isConversion": false
+          }
+        ]
+      }
+    },
+    {
+      "label": "instance_start",
+      "command": "goal.start",
+      "request": {
+        "expr": "∀ (α : Type) [inst : Inhabited α] (x : α), x = x"
+      },
+      "request_line": "goal.start {\"expr\":\"∀ (α : Type) [inst : Inhabited α] (x : α), x = x\"}",
+      "response_line": "{\"stateId\":9,\"root\":\"_uniq.73\"}",
+      "response": {
+        "stateId": 9,
+        "root": "_uniq.73"
+      }
+    },
+    {
+      "label": "instance_intro",
+      "command": "goal.tactic",
+      "request": {
+        "stateId": 9,
+        "goalId": 0,
+        "tactic": "intro α inst x"
+      },
+      "request_line": "goal.tactic {\"stateId\":9,\"goalId\":0,\"tactic\":\"intro α inst x\"}",
+      "response_line": "{\"nextStateId\":10,\"goals\":[{\"vars\":[{\"userName\":\"α\",\"type\":{\"sexp\":\"(:sort 1)\",\"pp\":\"Type\",\"modelSexpVersion\":1,\"modelSexp\":\"(:sort Type)\"},\"name\":\"_uniq.74\",\"isLet\":false,\"isInstance\":false,\"isInaccessible\":false,\"contextIndex\":0,\"binderRole\":\":explicit\"},{\"userName\":\"inst\",\"type\":{\"sexp\":\"((:c Inhabited) (:fv _uniq.74))\",\"pp\":\"Inhabited α\",\"modelSexpVersion\":1,\"modelSexp\":\"(:app (:c Inhabited) (:arg :explicit 0 (:fv FV0)))\"},\"name\":\"_uniq.77\",\"isLet\":false,\"isInstance\":true,\"isInaccessible\":false,\"contextIndex\":1,\"binderRole\":\":instance-implicit\"},{\"userName\":\"x\",\"type\":{\"sexp\":\"(:fv _uniq.74)\",\"pp\":\"α\",\"modelSexpVersion\":1,\"modelSexp\":\"(:fv FV0)\"},\"name\":\"_uniq.80\",\"isLet\":false,\"isInstance\":false,\"isInaccessible\":false,\"contextIndex\":2,\"binderRole\":\":explicit\"}],\"target\":{\"sexp\":\"((:c Eq) (:fv _uniq.74) (:fv _uniq.80) (:fv _uniq.80))\",\"pp\":\"x = x\",\"modelSexpVersion\":1,\"modelSexp\":\"(:app (:c Eq) (:arg :implicit-type 0 (:fv FV0)) (:arg :explicit 1 (:fv FV2)) (:arg :explicit 2 (:fv FV2)))\"},\"name\":\"_uniq.81\",\"isConversion\":false}]}",
+      "response": {
+        "nextStateId": 10,
+        "goals": [
+          {
+            "vars": [
+              {
+                "userName": "α",
+                "type": {
+                  "sexp": "(:sort 1)",
+                  "pp": "Type",
+                  "modelSexpVersion": 1,
+                  "modelSexp": "(:sort Type)"
+                },
+                "name": "_uniq.74",
+                "isLet": false,
+                "isInstance": false,
+                "isInaccessible": false,
+                "contextIndex": 0,
+                "binderRole": ":explicit"
+              },
+              {
+                "userName": "inst",
+                "type": {
+                  "sexp": "((:c Inhabited) (:fv _uniq.74))",
+                  "pp": "Inhabited α",
+                  "modelSexpVersion": 1,
+                  "modelSexp": "(:app (:c Inhabited) (:arg :explicit 0 (:fv FV0)))"
+                },
+                "name": "_uniq.77",
+                "isLet": false,
+                "isInstance": true,
+                "isInaccessible": false,
+                "contextIndex": 1,
+                "binderRole": ":instance-implicit"
+              },
+              {
+                "userName": "x",
+                "type": {
+                  "sexp": "(:fv _uniq.74)",
+                  "pp": "α",
+                  "modelSexpVersion": 1,
+                  "modelSexp": "(:fv FV0)"
+                },
+                "name": "_uniq.80",
+                "isLet": false,
+                "isInstance": false,
+                "isInaccessible": false,
+                "contextIndex": 2,
+                "binderRole": ":explicit"
+              }
+            ],
+            "target": {
+              "sexp": "((:c Eq) (:fv _uniq.74) (:fv _uniq.80) (:fv _uniq.80))",
+              "pp": "x = x",
+              "modelSexpVersion": 1,
+              "modelSexp": "(:app (:c Eq) (:arg :implicit-type 0 (:fv FV0)) (:arg :explicit 1 (:fv FV2)) (:arg :explicit 2 (:fv FV2)))"
+            },
+            "name": "_uniq.81",
+            "isConversion": false
+          }
+        ]
+      }
+    },
+    {
+      "label": "let_start",
+      "command": "goal.start",
+      "request": {
+        "expr": "∀ (n : Nat), let x := n; x = x"
+      },
+      "request_line": "goal.start {\"expr\":\"∀ (n : Nat), let x := n; x = x\"}",
+      "response_line": "{\"stateId\":11,\"root\":\"_uniq.96\"}",
+      "response": {
+        "stateId": 11,
+        "root": "_uniq.96"
+      }
+    },
+    {
+      "label": "let_intro",
+      "command": "goal.tactic",
+      "request": {
+        "stateId": 11,
+        "goalId": 0,
+        "tactic": "intro n x"
+      },
+      "request_line": "goal.tactic {\"stateId\":11,\"goalId\":0,\"tactic\":\"intro n x\"}",
+      "response_line": "{\"nextStateId\":12,\"goals\":[{\"vars\":[{\"userName\":\"n\",\"type\":{\"sexp\":\"(:c Nat)\",\"pp\":\"ℕ\",\"modelSexpVersion\":1,\"modelSexp\":\"(:c Nat)\"},\"name\":\"_uniq.97\",\"isLet\":false,\"isInstance\":false,\"isInaccessible\":false,\"contextIndex\":0,\"binderRole\":\":explicit\"},{\"value\":{\"sexp\":\"(:fv _uniq.97)\",\"pp\":\"n\",\"modelSexpVersion\":1,\"modelSexp\":\"(:fv FV0)\"},\"userName\":\"x\",\"type\":{\"sexp\":\"(:c Nat)\",\"pp\":\"ℕ\",\"modelSexpVersion\":1,\"modelSexp\":\"(:c Nat)\"},\"name\":\"_uniq.100\",\"isLet\":true,\"isInstance\":false,\"isInaccessible\":false,\"contextIndex\":1,\"binderRole\":\":let\"}],\"target\":{\"sexp\":\"((:c Eq) (:c Nat) (:fv _uniq.100) (:fv _uniq.100))\",\"pp\":\"x = x\",\"modelSexpVersion\":1,\"modelSexp\":\"(:app (:c Eq) (:arg :implicit-type 0 (:c Nat)) (:arg :explicit 1 (:fv FV1)) (:arg :explicit 2 (:fv FV1)))\"},\"name\":\"_uniq.101\",\"isConversion\":false}]}",
+      "response": {
+        "nextStateId": 12,
+        "goals": [
+          {
+            "vars": [
+              {
+                "userName": "n",
+                "type": {
+                  "sexp": "(:c Nat)",
+                  "pp": "ℕ",
+                  "modelSexpVersion": 1,
+                  "modelSexp": "(:c Nat)"
+                },
+                "name": "_uniq.97",
+                "isLet": false,
+                "isInstance": false,
+                "isInaccessible": false,
+                "contextIndex": 0,
+                "binderRole": ":explicit"
+              },
+              {
+                "value": {
+                  "sexp": "(:fv _uniq.97)",
+                  "pp": "n",
+                  "modelSexpVersion": 1,
+                  "modelSexp": "(:fv FV0)"
+                },
+                "userName": "x",
+                "type": {
+                  "sexp": "(:c Nat)",
+                  "pp": "ℕ",
+                  "modelSexpVersion": 1,
+                  "modelSexp": "(:c Nat)"
+                },
+                "name": "_uniq.100",
+                "isLet": true,
+                "isInstance": false,
+                "isInaccessible": false,
+                "contextIndex": 1,
+                "binderRole": ":let"
+              }
+            ],
+            "target": {
+              "sexp": "((:c Eq) (:c Nat) (:fv _uniq.100) (:fv _uniq.100))",
+              "pp": "x = x",
+              "modelSexpVersion": 1,
+              "modelSexp": "(:app (:c Eq) (:arg :implicit-type 0 (:c Nat)) (:arg :explicit 1 (:fv FV1)) (:arg :explicit 2 (:fv FV1)))"
+            },
+            "name": "_uniq.101",
+            "isConversion": false
+          }
+        ]
+      }
+    },
+    {
+      "label": "truth_start",
+      "command": "goal.start",
+      "request": {
+        "expr": "True"
+      },
+      "request_line": "goal.start {\"expr\":\"True\"}",
+      "response_line": "{\"stateId\":13,\"root\":\"_uniq.107\"}",
+      "response": {
+        "stateId": 13,
+        "root": "_uniq.107"
+      }
+    },
+    {
+      "label": "missing_goal_id",
+      "command": "goal.tactic",
+      "request": {
+        "stateId": 13,
+        "tactic": "trivial"
+      },
+      "request_line": "goal.tactic {\"stateId\":13,\"tactic\":\"trivial\"}",
+      "response_line": "{\"error\":\"command\",\"desc\":\"Unable to parse json: Pantograph.Protocol.GoalTactic.goalId: Natural number expected\"}",
+      "response": {
+        "error": "command",
+        "desc": "Unable to parse json: Pantograph.Protocol.GoalTactic.goalId: Natural number expected"
+      }
+    },
+    {
+      "label": "admission_unchecked",
+      "command": "goal.tactic",
+      "request": {
+        "stateId": 13,
+        "goalId": 0,
+        "tactic": "sorry"
+      },
+      "request_line": "goal.tactic {\"stateId\":13,\"goalId\":0,\"tactic\":\"sorry\"}",
+      "response_line": "{\"nextStateId\":14,\"goals\":[]}",
+      "response": {
+        "nextStateId": 14,
+        "goals": []
+      }
+    },
+    {
+      "label": "logged_error_unchecked",
+      "command": "goal.tactic",
+      "request": {
+        "stateId": 13,
+        "goalId": 0,
+        "tactic": "run_tac Lean.logError \"capture error\" <;> trivial"
+      },
+      "request_line": "goal.tactic {\"stateId\":13,\"goalId\":0,\"tactic\":\"run_tac Lean.logError \\\"capture error\\\" <;> trivial\"}",
+      "response_line": "{\"nextStateId\":15,\"goals\":[]}",
+      "response": {
+        "nextStateId": 15,
+        "goals": []
+      }
+    },
+    {
+      "label": "valid_truth",
+      "command": "goal.tactic",
+      "request": {
+        "stateId": 13,
+        "goalId": 0,
+        "tactic": "trivial"
+      },
+      "request_line": "goal.tactic {\"stateId\":13,\"goalId\":0,\"tactic\":\"trivial\"}",
+      "response_line": "{\"nextStateId\":16,\"goals\":[]}",
+      "response": {
+        "nextStateId": 16,
+        "goals": []
+      }
+    },
+    {
+      "label": "goal_parse_error",
+      "command": "goal.start",
+      "request": {
+        "expr": "("
+      },
+      "request_line": "goal.start {\"expr\":\"(\"}",
+      "response_line": "{\"error\":\"parsing\",\"desc\":\"<stdin>:1:1: unexpected end of input; expected ')', '_', '↑', '↥', '⇑' or identifier\"}",
+      "response": {
+        "error": "parsing",
+        "desc": "<stdin>:1:1: unexpected end of input; expected ')', '_', '↑', '↥', '⇑' or identifier"
+      }
+    },
+    {
+      "label": "goal_elab_error",
+      "command": "goal.start",
+      "request": {
+        "expr": "NoSuchCaptureType"
+      },
+      "request_line": "goal.start {\"expr\":\"NoSuchCaptureType\"}",
+      "response_line": "{\"error\":\"elab\",\"desc\":\"unknown identifier 'NoSuchCaptureType'\"}",
+      "response": {
+        "error": "elab",
+        "desc": "unknown identifier 'NoSuchCaptureType'"
+      }
+    },
+    {
+      "label": "invalid_state",
+      "command": "goal.tactic",
+      "request": {
+        "stateId": 999999999,
+        "goalId": 0,
+        "tactic": "skip"
+      },
+      "request_line": "goal.tactic {\"stateId\":999999999,\"goalId\":0,\"tactic\":\"skip\"}",
+      "response_line": "{\"error\":\"index\",\"desc\":\"Invalid state index 999999999\"}",
+      "response": {
+        "error": "index",
+        "desc": "Invalid state index 999999999"
+      }
+    },
+    {
+      "label": "invalid_goal",
+      "command": "goal.tactic",
+      "request": {
+        "stateId": 13,
+        "goalId": 99,
+        "tactic": "skip"
+      },
+      "request_line": "goal.tactic {\"stateId\":13,\"goalId\":99,\"tactic\":\"skip\"}",
+      "response_line": "{\"error\":\"index\",\"desc\":\"Invalid goal index 99\"}",
+      "response": {
+        "error": "index",
+        "desc": "Invalid goal index 99"
+      }
+    },
+    {
+      "label": "delete_all",
+      "command": "goal.delete",
+      "request": {
+        "stateIds": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16
+        ]
+      },
+      "request_line": "goal.delete {\"stateIds\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]}",
+      "response_line": "{}",
+      "response": {}
+    },
+    {
+      "label": "final_stat",
+      "command": "stat",
+      "request": {},
+      "request_line": "stat {}",
+      "response_line": "{\"nGoals\":0}",
+      "response": {
+        "nGoals": 0
+      }
+    }
+  ]
+}

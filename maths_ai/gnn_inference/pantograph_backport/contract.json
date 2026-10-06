@@ -1,0 +1,87 @@
+{
+  "status": "frozen-future-contract-not-implemented-by-baseline-repl",
+  "descriptor": {
+    "protocol": "maths-ai-pantograph",
+    "protocolVersion": 1,
+    "modelSexpVersion": 1,
+    "transitionValidationVersion": 1,
+    "messageVersion": 1,
+    "goalSelection": "explicit-focused-v1",
+    "tacticErrorsFormat": "string-array-v1"
+  },
+  "required_options": {
+    "printJsonPretty": false,
+    "printExprPretty": true,
+    "printExprAST": true,
+    "printExprModelAST": true,
+    "noRepeat": false,
+    "automaticMode": true
+  },
+  "commands": {
+    "protocol.describe": [
+      "command"
+    ],
+    "options.set": [
+      "command"
+    ],
+    "options.print": [
+      "command"
+    ],
+    "goal.start": [
+      "command",
+      "arguments",
+      "parsing",
+      "elab"
+    ],
+    "goal.tactic": [
+      "command",
+      "arguments",
+      "index",
+      "invalid",
+      "validation"
+    ],
+    "goal.delete": [
+      "command"
+    ],
+    "stat": [
+      "command"
+    ]
+  },
+  "transition_validation": {
+    "version": 1,
+    "scope": "transition-expressions",
+    "checked": true,
+    "hasSorry": false,
+    "hasUnsafe": false
+  },
+  "message_schema": {
+    "required": [
+      "severity",
+      "data"
+    ],
+    "optional": [
+      "pos",
+      "endPos",
+      "fileName",
+      "kind"
+    ],
+    "severity": [
+      "information",
+      "warning",
+      "error"
+    ],
+    "position": {
+      "line": "positive-integer-one-based",
+      "column": "nonnegative-integer-zero-based"
+    },
+    "unavailable_optional_fields": "omit-not-null"
+  },
+  "additional_fields": "only-named-version-1-fields",
+  "source_pins": {
+    "pantograph": "73781c2d58456e4bf369dadd4a501e1b78a0b177",
+    "mathlib": "29dcec074de168ac2bf835a77ef68bbe069194c5",
+    "toolchain": "leanprover/lean4:v4.10.0-rc1"
+  },
+  "baseline_provenance": "../tests/fixtures/pantograph/baseline/provenance.json",
+  "complete_theorem_certification": false
+}
