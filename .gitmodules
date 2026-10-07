@@ -31,3 +31,6 @@
 	url = https://github.com/tsigemariamzewdu/trueagi-pln-experiment.git
 
 	branch = main
+[submodule "experiments/Math-Classifier"]
+	path = experiments/Math-Classifier
+	url = git@github.com:melkamzeranteneh/Math-Classifier.git
