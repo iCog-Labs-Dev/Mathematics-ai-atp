@@ -3,10 +3,23 @@ from __future__ import annotations
 import hashlib
 
 from maths_ai.data_models.proof_components import Goal, GoalLocal
+import itertools
+from dataclasses import replace
+
 from pantograph_async import (
+    CertificateReceipt,
+    CertificationResult,
     ExecutionGoal,
     ExecutionLocal,
+    ObligationInspection,
     WireExpression,
+)
+
+from maths_ai.hybrid_reasoner.execution_registry import LeaseKind
+from maths_ai.hybrid_reasoner.execution_types import ChildObligation
+from maths_ai.hybrid_reasoner.retained_executor import (
+    RetainedOutcome,
+    RetainedTacticExecutor,
 )
 
 from maths_ai.gnn_inference.atp_lean_gnn.model_factory import (
@@ -148,6 +161,71 @@ class FakeStateScope:
 
     async def release(self, state):
         self.allocations.pop(id(state), None)
+
+    async def inspect(self, state, goals):
+        listed = {goal.goal_name: goal for goal in state.goals}
+        return tuple(
+            ObligationInspection(name, "active", listed[name], (), False)
+            if name in listed
+            else ObligationInspection(name, "complete", None, (), False)
+            for name in goals
+        )
+
+    async def certify(self, state, *, max_heartbeats=None):
+        self.client.certified = getattr(self.client, "certified", 0) + 1
+        if state.goals:
+            return CertificationResult("incomplete", f"{len(state.goals)} goals remain", None)
+        receipt = CertificateReceipt("root", (), "0" * 16, "1" * 16, "2" * 16, "fake", (), ())
+        return CertificationResult("certified", None, receipt)
+
+
+class FakeResultState:
+    """A result snapshot: only its goal list matters to the search."""
+
+    def __init__(self, goals=()):
+        self.goals = tuple(goals)
+
+
+class ScriptedExecutor(RetainedTacticExecutor):
+    """Fake retained executor driven by ``script(occurrence, command)``.
+
+    The script returns ``None`` to reject the command, or the child goals the
+    command produces (``[]`` closes the obligation). Results are adopted into
+    the search's registry like real ones; the input's other goals are carried
+    into each result so replay sees a consistent goal list.
+    """
+
+    _names = itertools.count(1)
+
+    def __init__(self, script, server=None):
+        self.server = server if server is not None else ScopedFakeClient()
+        self.script = script
+        self.calls = []
+
+    async def apply(self, registry, occurrence, command, *, holder="operation"):
+        self.calls.append(command)
+        produced = self.script(occurrence, command)
+        if produced is None:
+            return RetainedOutcome(success=False, command=command, error="rejected")
+        children = [
+            ChildObligation(slot, "direct", f"g{next(self._names)}", goal, ())
+            for slot, goal in enumerate(produced)
+        ]
+        parent = registry.state(occurrence.lease)
+        siblings = [goal for goal in parent.goals if goal.goal_name != occurrence.goal_name]
+        state = FakeResultState(
+            [replace(pantograph_goal(child.goal), goal_name=child.goal_name) for child in children]
+            + siblings
+        )
+        async with registry.request(occurrence.lease) as reservation:
+            lease = reservation.adopt(state, LeaseKind.OPERATION, holder)
+        return RetainedOutcome(
+            success=True,
+            command=command,
+            lease=lease,
+            children=children,
+            selected_complete=True if not children else None,
+        )
 
 
 class ScopedFakeClient:

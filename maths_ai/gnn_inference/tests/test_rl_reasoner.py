@@ -18,8 +18,8 @@ from maths_ai.lean_replay import ReplayFailure, ReplayInputError, seed_from_text
 from maths_ai.hybrid_reasoner.hypergraph import (
     NodeClosureReason,
     SearchEndReason,
-    TacticOutcome,
 )
+from maths_ai.hybrid_reasoner.retained_executor import RetainedTacticExecutor
 from maths_ai.pln_inference.model import PLNResult
 
 from maths_ai.gnn_inference.atp_lean_gnn.actor_critic import (
@@ -40,6 +40,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.search_harvest import (
     extract_critic_samples,
 )
 from maths_ai.gnn_inference.tests.model_helpers import (
+    ScriptedExecutor,
     actor_critic,
     pantograph_goal,
     structured_goal,
@@ -70,24 +71,14 @@ class _FakeServer(ScopedFakeClient):
         return _FakeGoalState(self.goals_by_expression.get(self._last_expression))
 
 
-class _QEDExecutor:
-    """Every tactic application succeeds with no subgoals (immediate QED)."""
-
-    def __init__(self):
-        self.server = _FakeServer()
-
-    async def apply(self, server, state, tactic):
-        return TacticOutcome(success=True, subgoals=[])
+def _QEDExecutor():
+    """Every tactic application succeeds with no child obligations."""
+    return ScriptedExecutor(lambda _occurrence, _command: [], server=_FakeServer())
 
 
-class _RejectExecutor:
+def _RejectExecutor():
     """Every tactic application fails (Lean rejects the tactic)."""
-
-    def __init__(self):
-        self.server = _FakeServer()
-
-    async def apply(self, server, state, tactic):
-        return TacticOutcome(success=False, subgoals=[], error="rejected")
+    return ScriptedExecutor(lambda _occurrence, _command: None, server=_FakeServer())
 
 
 class _ElaborationServer(_FakeServer):
@@ -95,19 +86,19 @@ class _ElaborationServer(_FakeServer):
         raise PantographGoalRejected("cannot elaborate reconstructed goal")
 
 
-class _ElaborationExecutor:
+class _ElaborationExecutor(RetainedTacticExecutor):
     def __init__(self):
         self.server = _ElaborationServer()
 
-    async def apply(self, server, state, tactic):
+    async def apply(self, registry, occurrence, command, *, holder="operation"):
         raise AssertionError("tactics must not run when goal elaboration fails")
 
 
-class _InfrastructureFailureExecutor:
+class _InfrastructureFailureExecutor(RetainedTacticExecutor):
     def __init__(self):
         self.server = _FakeServer()
 
-    async def apply(self, server, state, tactic):
+    async def apply(self, registry, occurrence, command, *, holder="operation"):
         raise PantographTransportError("Pantograph pipe closed")
 
 
@@ -261,6 +252,39 @@ class DeclarationResolutionTests(unittest.TestCase):
             self.assertEqual(decode(hyp), [live])
             self.assertEqual(decode(fv), [live])
 
+    def test_decoded_arguments_keep_the_chosen_declaration_id(self):
+        from maths_ai.gnn_inference.atp_lean_gnn.graph import model_goal_to_dag
+        from maths_ai.gnn_inference.atp_lean_gnn.inference import (
+            local_declaration_ids,
+            local_declarations,
+        )
+        from maths_ai.gnn_inference.tests.test_model_identity import (
+            after_intro_x,
+            outer_aliased,
+        )
+
+        reasoner, _model, _vocab = _make_reasoner(_QEDExecutor())
+        child = after_intro_x(outer_aliased())
+        dag = model_goal_to_dag(child)
+        ids = local_declaration_ids(child)
+        for label in ("FV5", "FV6"):
+            fv = next(i for i, n in enumerate(dag.nodes) if n.label == label)
+            sample = ActionSample(
+                tactic_action=torch.tensor([2]),
+                tactic_logp=torch.tensor([-0.5]),
+                tactic_entropy=torch.tensor([1.0]),
+                arg_actions=[torch.tensor([fv])],
+                arg_logp=torch.tensor([-0.3]),
+                value=torch.tensor([0.0]),
+                tactic_logits=torch.zeros(1, 3),
+            )
+            candidate, _ = reasoner._decode(
+                sample, dag, local_declarations(child), "fp", declaration_ids=ids
+            )
+            (ref,) = candidate.argument_refs
+            self.assertEqual((ref.kind, ref.internal_name), ("local", ids[label]))
+            self.assertEqual(ref.text, candidate.arguments[0])
+
 
 class RolloutTests(unittest.TestCase):
     def _prove(self, reasoner):
@@ -304,7 +328,11 @@ class RolloutTests(unittest.TestCase):
             RewardConfig(step_penalty=0.0),
             edge_ids=list(result.edge_actions.keys()),
         )
-        self.assertEqual(len(transitions), len(result.edge_actions))
+        # Only the certified witness is positive evidence; the other closing
+        # attempts are candidates that no replay certified, so they stay unknown.
+        witnessed = result.graph.witnessed_edges()
+        self.assertEqual(len(witnessed), 1)
+        self.assertEqual({t.edge_id for t in transitions}, witnessed)
         for t in transitions:
             self.assertIn(t.edge_id, result.edge_actions)
 
@@ -332,12 +360,12 @@ class RolloutTests(unittest.TestCase):
         self.assertEqual(extract_critic_samples(graph), [])
 
     def test_cancellation_clears_pending_actions(self):
-        class _BlockingExecutor:
+        class _BlockingExecutor(RetainedTacticExecutor):
             def __init__(self):
                 self.server = _FakeServer()
                 self.started = asyncio.Event()
 
-            async def apply(self, server, state, tactic):
+            async def apply(self, registry, occurrence, command, *, holder="operation"):
                 self.started.set()
                 await asyncio.Event().wait()
 
@@ -516,23 +544,14 @@ class PLNDisabledTests(unittest.TestCase):
         sg2 = structured_goal("True")
         sg3 = structured_goal("False")
 
-        class _TwoSubgoalThenQEDExecutor:
-            """First apply: returns two subgoals; subsequent applies: QED."""
+        calls = []
 
-            def __init__(self):
-                self.server = _FakeServer()
-                self.server.goals_by_expression = {
-                    goal.replay_spec().expression: goal for goal in (sg1, sg2, sg3)
-                }
-                self._calls = 0
+        def script(_occurrence, _command):
+            """First apply: three child obligations; later applies: closed."""
+            calls.append(_command)
+            return [sg1, sg2, sg3] if len(calls) == 1 else []
 
-            async def apply(self, server, state, tactic):
-                self._calls += 1
-                if self._calls == 1:
-                    return TacticOutcome(success=True, subgoals=[sg1, sg2, sg3])
-                return TacticOutcome(success=True, subgoals=[])
-
-        executor = _TwoSubgoalThenQEDExecutor()
+        executor = ScriptedExecutor(script, server=_FakeServer())
         reasoner, _, _ = self._make_no_pln(executor, top_k=1)
         reasoner.max_nodes = 4
         result = self._prove(reasoner)

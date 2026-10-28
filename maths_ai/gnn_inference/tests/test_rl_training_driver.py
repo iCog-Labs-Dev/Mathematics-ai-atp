@@ -27,7 +27,7 @@ from maths_ai.lean_replay import (
     render_replay,
     seed_from_text,
 )
-from maths_ai.hybrid_reasoner.hypergraph import TacticOutcome
+from maths_ai.hybrid_reasoner.retained_executor import RetainedTacticExecutor
 from maths_ai.pln_inference.model import PLNResult
 
 from maths_ai.gnn_inference.atp_lean_gnn.actor_critic import (
@@ -52,7 +52,11 @@ from maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver import (
     save_checkpoint,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.dataset import DatasetRow
-from maths_ai.gnn_inference.tests.model_helpers import pantograph_goal, structured_goal
+from maths_ai.gnn_inference.tests.model_helpers import (
+    ScriptedExecutor,
+    pantograph_goal,
+    structured_goal,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -76,20 +80,12 @@ class _FakeServer(ScopedFakeClient):
         return _FakeGoalState()
 
 
-class _QEDExecutor:
-    def __init__(self):
-        self.server = _FakeServer()
-
-    async def apply(self, server, state, tactic):
-        return TacticOutcome(success=True, subgoals=[])
+def _QEDExecutor():
+    return ScriptedExecutor(lambda _occurrence, _command: [], server=_FakeServer())
 
 
-class _RejectExecutor:
-    def __init__(self):
-        self.server = _FakeServer()
-
-    async def apply(self, server, state, tactic):
-        return TacticOutcome(success=False, subgoals=[], error="rejected")
+def _RejectExecutor():
+    return ScriptedExecutor(lambda _occurrence, _command: None, server=_FakeServer())
 
 
 class _UnelaboratedServer(_FakeServer):
@@ -100,11 +96,11 @@ class _UnelaboratedServer(_FakeServer):
         raise PantographGoalRejected("cannot elaborate reconstructed goal")
 
 
-class _UnelaboratedExecutor:
+class _UnelaboratedExecutor(RetainedTacticExecutor):
     def __init__(self):
         self.server = _UnelaboratedServer()
 
-    async def apply(self, server, state, tactic):
+    async def apply(self, registry, occurrence, command, *, holder="operation"):
         raise AssertionError("tactics must not run when elaboration fails")
 
 

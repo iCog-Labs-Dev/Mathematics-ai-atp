@@ -10,7 +10,14 @@ from pantograph_async import (
     PantographProtocolError,
     PantographStateError,
 )
-from maths_ai.gnn_inference.tests.model_helpers import FakeStateScope, ScopedFakeClient
+from maths_ai.gnn_inference.tests.model_helpers import (
+    FakeStateScope,
+    ScopedFakeClient,
+    ScriptedExecutor,
+    structured_goal,
+)
+from maths_ai.hybrid_reasoner.execution_registry import LeaseKind, SnapshotRegistry
+from maths_ai.hybrid_reasoner.execution_types import ExecutionOccurrence, ObligationKey
 
 from maths_ai.data_models.proof_components import (
     Goal,
@@ -22,7 +29,7 @@ from maths_ai.hybrid_reasoner.joint_inference import (
     PantographExecutor,
     render_tactic_command,
 )
-from maths_ai.hybrid_reasoner.pantograph_model_sexpr import materialize_replay
+from maths_ai.hybrid_reasoner.pantograph_model_sexpr import materialize_replay, materialize_seed
 from maths_ai.lean_replay import ReplayInputError, render_replay, seed_from_text
 
 
@@ -84,34 +91,70 @@ class RenderTacticCommandTests(unittest.TestCase):
         )
 
 
-class _RecordingServer:
-    """Captures the command string the executor sends to Lean."""
+class _RecordingScope:
+    """Captures the command and goal index the executor sends to Lean."""
+
+    is_usable = True
 
     def __init__(self):
-        self.commands: list[str] = []
+        self.commands: list[tuple[str, int]] = []
 
-    async def apply_tactic(self, state, tactic):
-        self.commands.append(tactic)
-        raise PantographTacticRejected(
-            "tactic failed"
-        )  # the return path is not what these tests check
+    async def apply_tactic(self, state, tactic, *, goal_index=0):
+        self.commands.append((tactic, goal_index))
+        raise PantographTacticRejected("tactic failed")  # the return path is not checked here
+
+    async def release(self, state):
+        pass
+
+
+def _occurrence(registry, names):
+    state = type("State", (), {"goals": [type("G", (), {"goal_name": name})() for name in names]})()
+    lease = registry.adopt_root(state, "root")
+    goal = structured_goal("p")
+    return ExecutionOccurrence(0, ObligationKey.root(), names[-1], goal, {}, lease)
 
 
 class ExecutorRenderingTests(unittest.TestCase):
-    def test_executor_sends_bracketed_form(self):
-        server = _RecordingServer()
-        executor = PantographExecutor(server)
-        outcome = asyncio.run(executor.apply(server, object(), _tactic("rw", "h")))
-        self.assertEqual(server.commands, ["rw [h]"])
+    def test_the_rendered_command_runs_on_the_occurrence_goal(self):
+        scope = _RecordingScope()
+        registry = SnapshotRegistry(scope)
+        occurrence = _occurrence(registry, ["other", "selected"])
+        command = render_tactic_command(_tactic("rw", "h"))
+        outcome = asyncio.run(PantographExecutor(object()).apply(registry, occurrence, command))
+        self.assertEqual(scope.commands, [("rw [h]", 1)])
         self.assertFalse(outcome.success)
 
-    def test_executor_drops_unplayable_tactic_without_calling_lean(self):
-        server = _RecordingServer()
-        executor = PantographExecutor(server)
-        outcome = asyncio.run(executor.apply(server, object(), _tactic("rw", "↑13")))
-        self.assertEqual(server.commands, [])  # never reached Lean
-        self.assertFalse(outcome.success)
-        self.assertIn("bracketed rule list", outcome.error)
+    def test_search_drops_an_unplayable_tactic_without_calling_lean(self):
+        client = _HealthyClient()
+        client._start_goal = _start_structured
+        client._apply_tactic = _intro_structured
+        executor = ScriptedExecutor(lambda _occurrence, command: self.fail(command), server=client)
+
+        class Reasoner(HybridReasoner):
+            def _build_gnn_engine(self, **_kwargs):
+                return None
+
+            def predict_next_tactic(self, goal):
+                return [_tactic("rw", "↑13")]
+
+        reasoner = Reasoner(
+            config_path=None, tactic_model_path=None, argument_model_path=None,
+            executor=executor, use_pln=False, max_nodes=5,
+        )
+        graph = asyncio.run(reasoner.prove(seed_from_text(goal="p", hypotheses=["p : Prop"])))
+        self.assertEqual(executor.calls, [])  # never reached Lean
+        self.assertEqual(graph.root.note, "executor rejected every candidate tactic")
+
+
+async def _start_structured(expression):
+    return "start"
+
+
+async def _intro_structured(state, tactic):
+    from maths_ai.gnn_inference.tests.model_helpers import pantograph_goal
+
+    goal = structured_goal("p", ["p : Prop"])
+    return type("State", (), {"goals": [pantograph_goal(goal)]})()
 
 
 class _HealthyClient(ScopedFakeClient):
@@ -124,13 +167,6 @@ class _HealthyClient(ScopedFakeClient):
 
     async def _apply_tactic(self, state, tactic):
         return f"{state}+{tactic}"
-
-
-def _reasoner(client):
-    reasoner = object.__new__(HybridReasoner)
-    reasoner.server = client
-    reasoner._scope = FakeStateScope(client)
-    return reasoner
 
 
 class ScopedReplayTests(unittest.TestCase):
@@ -156,7 +192,7 @@ class ScopedReplayTests(unittest.TestCase):
             )
             with self.assertRaises(expected):
                 asyncio.run(
-                    _reasoner(client)._materialize_goal(seed_from_text(goal="p → p"))
+                    materialize_seed(FakeStateScope(client), seed_from_text(goal="p → p"))
                 )
             self.assertEqual(len(calls), 1)
 

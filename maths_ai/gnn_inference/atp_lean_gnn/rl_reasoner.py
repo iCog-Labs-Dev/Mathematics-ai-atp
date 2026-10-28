@@ -5,10 +5,15 @@
   * ``predict_next_tactic`` — instead of the deterministic GNN-engine top-k, draw ``k``
     i.i.d. actions from the actor-critic policy (``model.act``), decode each into a
     ``TacticCandidate`` the Pantograph executor can apply, and stash the integer action
-    record (``EdgeAction``) keyed by a candidate fingerprint.
+    record (``EdgeAction``) keyed by the command it renders to. A stash belongs to the
+    one occurrence being expanded and is settled when that expansion ends.
   * ``_link`` — when the executor accepts a candidate and the base ``_expand`` links it
-    into the hypergraph, migrate the stash entry from fingerprint to ``edge.id`` so the
+    into the hypergraph, migrate the stash entry from its command to ``edge.id`` so the
     train phase can join each harvested transition to the action that produced it.
+
+Replaying a recipe to combine branches samples nothing: it runs recorded attempts,
+so it adds no policy samples and changes no multiplicity. A replay continuation is
+searched like any node, so its proposals are fresh samples of its actual observation.
 
 Stash entries still pending after a node's expansion belong to executor-REJECTED samples;
 they are flushed to ``failure_actions`` and train the actor with
@@ -29,14 +34,20 @@ from typing import Dict, List, Optional
 import torch
 from torch_geometric.data import Batch
 
-from maths_ai.data_models.proof_components import Goal, TacticCandidate
+from maths_ai.data_models.proof_components import ArgumentRef, Goal, TacticCandidate
 from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph, ProofNode
 from maths_ai.hybrid_reasoner.joint_inference import ExpansionResult, HybridReasoner
+from maths_ai.hybrid_reasoner.tactic_rendering import render_tactic_command
 from maths_ai.lean_replay import LeanGoalSeed
 from pantograph_async import PantographStateError
 
 from .actor_critic import ActorCriticWithArgsClassifier
-from .inference import _resolve_local_node_name, local_declarations
+from .inference import (
+    _resolve_local_node_name,
+    local_declaration_ids,
+    local_declarations,
+    local_node_label,
+)
 from .pln_rl_training import EdgeAction, FailureRecord, make_dag_featurizer
 
 
@@ -52,9 +63,18 @@ class RLSearchResult:
     edge_actions: Dict[int, EdgeAction] = field(default_factory=dict)
     failure_actions: List[FailureRecord] = field(default_factory=list)
 
+    @property
+    def certified(self) -> bool:
+        return self.graph.is_solved()
 
-def _fingerprint(goal: Goal, tactic_name: str, arguments: tuple[str, ...]) -> tuple:
-    return (goal.state_fingerprint(), tactic_name, arguments)
+
+def _action_key(candidate: TacticCandidate) -> tuple:
+    """Identity of a proposal within one occurrence's expansion: the command Lean
+    runs, or the raw tactic and arguments when it does not render."""
+    command = render_tactic_command(candidate)
+    if command is not None:
+        return ("command", command)
+    return ("unrendered", candidate.tactic_name, tuple(candidate.arguments))
 
 
 class RLHybridReasoner(HybridReasoner):
@@ -125,6 +145,7 @@ class RLHybridReasoner(HybridReasoner):
 
         dag, data = self.dag_featurize(sub_goal)
         declarations = local_declarations(sub_goal)
+        declaration_ids = local_declaration_ids(sub_goal)
         graph_fingerprint = str(data.graph_fingerprint)
         batch = Batch.from_data_list([data]).to(self.device)
 
@@ -136,14 +157,16 @@ class RLHybridReasoner(HybridReasoner):
                     batch, id_to_tactic=self.id_to_tactic, greedy=self._greedy
                 )
                 candidate, action = self._decode(
-                    sample, dag, declarations, graph_fingerprint
+                    sample,
+                    dag,
+                    declarations,
+                    graph_fingerprint,
+                    declaration_ids=declaration_ids,
                 )
                 if candidate is None:
                     self._unplayable_actions.append(action)
                     continue
-                key = _fingerprint(
-                    sub_goal, candidate.tactic_name, tuple(candidate.arguments)
-                )
+                key = _action_key(candidate)
                 existing = self._pending.get(key)
                 if existing is not None:
                     self._pending[key] = EdgeAction(
@@ -163,6 +186,8 @@ class RLHybridReasoner(HybridReasoner):
         dag,
         declarations: dict[str, str],
         graph_fingerprint: str,
+        *,
+        declaration_ids: Optional[dict[str, str]] = None,
     ) -> tuple[Optional[TacticCandidate], EdgeAction]:
         """Turn one batch-size-1 ``ActionSample`` into ``(TacticCandidate, EdgeAction)``.
 
@@ -170,8 +195,10 @@ class RLHybridReasoner(HybridReasoner):
         vocab (or the ``<UNK>`` family) is unplayable. Arguments: each
         sampled index is a padded per-graph position; at batch size 1 that equals the
         node's offset in ``dag.nodes`` (``dag_to_pyg`` preserves node order), so render
-        it with ``_resolve_local_node_name``. Unplayable draws retain their complete
-        integer action and graph fingerprint as rejected-action training records.
+        it with ``_resolve_local_node_name``. With ``declaration_ids`` each argument
+        also records the live ID of the declaration the pointer chose. Unplayable
+        draws retain their complete integer action and graph fingerprint as
+        rejected-action training records.
         """
         tactic_id = int(sample.tactic_action[0])
         arg_indices = tuple(int(a[0]) for a in sample.arg_actions)
@@ -186,19 +213,28 @@ class RLHybridReasoner(HybridReasoner):
             return None, action
 
         arguments: List[str] = []
+        refs: Optional[List[ArgumentRef]] = [] if declaration_ids is not None else None
         for idx in arg_indices:
             if not 0 <= idx < len(dag.nodes):
                 return None, action
             try:
-                arguments.append(
-                    _resolve_local_node_name(dag.nodes[idx], dag, declarations)
-                )
+                name = _resolve_local_node_name(dag.nodes[idx], dag, declarations)
             except ValueError:
                 return None, action
+            arguments.append(name)
+            # The pointer chose a declaration; keep its live ID, not just its name.
+            internal = (declaration_ids or {}).get(local_node_label(dag.nodes[idx], dag) or "")
+            if refs is not None and internal is not None:
+                refs.append(ArgumentRef(kind="local", text=name, internal_name=internal))
+            else:
+                refs = None
 
         probability = float(math.exp(float(sample.tactic_logp[0])))
         candidate = TacticCandidate(
-            tactic_name=tactic_name, arguments=arguments, probability=probability
+            tactic_name=tactic_name,
+            arguments=arguments,
+            probability=probability,
+            argument_refs=refs,
         )
         return candidate, action
 
@@ -212,15 +248,10 @@ class RLHybridReasoner(HybridReasoner):
         node: ProofNode,
         tactic: TacticCandidate,
         ranked_subgoals: list,
+        outcome=None,
     ):
-        edge = super()._link(graph, node, tactic, ranked_subgoals)
-        key = _fingerprint(node.goal, tactic.tactic_name, tuple(tactic.arguments))
-        action = self._pending.pop(key, None)
-        if action is None and self._pending_goal is not None:
-            key = _fingerprint(
-                self._pending_goal, tactic.tactic_name, tuple(tactic.arguments)
-            )
-            action = self._pending.pop(key, None)
+        edge = super()._link(graph, node, tactic, ranked_subgoals, outcome)
+        action = self._pending.pop(_action_key(tactic), None)
         if action is not None and edge is not None and self._result is not None:
             self._result.edge_actions[edge.id] = action
         return edge

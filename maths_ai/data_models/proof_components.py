@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -234,12 +234,45 @@ class STV(BaseModel):
         return self.strength * self.confidence
 
 
+class ArgumentRef(BaseModel):
+    """What one rendered tactic argument refers to.
+
+    ``local`` arguments name a local declaration by its live Lean ID
+    (``internal_name``) in the goal the tactic was proposed for, so a replay in
+    another Lean lineage can find the same declaration under its new name.
+    ``global`` arguments are environment names and ``literal`` ones are passed
+    through unchanged.
+    """
+
+    kind: Literal["local", "global", "literal"]
+    text: str
+    internal_name: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _validate_ref(self) -> "ArgumentRef":
+        if (self.kind == "local") != (self.internal_name is not None):
+            raise ValueError("Exactly the local arguments carry an internal name.")
+        return self
+
+
 class TacticCandidate(BaseModel):
-    """A single ranked tactic prediction from the GNN engine."""
+    """A single ranked tactic prediction from the GNN engine.
+
+    ``argument_refs``, when present, gives one ``ArgumentRef`` per argument.
+    """
 
     tactic_name: str
     arguments: List[str] = Field(default_factory=list)
     probability: float
+    argument_refs: Optional[List[ArgumentRef]] = None
+
+    @model_validator(mode="after")
+    def _validate_refs(self) -> "TacticCandidate":
+        if self.argument_refs is not None and (
+            [ref.text for ref in self.argument_refs] != list(self.arguments)
+        ):
+            raise ValueError("Argument references must match the arguments.")
+        return self
 
 
 class RankedSubgoal(BaseModel):

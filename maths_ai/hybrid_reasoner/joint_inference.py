@@ -9,40 +9,65 @@ except ImportError:
     Digraph = None
 from pathlib import Path
 from typing import List, Optional
+import pantograph_async
 from pantograph_async import (
+    PROTOCOL_DESCRIPTION,
     PantographClient,
     PantographEnv,
     PantographStateScope,
-    TacticState,
-    PantographTacticRejected,
     PantographProtocolError,
     PantographTransportError,
     PantographStateError,
+    compatibility,
 )
-from maths_ai.hybrid_reasoner.pantograph_adapter import execution_state_to_goals
 
-from maths_ai.data_models.model_identity import carry_model_identity
 from maths_ai.data_models.proof_components import (
     Goal,
     RankedSubgoal,
     STV,
     TacticCandidate,
 )
-from maths_ai.lean_replay import LeanGoalSeed, ReplayInputError, seed_from_text
+from maths_ai.lean_replay import LeanGoalSeed, render_replay, seed_from_text
 from maths_ai.gnn_inference.inference_engine import GNNModelEngine
 from maths_ai.pln_inference.model import PLNInference
 from maths_ai.pln_inference.metta.translator.translator_modules.runner import (
     DynamicThompsonSampler,
 )
 
+from maths_ai.hybrid_reasoner.execution_limits import (
+    ResidentMemoryMonitor,
+    RetentionLimits,
+)
+from maths_ai.hybrid_reasoner.execution_registry import (
+    LeaseKind,
+    RetentionExceeded,
+    SnapshotRegistry,
+)
+from maths_ai.hybrid_reasoner.execution_types import (
+    ExecutionOccurrence,
+    ObligationKey,
+    child_declarations,
+    root_declarations,
+)
 from maths_ai.hybrid_reasoner.hypergraph import (
     NodeClosureReason,
+    NodeStatus,
     ProofHypergraph,
     ProofNode,
     SearchEndReason,
-    TacticExecutor,
-    TacticOutcome,
+    UnsupportedObservation,
 )
+from maths_ai.hybrid_reasoner.proof_replay import (
+    ReplayCoordinator,
+    ReplayStatus,
+    build_artifact,
+)
+from maths_ai.hybrid_reasoner.retained_executor import (
+    ExecutionReferenceError,
+    RetainedOutcome,
+    RetainedTacticExecutor,
+)
+from maths_ai.hybrid_reasoner.tactic_rendering import render_tactic_command
 from maths_ai.hybrid_reasoner.pantograph_model_sexpr import (
     create_model_sexpr_client,
     materialize_seed,
@@ -50,82 +75,20 @@ from maths_ai.hybrid_reasoner.pantograph_model_sexpr import (
 from maths_ai.core.config import settings
 from maths_ai.gnn_inference.atp_lean_gnn.reporting import console_print
 
-# A Lean identifier usable as a rewrite rule or simp lemma: hypothesis names and
-# dotted lemma names, but not terms like `↑13` or `?m.2235`.
-
-
-def _is_lean_identifier(value: str) -> bool:
-    parts = value.split(".")
-    return bool(parts) and all(
-        bool(core := part.rstrip("'!?")) and core.isidentifier() for part in parts
-    )
-
-
-# Tactics whose arguments must be a bracketed list. `rw h` is a parse error at the
-# column where `[` was expected; the rule list is `rw [h]`. With no arguments these
-# tactics have nothing to rewrite with and are unplayable.
-_BRACKET_REQUIRED_TACTICS = frozenset(
-    {
-        "rw",
-        "rwa",
-        "rewrite",
-        "simp_rw",
-        "simp only",
-        "erw",
-    }
-)
-
-# Tactics that run bare but take a bracketed list when given lemmas.
-_BRACKET_OPTIONAL_TACTICS = frozenset(
-    {
-        "simp",
-        "simpa",
-        "field_simp",
-        "norm_num",
-        "linarith",
-        "nlinarith",
-        "aesop",
-    }
-)
-
-
 class ExpansionResult:
     TACTICS_EXECUTED = "tactics_executed"
     NO_CANDIDATES = "no_candidates"
     DEPTH_LIMIT = "depth_limit"
     ELABORATION_ERROR = "elaboration_error"
     EXTERNAL_ABORT = "external_abort"
+    RESOURCE_LIMIT = "resource_limit"
+    UNSUPPORTED_OBSERVATION = "unsupported_observation"
 
 
-def render_tactic_command(tactic: TacticCandidate) -> Optional[str]:
-    """Render a tactic and its arguments as Lean surface syntax.
-
-    Argument shape is per tactic, not uniform: ``rw`` needs ``rw [h]`` while
-    ``apply`` needs ``apply h``. Rendering everything as space-separated arguments
-    makes every ``rw`` draw a parse error before any rewriting is attempted.
-
-    Returns ``None`` when the tactic cannot be rendered into a playable command —
-    a bracket-requiring tactic with no usable rule names — so the caller can drop
-    the candidate instead of sending Lean something it will certainly reject.
-    """
-    name = tactic.tactic_name.strip()
-    arguments = [arg.rstrip(":").strip() for arg in tactic.arguments]
-    arguments = [arg for arg in arguments if arg]
-
-    if name in _BRACKET_REQUIRED_TACTICS or name in _BRACKET_OPTIONAL_TACTICS:
-        # A rewrite rule must be a name Lean can look up. The policy samples nodes
-        # from the goal's own graph, so a draw can land on a term like `↑13`, which
-        # is a valid expression but not a rule.
-        rules = [arg for arg in arguments if _is_lean_identifier(arg)]
-        if rules:
-            return f"{name} [{', '.join(rules)}]"
-        if name in _BRACKET_REQUIRED_TACTICS:
-            return None
-        return name
-
-    if not arguments:
-        return name
-    return " ".join([name, *arguments])
+# Version of what search success and learning evidence mean. Success is a
+# kernel certificate of the admitted root, reached by replaying candidate
+# recipes in one Lean execution; graph-only readiness is not success.
+SEARCH_EVIDENCE_VERSION = "kernel-certified-replay-v1"
 
 
 def plot_hypergraph(graph: ProofHypergraph) -> None:
@@ -156,56 +119,12 @@ def plot_hypergraph(graph: ProofHypergraph) -> None:
     dot.render("proof_hypergraph", format="png", cleanup=True)
 
 
-class PantographExecutor(TacticExecutor):
-    """Real executor: applies predicted tactics to actual Lean states via the
-    Pantograph API.
-    """
+class PantographExecutor(RetainedTacticExecutor):
+    """Real executor: applies tactics to retained Lean snapshots through the
+    client that owns them (``server``). See ``RetainedTacticExecutor``."""
 
     def __init__(self, server: PantographClient):
         self.server = server
-
-    async def apply(
-        self,
-        scope: PantographStateScope,
-        state: TacticState,
-        tactic: TacticCandidate,
-    ) -> TacticOutcome:
-        """Apply a tactic to a Lean goal state and report the outcome.
-
-        Args:
-            scope: Active allocation owner for this search.
-            state: Current Lean goal state.
-            tactic: Tactic to apply.
-
-        Returns:
-            ``TacticOutcome(success=True, subgoals=...)`` with the
-            resulting subgoals (empty ⇒ this branch is fully discharged),
-            decoded into canonical ``maths_ai`` goals containing pretty Lean text,
-            normalized model S-expressions, ordered locals, and a separate case tag.
-            On a Lean-side error (the tactic doesn't apply), returns
-            ``TacticOutcome(success=False, error=...)``.
-        """
-        tactic_cmd = render_tactic_command(tactic)
-        if tactic_cmd is None:
-            return TacticOutcome(
-                success=False,
-                subgoals=[],
-                error=(
-                    f"{tactic.tactic_name} requires a bracketed rule list and none of "
-                    f"its sampled arguments {tactic.arguments} is a usable name"
-                ),
-            )
-
-        try:
-            new_state = await scope.apply_tactic(state, tactic_cmd)
-        except PantographTacticRejected as exc:
-            return TacticOutcome(success=False, subgoals=[], error=str(exc))
-        try:
-            subgoals = execution_state_to_goals(new_state)
-            return TacticOutcome(success=True, subgoals=subgoals, error=None)
-        finally:
-            if scope.is_usable:
-                await scope.release(new_state)
 
 
 class HybridReasoner:
@@ -243,10 +162,22 @@ class HybridReasoner:
         dts_c: float = None,
         dts_random_seed: Optional[int] = None,
         use_pln: bool = True,
+        retention: Optional[RetentionLimits] = None,
+        certify_heartbeats: Optional[int] = None,
+        collection_memory: Optional[ResidentMemoryMonitor] = None,
     ) -> None:
         self.use_pln = use_pln
         self._proving = False
         self._scope: PantographStateScope | None = None
+        self._registry: SnapshotRegistry | None = None
+        self._replay: ReplayCoordinator | None = None
+        self.retention = retention or RetentionLimits()
+        self.certify_heartbeats = certify_heartbeats
+        # Shared by every worker in one collection process; one baseline for all.
+        self.collection_memory = collection_memory
+        self._repl_memory: ResidentMemoryMonitor | None = None
+        self._graph: ProofHypergraph | None = None
+        self._expanding: ProofNode | None = None
         self.gnn_engine = self._build_gnn_engine(
             config_path=config_path,
             tactic_model_path=tactic_model_path,
@@ -299,8 +230,6 @@ class HybridReasoner:
         self.top_k_tactics = top_k_tactics
         self.max_depth = max_depth
         self.max_nodes = max_nodes
-        self._cached_root_state: TacticState | None = None
-        self._cached_root_fingerprint: str | None = None
 
     # GNN side
     def _build_gnn_engine(
@@ -469,51 +398,100 @@ class HybridReasoner:
         try:
             async with self.server.state_scope() as scope:
                 self._scope = scope
+                self._registry = SnapshotRegistry(
+                    scope,
+                    max_snapshots=self.retention.max_retained_snapshots,
+                    make_room=self._make_room,
+                )
+                self._replay = ReplayCoordinator(
+                    self._registry,
+                    limits=self.retention.replay_limits(
+                        certify_heartbeats=self.certify_heartbeats
+                    ),
+                    executor=self.executor,
+                )
                 return await self._prove_scoped(seed)
         finally:
             self._scope = None
-            self._cached_root_state = None
-            self._cached_root_fingerprint = None
+            self._registry = None
+            self._replay = None
             self._proving = False
 
     async def _prove_scoped(self, seed: LeanGoalSeed) -> ProofHypergraph:
-        """Run best-first AND-OR search over the hypergraph rooted at ``seed``.
+        """Run best-first AND-OR search over retained snapshots rooted at ``seed``.
 
         A seed that cannot be replayed faithfully raises ``ReplayInputError``
         before any search; that is a property of the input, not a failed proof.
+        The seed is admitted once. Every later tactic runs on a snapshot Lean
+        returned, never on a goal rebuilt from its printed form.
 
-        Loop: pop the highest-``combined_rank`` open node, expand it
-        (``_expand``), which links any new subgoals into the hypergraph —
-        and every link immediately backpropagates updated status/rank to
-        every ancestor (``ProofHypergraph._propagate``), re-ordering the
-        frontier for the next iteration.
+        Loop: pop the highest-``combined_rank`` open node, expand it on its own
+        snapshot (``_expand``) and link the obligations each accepted tactic
+        produced; every link backpropagates readiness and rank to the root.
+        Whenever readiness changes, the candidate recipes are replayed in one
+        Lean execution from the admitted root (``proof_replay``). Only a kernel
+        certificate of that replay ends the search as a proof; a conflicting
+        combination lets search continue, including on any replay
+        continuation it kept.
 
-        Termination (design-report "no-goal ambiguity" — resolved here as):
-          * root SOLVED  → proof found; ``graph.proof_trace()`` replays it
-          * root DEAD    → structurally closed; closure provenance determines whether
-            learning sees failure or unknown evidence
+        Termination:
+          * root certified → proof found; ``graph.proof_trace()`` gives it
+          * root DEAD      → structurally closed; closure provenance determines
+            whether learning sees failure or unknown evidence
           * frontier empty / ``max_nodes`` reached → budget exhaustion
-            (open design question: what to return — we return the partial
-            graph so the caller can inspect ``graph.frontier()``, resume, or
-            visualize it; see ``ProofHypergraph.summary``)
+          * retention or memory bound reached with nothing left to prune →
+            ``RESOURCE_LIMIT``, unknown evidence
 
-        ``max_depth`` bounds branch depth and ``max_nodes`` bounds total
-        graph size — the design report's "branching-factor explosion"
-        safeguards. Cycle detection (a subgoal identical to one of its own
-        ancestors) is handled inside ``ProofHypergraph.add_edge``.
+        ``max_depth`` and ``max_nodes`` bound the search; cycle detection
+        (a hole-free subgoal identical to an ancestor) is in
+        ``ProofHypergraph.add_edge``.
         """
-        root_state, root_goal = await self._materialize_goal(seed)
+        registry = self._registry
+        root_state, root_goal, _ = await materialize_seed(self._scope, seed)
+        anchor = registry.adopt_root(root_state, "root anchor")
         graph = ProofHypergraph(root_goal)
-        self._cached_root_state = root_state
-        self._cached_root_fingerprint = root_goal.state_fingerprint()
+        self._graph = graph
+        self._expanding = None
+        root = graph.root
+        root.declarations = root_declarations(root_goal)
+        goal_name = root_state.goals[0].goal_name
+        self._root_occurrence = ExecutionOccurrence(
+            root.id, root.key, goal_name, root_goal, root.declarations, anchor
+        )
+        root.occurrence = ExecutionOccurrence(
+            root.id, root.key, goal_name, root_goal, root.declarations,
+            registry.share(anchor, LeaseKind.GRAPH, "node-0"),
+        )
+        spec = render_replay(seed)
+        self._statement = {
+            "expression": spec.expression,
+            "local_names": list(spec.local_names),
+            "universe_levels": list(spec.universe_levels),
+            "fingerprint": spec.fingerprint,
+        }
+        self._continuations = {}
+        self._replayed_version = -1
+        self._replay_stopped = False
+        self._counters = {
+            "root_admissions": 1,
+            "intermediate_reconstructions": 0,
+            "original_tactic_calls": 0,
+            "replay_attempts": 0,
+            "pruned_nodes": 0,
+        }
+        pid = getattr(self.server, "pid", None)
+        if self._repl_memory is None and pid is not None:
+            self._repl_memory = ResidentMemoryMonitor(
+                self.retention.max_repl_rss_growth_mb, pid=pid
+            )
         loop_count = 0
 
-        # Running through the loop untill the theorem is solved or the depth_limit is reached
         try:
             while (
                 not graph.is_solved()
                 and not graph.is_exhausted()
-                and graph.search_end_reason != SearchEndReason.EXTERNAL_ABORT
+                and graph.search_end_reason
+                not in (SearchEndReason.EXTERNAL_ABORT, SearchEndReason.RESOURCE_LIMIT)
                 and len(graph.nodes) < self.max_nodes
             ):
                 frontier = graph.frontier()
@@ -526,13 +504,20 @@ class HybridReasoner:
                     f"\n=== Loop {loop_count}: expanding node {node.id} (depth {node.depth}) | goal: {node.goal.expression} ==="
                 )
                 await self._expand(graph, node)
+                if graph.search_end_reason != SearchEndReason.EXTERNAL_ABORT:
+                    await self._try_certify(graph)
         except BaseException:
             graph.search_end_reason = SearchEndReason.EXTERNAL_ABORT
             raise
+        finally:
+            self._finish(graph)
 
         if graph.is_solved():
-            graph.search_end_reason = SearchEndReason.ROOT_SOLVED
-        elif graph.search_end_reason == SearchEndReason.EXTERNAL_ABORT:
+            graph.search_end_reason = SearchEndReason.ROOT_CERTIFIED
+        elif graph.search_end_reason in (
+            SearchEndReason.EXTERNAL_ABORT,
+            SearchEndReason.RESOURCE_LIMIT,
+        ):
             pass
         elif graph.is_exhausted():
             graph.search_end_reason = SearchEndReason.ROOT_DEAD
@@ -542,17 +527,100 @@ class HybridReasoner:
             graph.search_end_reason = SearchEndReason.FRONTIER_EMPTY
         return graph
 
-    async def _materialize_goal(
-        self, goal: Goal | LeanGoalSeed
-    ) -> tuple[TacticState, Goal]:
-        """Replay a seed or a canonical goal and return the checked live goal."""
-        if self._scope is None:
-            raise PantographStateError(
-                "Materialization requires an active search scope."
-            )
-        seed = goal.replay_seed() if isinstance(goal, Goal) else goal
-        state, materialized, _ = await materialize_seed(self._scope, seed)
-        return state, materialized
+    def _finish(self, graph: ProofHypergraph) -> None:
+        """Record execution counters and drop every live reference.
+
+        Scope exit deletes the remaining allocations in one request, so the
+        registry only forgets them here. The returned graph keeps observations,
+        recipes, evidence and counters, but no handle.
+        """
+        registry = self._registry
+        replay = self._replay
+        graph.execution = {
+            **self._counters,
+            "evidence": SEARCH_EVIDENCE_VERSION,
+            "replay_tactic_calls": replay.total_steps,
+            "replay_combinations": replay.total_combinations,
+            "continuations": len(self._continuations),
+            "peak_snapshots": registry.peak_snapshots,
+            "snapshots_adopted": registry.adopted,
+            "snapshots_deleted_early": registry.deleted,
+            "repl_rss_growth_mb": (
+                self._repl_memory.peak_growth if self._repl_memory is not None else None
+            ),
+            "collection_rss_growth_mb": (
+                self.collection_memory.peak_growth
+                if self.collection_memory is not None
+                else None
+            ),
+            **graph.execution,
+        }
+        for node in graph.nodes.values():
+            node.occurrence = None
+        self._graph = None
+        self._expanding = None
+        self._root_occurrence = None
+        self._continuations = {}
+        registry.invalidate()
+
+    async def _try_certify(self, graph: ProofHypergraph) -> None:
+        """Replay the candidate recipes when readiness changed; attach a certificate."""
+        if (
+            graph.is_solved()
+            or self._replay_stopped
+            or graph.ready_version == self._replayed_version
+        ):
+            return
+        self._replayed_version = graph.ready_version
+        attempts = []
+        if graph.has_candidate():
+            attempts.append((graph.root_id, None))
+        for node_id, continuation in list(self._continuations.items()):
+            if graph.nodes[node_id].status == NodeStatus.READY:
+                attempts.append((node_id, continuation))
+        for node_id, continuation in attempts:
+            self._counters["replay_attempts"] += 1
+            if continuation is None:
+                result = await self._replay.combine(graph, self._root_occurrence, node_id)
+            else:
+                result = await self._replay.resume(graph, continuation, node_id)
+            conflicts = graph.execution.get("replay_conflicts", 0) + result.conflict_count
+            graph.execution["replay_conflicts"] = conflicts
+            graph.execution["last_replay"] = result.status.value
+            if result.is_certified:
+                graph.certificate = result.certificate
+                graph.witness = result.witness
+                graph.artifact = build_artifact(
+                    self._statement, result, self._environment(result)
+                )
+                return
+            for kept in result.continuations:
+                if len(self._continuations) >= self.retention.max_replay_continuations:
+                    await self._registry.release(kept.occurrence.lease)
+                    continue
+                node = graph.add_continuation(kept.occurrence, kept.node)
+                self._continuations[node.id] = kept
+            if result.status is ReplayStatus.RESOURCE_LIMIT:
+                # Even after pruning, the replay's own anchors did not fit.
+                graph.search_end_reason = SearchEndReason.RESOURCE_LIMIT
+                self._replay_stopped = True
+                return
+            if result.status in (ReplayStatus.BUDGET, ReplayStatus.INCONCLUSIVE):
+                # Replay or certification ran out; further evidence stays unknown.
+                self._replay_stopped = True
+                return
+
+    def _environment(self, result) -> dict:
+        companion = compatibility.manifest()["companion"]
+        return {
+            "client": pantograph_async.__name__,
+            "client_version": compatibility.manifest()["client_version"],
+            "protocol": dict(PROTOCOL_DESCRIPTION),
+            "companion_source": companion["source_url"],
+            "companion_patch_sha256": companion["patch_sha256"],
+            "lean": result.certificate.receipt.lean,
+            "trusted_environment": result.certificate.receipt.environment,
+        }
 
     def _link(
         self,
@@ -560,25 +628,59 @@ class HybridReasoner:
         node: ProofNode,
         tactic: TacticCandidate,
         ranked_subgoals: list,
+        outcome: Optional[RetainedOutcome] = None,
     ):
-        """Link one successful tactic application into the hypergraph and
-        return the created hyperedge (or ``None`` when ``add_edge`` refuses
-        the link, e.g. on cycle detection).
+        """Link one accepted attempt into the hypergraph and return the edge.
 
-        This is the single seam between search and training data collection:
-        ``RLHybridReasoner`` overrides it to associate the returned edge id
-        with the sampled action indices that produced ``tactic``, so the
-        train phase can recompute log-probabilities for exactly the edges
-        that made it into the graph.
+        ``ranked_subgoals`` pairs the attempt's child obligations, in tactic
+        slot order, with their STVs. This is the single seam between search
+        and training data collection: ``RLHybridReasoner`` overrides it to
+        associate the returned edge id with the sampled action that produced
+        ``tactic``.
         """
-        return graph.add_edge(node.id, tactic, ranked_subgoals=ranked_subgoals)
+        dependencies: list = []
+        if outcome is not None and outcome.selected_complete is False:
+            dependencies = self._dependencies(graph, node, outcome.selected_holes)
+        return graph.add_edge(
+            node.id,
+            tactic,
+            ranked_subgoals,
+            command=outcome.command if outcome is not None else "",
+            selected_complete=outcome.selected_complete if outcome is not None else True,
+            dependencies=dependencies,
+            closed=len(outcome.closed) if outcome is not None else 0,
+            changed=len(outcome.changed) if outcome is not None else 0,
+        )
+
+    def _dependencies(
+        self, graph: ProofHypergraph, node: ProofNode, holes
+    ) -> list[ObligationKey]:
+        """The obligations a closing attempt's remaining holes are, or ``[]``.
+
+        Each hole must be another obligation of an AND edge on ``node``'s path
+        to the root (the same lineage, so the same metavariable name); those are
+        exactly the obligations a replay of this branch also solves. A hole the
+        search does not know leaves the attempt JOINT.
+        """
+        known: dict[str, ObligationKey] = {}
+        current = node
+        while current.incoming_edge_id is not None:
+            edge = graph.edges[current.incoming_edge_id]
+            for child_id in edge.child_ids:
+                child = graph.nodes[child_id]
+                if child.id != node.id and child.occurrence is not None:
+                    known.setdefault(child.occurrence.goal_name, child.key)
+            current = graph.nodes[edge.source_id]
+        if not holes or any(hole not in known for hole in holes):
+            return []
+        return [known[hole] for hole in holes]
 
     def _on_expansion_complete(self, node: ProofNode, result: str) -> None:
         """Hook invoked exactly once for every non-exceptional expansion exit."""
 
     async def _expand(self, graph: ProofHypergraph, node: ProofNode) -> None:
-        """Try each of the GNN's top-k tactics on ``node`` and link whatever
-        survives (executor success) into the hypergraph as new hyperedges.
+        """Try each proposed tactic on ``node``'s own retained snapshot and
+        link every accepted attempt into the hypergraph.
         """
         if node.depth >= self.max_depth:
             graph.mark_node_exhausted(
@@ -586,46 +688,94 @@ class HybridReasoner:
                 reason=NodeClosureReason.DEPTH_LIMIT,
                 note=f"depth limit ({self.max_depth}) reached",
             )
+            await self._drop_snapshot(node)
             self._on_expansion_complete(node, ExpansionResult.DEPTH_LIMIT)
             return
-
-        try:
-            fingerprint = node.goal.state_fingerprint()
-            if (
-                node.id == graph.root_id
-                and self._cached_root_state is not None
-                and self._cached_root_fingerprint == fingerprint
-            ):
-                state = self._cached_root_state
-                materialized = node.goal
-                self._cached_root_state = None
-                self._cached_root_fingerprint = None
-            else:
-                state, materialized = await self._materialize_goal(node.goal)
-            node.goal = materialized
-        except ReplayInputError as exc:
-            graph.mark_node_unelaborated(node.id, note=f"elaboration error: {exc}")
-            self._on_expansion_complete(node, ExpansionResult.ELABORATION_ERROR)
+        occurrence = node.occurrence
+        if occurrence is None or not occurrence.is_retained:
+            graph.mark_node_pruned(node.id, note="snapshot no longer retained")
+            self._on_expansion_complete(node, ExpansionResult.RESOURCE_LIMIT)
             return
-        except (
-            PantographProtocolError,
-            PantographTransportError,
-            PantographStateError,
-        ) as exc:
-            graph.mark_node_infrastructure_failed(node.id, note=str(exc))
-            graph.search_end_reason = SearchEndReason.EXTERNAL_ABORT
-            raise
+        self._expanding = node
         try:
-            await self._expand_materialized(graph, node, state)
+            await self._expand_occurrence(graph, node, occurrence)
         finally:
-            if self._scope is not None and self._scope.is_usable:
-                await self._scope.release(state)
+            self._expanding = None
+            await self._drop_snapshot(node)
 
-    async def _expand_materialized(
-        self, graph: ProofHypergraph, node: ProofNode, state: TacticState
+    async def _drop_snapshot(self, node: ProofNode) -> None:
+        """An expanded node no longer needs its snapshot; continuations keep theirs."""
+        occurrence = node.occurrence
+        if occurrence is None or node.continuation_of is not None:
+            return
+        if occurrence.lease is not None and self._registry is not None:
+            await self._registry.release(occurrence.lease)
+
+    def _memory_exceeded(self) -> bool:
+        return any(
+            monitor is not None and monitor.exceeded()
+            for monitor in (self._repl_memory, self.collection_memory)
+        )
+
+    async def _prune(
+        self, graph: ProofHypergraph, keep: Optional[ProofNode], *, fraction: float
+    ) -> int:
+        """Release the snapshots of the lowest-ranked open nodes, ``keep`` aside."""
+        candidates = [
+            other for other in reversed(graph.frontier())
+            if (keep is None or other.id != keep.id) and other.occurrence is not None
+            and other.occurrence.lease is not None
+            and not self._registry.is_pinned(other.occurrence.lease)
+        ]
+        count = max(1, int(len(candidates) * fraction)) if candidates else 0
+        for other in candidates[:count]:
+            lease = other.occurrence.lease
+            self._continuations.pop(other.id, None)
+            other.occurrence = None
+            if lease is not None:
+                await self._registry.release(lease)
+            graph.mark_node_pruned(other.id)
+            self._counters["pruned_nodes"] += 1
+        return count
+
+    async def _make_room(self, count: int) -> None:
+        """The registry's hook before every state-producing request.
+
+        Exploration, replay and continuations all reach Lean through the
+        executor, so one policy covers them: under memory pressure prune half
+        of the open frontier, then prune until ``count`` more snapshots fit.
+        Pinned anchors and leased inputs are never released here; if pruning
+        cannot make room, ``RetentionExceeded`` stops the request unexecuted.
+        """
+        graph = self._graph
+        if graph is None:
+            return
+        keep = self._expanding
+        while True:
+            pressure = self._memory_exceeded()
+            if not pressure and self._registry.has_capacity(count):
+                return
+            if not await self._prune(graph, keep, fraction=0.5 if pressure else 0.0):
+                raise RetentionExceeded(
+                    "Resident memory is over its bound and nothing is left to prune."
+                    if pressure else
+                    "Pinned snapshots fill the retention bound and nothing is left to prune."
+                )
+
+    async def _expand_occurrence(
+        self, graph: ProofHypergraph, node: ProofNode, occurrence: ExecutionOccurrence
     ) -> None:
         print(f"  [GNN Input] goal={node.goal.expression}  hyps={node.goal.hypotheses}")
-        candidates = self.predict_next_tactic(node.goal)
+        try:
+            candidates = self.predict_next_tactic(node.goal)
+        except UnsupportedObservation as exc:
+            # The model cannot read this goal; it stays unsearched, not failed.
+            graph.mark_node_unsupported(node.id, note=str(exc))
+            self._counters["unsupported_observations"] = (
+                self._counters.get("unsupported_observations", 0) + 1
+            )
+            self._on_expansion_complete(node, ExpansionResult.UNSUPPORTED_OBSERVATION)
+            return
         if not candidates:
             graph.mark_node_exhausted(
                 node.id,
@@ -637,12 +787,25 @@ class HybridReasoner:
         any_applied = False
 
         for tactic in candidates:
+            command = render_tactic_command(tactic)
+            if command is None:
+                print(
+                    f"  [Tactic FAILED] {tactic.tactic_name} {' '.join(tactic.arguments)} — "
+                    "requires a bracketed rule list and none of its arguments is a usable name"
+                )
+                continue
             try:
-                outcome = await self.executor.apply(self._scope, state, tactic)
+                outcome = await self.executor.apply(self._registry, occurrence, command)
+            except RetentionExceeded:
+                # Retention is exhausted; unexecuted proposals carry no evidence.
+                graph.search_end_reason = SearchEndReason.RESOURCE_LIMIT
+                self._on_expansion_complete(node, ExpansionResult.RESOURCE_LIMIT)
+                return
             except (
                 PantographProtocolError,
                 PantographTransportError,
                 PantographStateError,
+                ExecutionReferenceError,
             ) as exc:
                 graph.mark_node_infrastructure_failed(
                     node.id,
@@ -652,6 +815,7 @@ class HybridReasoner:
                 self._on_expansion_complete(node, ExpansionResult.EXTERNAL_ABORT)
                 exc.graph = graph
                 raise
+            self._counters["original_tactic_calls"] += 1
 
             if not outcome.success:
                 print(
@@ -660,46 +824,12 @@ class HybridReasoner:
                 continue
             any_applied = True
             print(
-                f"  [Tactic APPLIED] {tactic.tactic_name} {' '.join(tactic.arguments)} (prob={tactic.probability:.4f})"
+                f"  [Tactic APPLIED] {command} (prob={tactic.probability:.4f})"
             )
-            # Successors see the model identity of the goal they came from.
-            subgoals = [carry_model_identity(node.goal, goal) for goal in outcome.subgoals]
-
-            if not subgoals:
-                # "no-goal": this tactic fully discharges the goal (QED for this branch)
-                print(f"  [Tactic QED] no subgoals — branch closed!")
-                self._link(graph, node, tactic, ranked_subgoals=[])
-                continue
-
-            if self.use_pln:
-                print(f"  [PLN Ranking] scoring {len(subgoals)} subgoal(s)...")
-                ranked = await self.rank_subgoals(
-                    node.goal.expression,
-                    subgoals,
-                    tactic,
-                    gnn_probability=tactic.probability,
-                )
-                print(f"  [PLN Done] ranked {len(ranked)} subgoal(s)")
-                for i, rs in enumerate(ranked):
-                    print(
-                        f"    subgoal {i}: {rs.goal.expression} | stv=({rs.stv.strength:.3f}, {rs.stv.confidence:.3f}) | combined_rank={rs.combined_rank:.4f}"
-                    )
-                self._link(
-                    graph,
-                    node,
-                    tactic,
-                    ranked_subgoals=[
-                        (candidate.goal, candidate.stv) for candidate in ranked
-                    ],
-                )
-            else:
-                # PLN disabled: retain every Lean obligation in executor order.
-                self._link(
-                    graph,
-                    node,
-                    tactic,
-                    ranked_subgoals=[(subgoal, None) for subgoal in subgoals],
-                )
+            try:
+                await self._link_outcome(graph, node, tactic, outcome)
+            finally:
+                await self._registry.release(outcome.lease)
 
         if not any_applied and self.use_pln:
             print(
@@ -730,7 +860,7 @@ class HybridReasoner:
             print(
                 f"  [PLN Fallback] final STV=({stv.strength:.3f}, {stv.confidence:.3f})  score={stv.score:.3f}  is_fallback={pln_result.is_fallback}"
             )
-            # PLN is a ranking and reward heuristic. Only Lean QED may close a node.
+            # PLN is a ranking and reward heuristic. Only a kernel certificate is a proof.
 
         note = None if any_applied else "executor rejected every candidate tactic"
         if note:
@@ -741,6 +871,56 @@ class HybridReasoner:
             note=note,
         )
         self._on_expansion_complete(node, ExpansionResult.TACTICS_EXECUTED)
+
+    async def _link_outcome(
+        self,
+        graph: ProofHypergraph,
+        node: ProofNode,
+        tactic: TacticCandidate,
+        outcome: RetainedOutcome,
+    ) -> None:
+        """Rank the attempt's children with PLN (if on) and link them in slot order.
+
+        Every child keeps its tactic slot; PLN only sets its STV, which orders
+        expansion but never reorders or drops obligations. Each open child
+        leases the result snapshot.
+        """
+        children = outcome.children
+        stvs: list = [None] * len(children)
+        if not children:
+            print("  [Tactic QED candidate] no child obligations")
+        elif self.use_pln:
+            print(f"  [PLN Ranking] scoring {len(children)} subgoal(s)...")
+            ranked = await self.rank_subgoals(
+                node.goal.expression,
+                [child.goal for child in children],
+                tactic,
+                gnn_probability=tactic.probability,
+            )
+            remaining = list(ranked)
+            for position, child in enumerate(children):
+                match = next(
+                    (item for item in remaining if item.goal is child.goal),
+                    None,
+                ) or next(item for item in remaining if item.goal == child.goal)
+                remaining.remove(match)
+                stvs[position] = match.stv
+            print(f"  [PLN Done] ranked {len(ranked)} subgoal(s)")
+        edge = self._link(graph, node, tactic, list(zip(children, stvs)), outcome)
+        if edge is None:
+            return
+        for child, child_id in zip(children, edge.child_ids):
+            child_node = graph.nodes[child_id]
+            child_node.declarations = child_declarations(node.declarations, edge.id, child)
+            if child_node.status == NodeStatus.OPEN:
+                child_node.occurrence = ExecutionOccurrence(
+                    child_id,
+                    child_node.key,
+                    child.goal_name,
+                    child.goal,
+                    child_node.declarations,
+                    self._registry.share(outcome.lease, LeaseKind.GRAPH, f"node-{child_id}"),
+                )
 
 
 async def main(

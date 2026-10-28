@@ -131,10 +131,14 @@ async def run_smoke(env: PantographEnv) -> None:
 
         graph = result.graph
         print(
-            f"[rl_smoke] search done: solved={graph.is_solved()} nodes={len(graph.nodes)} "
-            f"edges={len(graph.edges)} on-policy edges={len(result.edge_actions)} "
+            f"[rl_smoke] search done: certified={graph.is_solved()} "
+            f"candidate={graph.has_candidate()} end={graph.search_end_reason} "
+            f"nodes={len(graph.nodes)} edges={len(graph.edges)} "
+            f"on-policy edges={len(result.edge_actions)} "
             f"failures={len(result.failure_actions)}"
         )
+        print(f"[rl_smoke] execution: {graph.execution}")
+        assert graph.execution["intermediate_reconstructions"] == 0
         assert (
             result.edge_actions or result.failure_actions
         ), "no on-policy signal collected — neither an accepted edge nor a failure record"

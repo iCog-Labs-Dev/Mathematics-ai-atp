@@ -86,6 +86,9 @@ def main():
         "printImplementationDetailHyps": False,
     }
     states = set()
+    # Per live state: its root and listed goals, for provenance and inspection.
+    roots = {}
+    listed = {}
     next_id = 0
     for line in sys.stdin:
         command, raw = line.split(" ", 1)
@@ -94,9 +97,12 @@ def main():
         if command == "protocol.describe":
             result = {
                 "protocol": "maths-ai-pantograph",
-                "protocolVersion": 1,
+                "protocolVersion": 2,
                 "modelSexpVersion": 1,
                 "transitionValidationVersion": 1,
+                "transitionProvenanceVersion": 1,
+                "inspectionVersion": 1,
+                "certificationVersion": 1,
                 "messageVersion": 1,
                 "goalSelection": "explicit-focused-v1",
                 "tacticErrorsFormat": "string-array-v1",
@@ -144,13 +150,23 @@ def main():
                 return 0
             result = {"nGoals": False if scenario == "invalid_schema" else len(states)}
         elif command == "goal.start":
+            # "universe:u,v" elaborates only when exactly those levels are declared.
+            needed = (
+                args["expr"].split(":", 1)[1].split(",")
+                if args["expr"].startswith("universe:")
+                else []
+            )
             if args["expr"] == "reject":
                 result = {"error": "elab", "desc": "bad expression"}
+            elif sorted(args.get("levels", [])) != sorted(needed):
+                result = {"error": "elab", "desc": "unknown universe level"}
             else:
                 if scenario == "reuse_released_zero" and not states:
                     next_id = 0
                 states.add(next_id)
-                result = {"stateId": next_id, "root": "g" + str(next_id)}
+                roots[next_id] = "g" + str(next_id)
+                listed[next_id] = [{"name": roots[next_id]}]
+                result = {"stateId": next_id, "root": roots[next_id]}
                 if scenario != "duplicate_allocation":
                     next_id += 1
         elif command == "goal.delete":
@@ -160,6 +176,9 @@ def main():
                 send({"error": "command", "desc": "deletion unavailable"})
                 continue
             states.difference_update(args["stateIds"])
+            for state_id in args["stateIds"]:
+                roots.pop(state_id, None)
+                listed.pop(state_id, None)
             result = {}
         elif command == "goal.tactic":
             if args["stateId"] not in states:
@@ -188,7 +207,13 @@ def main():
                     }.get(tactic, tactic)
                     result = deepcopy(fixtures["successes"][key])
                     result["nextStateId"] = next_id
+                    selected = listed[args["stateId"]][args["goalId"]]["name"]
+                    if scenario == "wrong_selected":
+                        selected = "unrelated"
+                    result["transition"]["selected"] = selected
                     states.add(next_id)
+                    roots[next_id] = roots[args["stateId"]]
+                    listed[next_id] = result["goals"]
                     next_id += 1
                     if tactic == "missing_validation":
                         result.pop("validation")
@@ -197,6 +222,46 @@ def main():
                         result["goals"][0]["isConversion"] = True
                     if scenario == "tactic_delay":
                         time.sleep(0.25)
+        elif command in ("goal.inspect", "goal.certify"):
+            if args["stateId"] not in states:
+                result = {"error": "index", "desc": "unknown state"}
+            elif command == "goal.inspect":
+                goals = {goal["name"]: goal for goal in listed[args["stateId"]]}
+                names = list(args["goals"])
+                if scenario == "inspect_mismatch":
+                    names.reverse()
+                result = {
+                    "obligations": [
+                        {
+                            "name": name,
+                            "status": "active",
+                            "goal": goals[name],
+                            "holes": [],
+                            "universeHoles": False,
+                        }
+                        if "vars" in goals.get(name, {})
+                        else {
+                            "name": name,
+                            "status": "complete",
+                            "holes": [],
+                            "universeHoles": False,
+                        }
+                        for name in names
+                    ]
+                }
+            else:
+                fixtures = json.loads(
+                    Path(os.environ["PANTOGRAPH_FAKE_CONTRACT"]).read_text()
+                )
+                if listed[args["stateId"]]:
+                    result = deepcopy(fixtures["incomplete"])
+                else:
+                    result = deepcopy(fixtures["certified"])
+                    result["receipt"]["root"] = (
+                        "unrelated"
+                        if scenario == "wrong_root"
+                        else roots[args["stateId"]]
+                    )
         else:
             result = {"error": "command", "desc": "Unsupported diagnostic command"}
         send(result, scenario == "split")

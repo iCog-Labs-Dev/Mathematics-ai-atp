@@ -8,7 +8,7 @@ dependencies = [
     "datasets>=5.0.1",
     "faiss-cpu>=1.14.2",
     "graphviz>=0.21",
-    "pantograph-async-client @ git+https://github.com/123nol/Pantograph-Client@d1dac7e8a8ea296192e7a5b2616114b73e0812b7",
+    "pantograph-async-client @ git+https://github.com/123nol/Pantograph-Client@955a4921b4cacaa49f4b3087f3982d7ca3629566",
     "pydantic>=2.13.4",
     "pytest>=9.0.3",
     "torch>=2.12.0",

@@ -41,6 +41,7 @@ from .search_harvest import (
 )
 
 from maths_ai.data_models.proof_components import Goal
+from maths_ai.hybrid_reasoner.hypergraph import UnsupportedObservation
 from maths_ai.lean_replay import LeanGoalSeed
 
 
@@ -207,7 +208,7 @@ def make_dag_featurizer(node_vocab: dict[str, int]):
             {label for label in unknown_labels if _is_structural_label(label)}
         )
         if structural_unknown:
-            raise ValueError(
+            raise UnsupportedObservation(
                 "Prepared node vocabulary is missing required structural labels: "
                 + ", ".join(structural_unknown)
             )

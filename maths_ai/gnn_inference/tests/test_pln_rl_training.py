@@ -27,6 +27,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.search_harvest import (
     extract_actor_transitions,
     extract_critic_samples,
 )
+from maths_ai.gnn_inference.tests.test_pln_reward import _certify
 
 
 def _tac(name: str = "apply", p: float = 1.0) -> TacticCandidate:
@@ -53,8 +54,10 @@ class PLNRLTrainingTests(unittest.TestCase):
             ],
         )
         a_id, b_id = edge.child_ids
-        g.add_edge(a_id, _tac(), ranked_subgoals=[])  # QED
-        g.add_edge(b_id, _tac(), ranked_subgoals=[])  # QED
+        a = g.add_edge(a_id, _tac(), ranked_subgoals=[])  # closes A
+        b = g.add_edge(b_id, _tac(), ranked_subgoals=[])  # closes B
+        # The certified replay ran all three attempts.
+        _certify(g, edge.id, a.id, b.id)
         return g
 
     def _setup(self):

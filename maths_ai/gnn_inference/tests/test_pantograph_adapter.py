@@ -107,6 +107,7 @@ def test_state_conversion_matches_per_goal_conversion():
         result.goals,
         result.validation,
         result.messages,
+        result.transition,
     )
     assert [goal.model_dump() for goal in execution_state_to_goals(state)] == [
         execution_goal_to_goal(goal).model_dump() for goal in state.goals

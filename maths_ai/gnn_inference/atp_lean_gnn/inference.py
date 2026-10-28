@@ -58,6 +58,24 @@ def local_declarations(goal) -> dict[str, str]:
     }
 
 
+def local_declaration_ids(goal) -> dict[str, str]:
+    """Each local's model context label (``FVk``) mapped to its live Lean ID."""
+    return {
+        f"FV{local.context_index}": local.internal_name
+        for local in goal.locals or []
+        if local.internal_name
+    }
+
+
+def local_node_label(node: GraphNode, dag: DAGBuilder) -> str | None:
+    """The context label of a selected structured local, or ``None`` for text graphs."""
+    if node.label == "Hyp" and len(node.children) == 4:
+        return dag.nodes[node.children[0]].label
+    if _FV_LABEL_RE.match(node.label):
+        return node.label
+    return None
+
+
 def _resolve_local_node_name(
     node: GraphNode,
     dag: DAGBuilder,
