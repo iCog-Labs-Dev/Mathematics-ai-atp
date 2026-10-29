@@ -1,4 +1,18 @@
-"""Extract validity-aware actor and critic targets from an AND-OR search graph."""
+"""Extract validity-aware actor and critic targets from an AND-OR search graph.
+
+Positive evidence comes only from a kernel-certified replay: an attempt on the
+certified witness whose replayed observation and command matched the ones it
+was sampled with is worth 1, and so is its source state. Candidate readiness
+is not evidence; a READY AND-edge is unknown until certified, and child labels
+are never multiplied into an edge's success.
+
+Failure evidence needs a state the evidence cannot depend on: a goal without
+metavariables. An exhausted hole-free state whose attempts are all known
+failures, or that had no playable attempt, is worth 0; an attempt whose
+hole-free child is known to fail is worth 0. Anything involving holes, a
+replay conflict, pruning, infrastructure or incomplete verification is
+unknown.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +25,6 @@ from maths_ai.data_models.proof_components import Goal, TacticCandidate
 from maths_ai.hybrid_reasoner.hypergraph import (
     EdgeStatus,
     NodeClosureReason,
-    NodeStatus,
     ProofHypergraph,
     SearchEndReason,
 )
@@ -56,11 +69,8 @@ class BackupTables:
 
 @dataclass(frozen=True)
 class HarvestConfig:
-    and_combine: str = "product"
-
-    def __post_init__(self) -> None:
-        if self.and_combine not in {"product", "min"}:
-            raise ValueError(f"Unknown AND combine mode: {self.and_combine}")
+    """Harvest options. Child labels are never combined into an edge's
+    success, so there is no AND-combination mode."""
 
 
 @dataclass(frozen=True)
@@ -81,23 +91,6 @@ class CriticSample:
     target: float
 
 
-def _and_combine(values: list[BackupValue], cfg: HarvestConfig) -> BackupValue:
-    if not values:
-        return BackupValue.known(1.0)
-    if any(v.is_known and v.value == 0.0 for v in values):
-        return BackupValue.known(0.0)
-    if any(not v.is_known for v in values):
-        return BackupValue.unknown()
-    if cfg.and_combine == "min":
-        return BackupValue.known(min(float(v.value) for v in values))
-    if cfg.and_combine != "product":
-        raise ValueError(f"Unknown AND combine mode: {cfg.and_combine}")
-    product = 1.0
-    for value in values:
-        product *= float(value.value)
-    return BackupValue.known(product)
-
-
 _INCOMING_EDGE_FAILURE_REASONS = frozenset({
     NodeClosureReason.DEPTH_LIMIT,
     NodeClosureReason.CYCLE,
@@ -110,10 +103,11 @@ _STATE_LABEL_REASONS = frozenset({
 
 def compute_backups(graph: ProofHypergraph, cfg: HarvestConfig | None = None) -> BackupTables:
     """Compute separate edge outcomes and unique state-level critic targets."""
-    cfg = cfg or HarvestConfig()
     node_memo: dict[int, BackupValue] = {}
     edge_memo: dict[int, BackupValue] = {}
     in_progress: set[int] = set()
+    witnessed = graph.witnessed_edges()
+    witnessed_nodes = {graph.edges[edge_id].source_id for edge_id in witnessed}
 
     def standalone_node(node_id: int) -> BackupValue:
         if node_id in node_memo:
@@ -121,8 +115,12 @@ def compute_backups(graph: ProofHypergraph, cfg: HarvestConfig | None = None) ->
         if node_id in in_progress:
             return BackupValue.unknown()
         node = graph.nodes[node_id]
-        if node.status == NodeStatus.SOLVED:
+        if node_id in witnessed_nodes:
             result = BackupValue.known(1.0)
+            node_memo[node_id] = result
+            return result
+        if node.has_holes:
+            result = BackupValue.unknown()
             node_memo[node_id] = result
             return result
         if node_id == graph.root_id and node.closure_reason == NodeClosureReason.DEPTH_LIMIT:
@@ -136,9 +134,7 @@ def compute_backups(graph: ProofHypergraph, cfg: HarvestConfig | None = None) ->
         in_progress.add(node_id)
         outcomes = [edge_outcome(edge_id) for edge_id in node.outgoing_edge_ids]
         in_progress.remove(node_id)
-        if any(value.is_known and value.value == 1.0 for value in outcomes):
-            result = BackupValue.known(1.0)
-        elif (
+        if (
             node.closure_reason in _STATE_LABEL_REASONS
             and outcomes
             and all(value.is_known and value.value == 0.0 for value in outcomes)
@@ -149,27 +145,28 @@ def compute_backups(graph: ProofHypergraph, cfg: HarvestConfig | None = None) ->
         node_memo[node_id] = result
         return result
 
-    def child_evidence(node_id: int) -> BackupValue:
+    def child_failure(node_id: int) -> bool:
         node = graph.nodes[node_id]
-        if node.status == NodeStatus.SOLVED:
-            return BackupValue.known(1.0)
+        if node.has_holes:
+            return False
         if node.closure_reason in _INCOMING_EDGE_FAILURE_REASONS:
-            return BackupValue.known(0.0)
-        if node.closure_reason in {
-            NodeClosureReason.ELABORATION_ERROR,
-            NodeClosureReason.INFRASTRUCTURE_FAILURE,
-        }:
-            return BackupValue.unknown()
-        return standalone_node(node_id)
+            return True
+        value = standalone_node(node_id)
+        return value.is_known and value.value == 0.0
 
     def edge_outcome(edge_id: int) -> BackupValue:
         if edge_id in edge_memo:
             return edge_memo[edge_id]
         edge = graph.edges[edge_id]
-        if edge.status == EdgeStatus.DEAD and not edge.child_ids:
+        if edge_id in witnessed:
+            result = BackupValue.known(1.0)
+        elif edge.status == EdgeStatus.DEAD and not edge.child_ids:
+            result = BackupValue.known(0.0)
+        elif any(child_failure(child_id) for child_id in edge.child_ids):
+            # A required obligation that cannot depend on other assignments fails.
             result = BackupValue.known(0.0)
         else:
-            result = _and_combine([child_evidence(child_id) for child_id in edge.child_ids], cfg)
+            result = BackupValue.unknown()
         edge_memo[edge_id] = result
         return result
 
@@ -222,13 +219,19 @@ def extract_critic_samples(
         for node_id, target in tables.node_targets.items()
         if target.is_known
     ]
+    execution = getattr(graph, "execution", {}) or {}
     if (
         graph.search_end_reason == SearchEndReason.MAX_NODES
         and not graph.is_solved()
+        # A ready root whose recipes did not certify is unresolved, not a failure.
+        and not graph.has_candidate()
+        and not graph.root.has_holes
+        and execution.get("last_replay") is None
         and not any(
             node.closure_reason in {
                 NodeClosureReason.ELABORATION_ERROR,
                 NodeClosureReason.INFRASTRUCTURE_FAILURE,
+                NodeClosureReason.RESOURCE_PRUNED,
             }
             for node in graph.nodes.values()
         )

@@ -49,7 +49,12 @@ from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import (
     supported_structural_labels,
     train_step_onpolicy,
 )
+from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import (
+    CandidatePoolSnapshot,
+    fingerprint,
+)
 from maths_ai.gnn_inference.atp_lean_gnn.pyg import build_vocab_from_labels
+from maths_ai.gnn_inference.atp_lean_gnn.retrieval_artifacts import goal_query
 from maths_ai.gnn_inference.atp_lean_gnn.rl_reasoner import RLHybridReasoner
 
 
@@ -69,6 +74,17 @@ SEED_HYPS = ["p : Prop"]
 # still fails the training step's missing structural-label check.
 SMOKE_MAX_LOCALS = 8
 SMOKE_MAX_ARITY = 8
+
+
+class LocalCandidates:
+    """Local declarations only: the smoke has no lemma retrieval index."""
+
+    async def retrieve(self, goal, local_ids, graph_fingerprint, *, excluded=()):
+        return CandidatePoolSnapshot(
+            tuple(local_ids),
+            graph_fingerprint=graph_fingerprint,
+            query_fingerprint=fingerprint(goal_query(goal)),
+        )
 
 
 def build_model(node_vocab: dict[str, int]) -> ActorCriticWithArgsClassifier:
@@ -121,6 +137,7 @@ async def run_smoke(env: PantographEnv) -> None:
             node_vocab,
             TACTIC_VOCAB,
             executor=executor,
+            candidate_provider=LocalCandidates(),
             top_k_tactics=4,
             max_depth=4,
             max_nodes=30,
@@ -131,10 +148,14 @@ async def run_smoke(env: PantographEnv) -> None:
 
         graph = result.graph
         print(
-            f"[rl_smoke] search done: solved={graph.is_solved()} nodes={len(graph.nodes)} "
-            f"edges={len(graph.edges)} on-policy edges={len(result.edge_actions)} "
+            f"[rl_smoke] search done: certified={graph.is_solved()} "
+            f"candidate={graph.has_candidate()} end={graph.search_end_reason} "
+            f"nodes={len(graph.nodes)} edges={len(graph.edges)} "
+            f"on-policy edges={len(result.edge_actions)} "
             f"failures={len(result.failure_actions)}"
         )
+        print(f"[rl_smoke] execution: {graph.execution}")
+        assert graph.execution["intermediate_reconstructions"] == 0
         assert (
             result.edge_actions or result.failure_actions
         ), "no on-policy signal collected — neither an accepted edge nor a failure record"

@@ -19,24 +19,48 @@ from maths_ai.gnn_inference.atp_lean_gnn.pln_reward import (
 )
 from maths_ai.gnn_inference.atp_lean_gnn.search_harvest import (
     BackupValidity,
-    HarvestConfig,
     compute_backups,
     extract_actor_transitions,
     extract_critic_samples,
 )
+from maths_ai.hybrid_reasoner.proof_recipes import ArtifactStep
+from maths_ai.hybrid_reasoner.proof_replay import WitnessStep
+from pantograph_async import CertificateReceipt, CertificationResult
 
 
 def _tac(name: str = "apply", p: float = 1.0) -> TacticCandidate:
     return TacticCandidate(tactic_name=name, arguments=[], probability=p)
 
 
+def _certify(graph: ProofHypergraph, *edge_ids: int, matched: bool = True) -> None:
+    """Attach a kernel certificate whose replay ran exactly these attempts."""
+    receipt = CertificateReceipt("root", (), "0" * 16, "1" * 16, "2" * 16, "lean", (), ())
+    graph.certificate = CertificationResult("certified", None, receipt)
+    steps = []
+    for edge_id in edge_ids:
+        edge = graph.edges[edge_id]
+        key = graph.nodes[edge.source_id].key
+        steps.append(
+            WitnessStep(
+                edge.source_id, edge_id, key, edge.command, matched,
+                ArtifactStep(key, edge_id, edge.tactic.tactic_name, (), tuple(edge.child_slots)),
+            )
+        )
+    graph.witness = tuple(steps)
+
+
+def _holes(expression: str) -> Goal:
+    """A goal whose target mentions an unassigned metavariable."""
+    return Goal(expression=expression, goal_sexp="((:c Eq) (:c Nat) (:mv _uniq.1) (:lit 0))")
+
+
 class PLNRewardTests(unittest.TestCase):
     def test_potential_terminal_is_zero(self) -> None:
         cfg = RewardConfig(use_score=False)
         g = ProofHypergraph(Goal(expression="P", hypotheses=[]))
-        # QED edge → root becomes SOLVED → Φ(terminal) = 0 regardless of any STV.
+        # QED candidate → root becomes READY → Φ(terminal) = 0 regardless of any STV.
         g.add_edge(g.root_id, _tac(), ranked_subgoals=[])
-        self.assertEqual(g.nodes[g.root_id].status, NodeStatus.SOLVED)
+        self.assertEqual(g.nodes[g.root_id].status, NodeStatus.READY)
         self.assertEqual(potential(g.nodes[g.root_id], cfg), 0.0)
 
     def test_potential_strength_vs_score(self) -> None:
@@ -47,10 +71,12 @@ class PLNRewardTests(unittest.TestCase):
         self.assertAlmostEqual(potential(child, RewardConfig(use_score=False)), 0.5)
         self.assertAlmostEqual(potential(child, RewardConfig(use_score=True)), 0.5 * 0.4)
 
-    def test_qed_terminal_reward(self) -> None:
+    def test_qed_terminal_reward_needs_the_certified_witness(self) -> None:
         cfg = RewardConfig(terminal_success=1.0, step_penalty=0.01)
         g = ProofHypergraph(Goal(expression="P", hypotheses=[]))
         edge = g.add_edge(g.root_id, _tac(), ranked_subgoals=[])
+        self.assertAlmostEqual(edge_terminal_reward(edge, g, cfg), -0.01)
+        _certify(g, edge.id)
         self.assertAlmostEqual(edge_terminal_reward(edge, g, cfg), 1.0 - 0.01)
 
     def test_shaping_telescopes(self) -> None:
@@ -76,12 +102,25 @@ class SearchHarvestTests(unittest.TestCase):
         )
         return g, edge
 
-    def test_solved_node_and_qed_edge_are_known_success(self) -> None:
+    def test_a_candidate_is_unknown_until_certified(self) -> None:
         g = ProofHypergraph(Goal(expression="P", hypotheses=[]))
         edge = g.add_edge(g.root_id, _tac(), ranked_subgoals=[])
+        self.assertTrue(g.has_candidate() and not g.is_solved())
+        tables = compute_backups(g)
+        self.assertEqual(tables.edge_outcomes[edge.id].validity, BackupValidity.UNKNOWN)
+        self.assertEqual(tables.node_targets[g.root_id].validity, BackupValidity.UNKNOWN)
+        _certify(g, edge.id)
         tables = compute_backups(g)
         self.assertEqual(tables.edge_outcomes[edge.id].value, 1.0)
         self.assertEqual(tables.node_targets[g.root_id].value, 1.0)
+
+    def test_an_unmatched_replay_step_gives_no_credit(self) -> None:
+        g = ProofHypergraph(Goal(expression="P", hypotheses=[]))
+        edge = g.add_edge(g.root_id, _tac(), ranked_subgoals=[])
+        _certify(g, edge.id, matched=False)
+        self.assertTrue(g.is_solved())
+        tables = compute_backups(g)
+        self.assertEqual(tables.edge_outcomes[edge.id].validity, BackupValidity.UNKNOWN)
 
     def test_open_children_leave_and_edge_and_parent_unknown(self) -> None:
         g, edge = self._and_graph()
@@ -89,13 +128,36 @@ class SearchHarvestTests(unittest.TestCase):
         self.assertEqual(tables.edge_outcomes[edge.id].validity, BackupValidity.UNKNOWN)
         self.assertEqual(tables.node_targets[g.root_id].validity, BackupValidity.UNKNOWN)
 
-    def test_solved_plus_solved_is_known_and_success(self) -> None:
+    def test_ready_children_do_not_compose_into_success(self) -> None:
         g, edge = self._and_graph()
-        for child_id in edge.child_ids:
-            g.add_edge(child_id, _tac(), ranked_subgoals=[])
+        closing = [g.add_edge(child_id, _tac(), ranked_subgoals=[]) for child_id in edge.child_ids]
+        self.assertTrue(g.has_candidate())
+        tables = compute_backups(g)
+        self.assertEqual(tables.edge_outcomes[edge.id].validity, BackupValidity.UNKNOWN)
+        self.assertEqual(tables.node_targets[g.root_id].validity, BackupValidity.UNKNOWN)
+        _certify(g, edge.id, *(e.id for e in closing))
         tables = compute_backups(g)
         self.assertEqual(tables.edge_outcomes[edge.id].value, 1.0)
         self.assertEqual(tables.node_targets[g.root_id].value, 1.0)
+
+    def test_a_failed_child_with_holes_is_not_failure_evidence(self) -> None:
+        g = ProofHypergraph(Goal(expression="∃ n, n = 0", hypotheses=[]))
+        edge = g.add_edge(g.root_id, _tac(), ranked_subgoals=[(_holes("?w = 0"), None)])
+        child_id = edge.child_ids[0]
+        self.assertTrue(g.nodes[child_id].has_holes)
+        g.mark_node_exhausted(child_id, reason=NodeClosureReason.NO_CANDIDATES)
+        tables = compute_backups(g)
+        # Another branch could assign ?w and make the goal provable.
+        self.assertEqual(tables.edge_outcomes[edge.id].validity, BackupValidity.UNKNOWN)
+        self.assertEqual(tables.node_targets[child_id].validity, BackupValidity.UNKNOWN)
+
+    def test_a_goal_with_holes_is_never_a_cycle(self) -> None:
+        g = ProofHypergraph(_holes("?w = 0"))
+        edge = g.add_edge(g.root_id, _tac("skip"), ranked_subgoals=[(_holes("?w = 0"), None)])
+        self.assertEqual(g.nodes[edge.child_ids[0]].status, NodeStatus.OPEN)
+        plain = ProofHypergraph(Goal(expression="P", hypotheses=[]))
+        edge = plain.add_edge(plain.root_id, _tac("skip"), ranked_subgoals=[(Goal(expression="P"), None)])
+        self.assertEqual(plain.nodes[edge.child_ids[0]].closure_reason, NodeClosureReason.CYCLE)
 
     def test_solved_plus_exhausted_is_known_and_failure(self) -> None:
         g, edge = self._and_graph()
@@ -136,6 +198,7 @@ class SearchHarvestTests(unittest.TestCase):
             ranked_subgoals=[(Goal(expression="Q", hypotheses=[]), None)],
         )
         g.mark_node_unelaborated(unknown.child_ids[0])
+        _certify(g, solved.id)
         tables = compute_backups(g)
         self.assertEqual(tables.edge_outcomes[solved.id].value, 1.0)
         self.assertEqual(tables.edge_outcomes[unknown.id].validity, BackupValidity.UNKNOWN)
@@ -196,6 +259,13 @@ class SearchHarvestTests(unittest.TestCase):
         samples = extract_critic_samples(g)
         self.assertEqual([(sample.node_id, sample.target) for sample in samples], [(g.root_id, 0.0)])
 
+    def test_max_nodes_with_an_uncertified_candidate_has_no_root_target(self) -> None:
+        g, edge = self._and_graph()
+        for child_id in edge.child_ids:
+            g.add_edge(child_id, _tac(), ranked_subgoals=[])
+        g.search_end_reason = SearchEndReason.MAX_NODES
+        self.assertEqual(extract_critic_samples(g), [])
+
     def test_max_nodes_with_unelaborated_evidence_has_no_root_target(self) -> None:
         g, edge = self._and_graph()
         g.mark_node_unelaborated(edge.child_ids[0])
@@ -205,8 +275,9 @@ class SearchHarvestTests(unittest.TestCase):
     def test_actor_and_critic_harvest_are_separate(self) -> None:
         g, edge = self._and_graph()
         a_id, b_id = edge.child_ids
-        g.add_edge(a_id, _tac(), ranked_subgoals=[])
-        g.add_edge(b_id, _tac(), ranked_subgoals=[])  # fully solved
+        a = g.add_edge(a_id, _tac(), ranked_subgoals=[])
+        b = g.add_edge(b_id, _tac(), ranked_subgoals=[])
+        _certify(g, edge.id, a.id, b.id)
 
         reward_cfg = RewardConfig(gamma=0.9, terminal_success=1.0, step_penalty=0.0, use_score=False)
         transitions = extract_actor_transitions(g, reward_cfg)
@@ -223,16 +294,10 @@ class SearchHarvestTests(unittest.TestCase):
         transitions = extract_actor_transitions(g, edge_ids=[edge.id])
         self.assertEqual(transitions, [])
 
-        for child_id in edge.child_ids:
-            g.add_edge(child_id, _tac(), ranked_subgoals=[])
+        closing = [g.add_edge(child_id, _tac(), ranked_subgoals=[]) for child_id in edge.child_ids]
+        _certify(g, edge.id, *(e.id for e in closing))
         transitions = extract_actor_transitions(g, edge_ids=[edge.id])
         self.assertEqual([transition.edge_id for transition in transitions], [edge.id])
-
-    def test_invalid_and_combine_mode_is_rejected(self) -> None:
-        g = ProofHypergraph(Goal(expression="P", hypotheses=[]))
-        g.add_edge(g.root_id, _tac(), ranked_subgoals=[])
-        with self.assertRaisesRegex(ValueError, "Unknown AND combine mode"):
-            compute_backups(g, HarvestConfig(and_combine="mean"))
 
 
 if __name__ == "__main__":

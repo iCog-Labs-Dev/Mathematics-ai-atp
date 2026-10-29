@@ -468,9 +468,13 @@ The critic value `V(s)` means the probability that this configured search proves
 within its tactic, depth, node, and time budgets. Search harvesting keeps validity separate
 from the numeric value: Lean-confirmed closure supplies `1.0`, a locally exhausted state
 supplies `0.0`, and an unelaborated, infrastructure-failed, globally truncated, open, or
-otherwise unresolved state supplies no critic row. For a tactic that returns multiple
-subgoals, one known failed child makes the tactic edge a known failure, all known solved
-children make it a known success, and a solved child plus an unknown child remains unknown.
+otherwise unresolved state supplies no critic row. Success is only ever read from a
+kernel-certified replay: the attempts on the certified witness, whose replayed
+observation and command matched the sampled ones, and their source states, are worth 1.
+For a tactic that returns multiple subgoals, a known failed child without metavariables
+makes the tactic edge a known failure; children that are each closed only make the edge a
+candidate, which stays unknown until a replay certifies it. Goals with metavariables never
+supply failure labels, since another branch's assignment can change them.
 The actor trains from valid edge returns and executor-rejected actions. The critic trains
 once per unique state from `CriticSample` rows, so a state with several accepted tactics
 does not duplicate its target.
@@ -481,6 +485,10 @@ The RL search budgets and update budgets control different objects:
 |---|---|
 | `max_depth` | maximum tactic depth within one theorem search |
 | `max_nodes` | maximum proof-search nodes within one theorem search |
+| `snapshot_retention.max_retained_snapshots` | distinct Lean snapshots one theorem search may hold; low-ranked open nodes are pruned before a request that would exceed it |
+| `snapshot_retention.max_replay_tactic_steps`, `max_replay_combinations`, `max_replay_continuations` | replay work per theorem search when combining candidate recipes |
+| `snapshot_retention.max_repl_rss_growth_mb`, `max_collection_rss_growth_mb` | sampled resident-memory growth of each REPL and of the collection process before pruning or stopping |
+| `certify_heartbeats` | kernel budget, in thousands of heartbeats, for certifying a root (`null` uses the REPL default) |
 | `theorems_per_round` | theorem searches collected before one optimizer update |
 | `max_update_nodes` | total graph nodes across all transitions and rejected actions in one optimizer update |
 | `max_update_edges` | total graph edges across all transitions and rejected actions in one optimizer update |

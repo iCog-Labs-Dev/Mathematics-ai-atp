@@ -9,6 +9,13 @@ from pantograph_async import PantographEnv
 from maths_ai.lean_replay import seed_from_text
 from maths_ai.data_models.proof_components import TacticCandidate
 from maths_ai.hybrid_reasoner.joint_inference import PantographExecutor
+from maths_ai.hybrid_reasoner.execution_registry import SnapshotRegistry
+from maths_ai.hybrid_reasoner.execution_types import (
+    ExecutionOccurrence,
+    ObligationKey,
+    root_declarations,
+)
+from maths_ai.hybrid_reasoner.tactic_rendering import render_tactic_command
 from maths_ai.hybrid_reasoner.pantograph_model_sexpr import (
     create_model_sexpr_client,
     materialize_seed,
@@ -112,14 +119,26 @@ def test_controlled_local_library_and_mixed_actions_against_custom_repl():
                         candidate_pools=(pool,),
                     )
                     assert torch.isfinite(evaluated.logp).all()
-                    outcome = await PantographExecutor(client).apply(
-                        scope,
-                        state,
+                    registry = SnapshotRegistry(scope)
+                    occurrence = ExecutionOccurrence(
+                        0, ObligationKey.root(), state.goals[0].goal_name, goal,
+                        root_declarations(goal), registry.adopt_root(state, "root"),
+                    )
+                    command = render_tactic_command(
                         TacticCandidate(
                             tactic_name=tactic, arguments=names, probability=1.0
-                        ),
+                        )
                     )
-                    assert outcome.success and not outcome.subgoals, outcome.error
+                    assert command is not None
+                    try:
+                        outcome = await PantographExecutor(client).apply(
+                            registry, occurrence, command,
+                        )
+                        assert outcome.success and not outcome.children, outcome.error
+                        certificate = await scope.certify(registry.state(outcome.lease))
+                        assert certificate.is_certified, certificate.reason
+                    finally:
+                        await registry.close()
                 assert (await client.stat()).n_goals == 0
 
     asyncio.run(run())

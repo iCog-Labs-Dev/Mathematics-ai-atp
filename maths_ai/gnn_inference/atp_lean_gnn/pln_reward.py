@@ -4,7 +4,8 @@ The reward is assembled over the ``ProofHypergraph`` the hybrid reasoner already
 PLN enters ONLY as a potential-based shaping term ``γ·Φ(s') − Φ(s)`` with ``Φ = σ`` (PLN
 strength), which — by the potential-shaping invariance theorem — cannot change the optimal
 policy for any PLN, however unreliable. The trustworthy signal that defines the objective is
-the terminal reward (QED / closed subgoal = +1), read from the AND-OR solved status.
+the terminal reward: +1 for an attempt that closes its obligation on the
+kernel-certified witness, read from ``graph.witnessed_edges()``.
 
 See ``docs/dev_plans/pln_reward_integration_approaches.md`` and
 ``docs/dev_plans/pln_actor_critic_integration.md``.
@@ -43,11 +44,11 @@ class RewardConfig:
 def potential(node: ProofNode, cfg: RewardConfig) -> float:
     """Shaping potential ``Φ(s)`` for a node.
 
-    Convention ``Φ(terminal) = 0`` (required for the shaping's optimum-invariance): a solved
+    Convention ``Φ(terminal) = 0`` (required for the shaping's optimum-invariance): a ready
     or dead node contributes no potential. Otherwise ``Φ = σ`` (or ``σ·c`` if ``use_score``),
     read from the node's PLN STV; a node with no STV (e.g. the root before scoring) has Φ = 0.
     """
-    if node.status in (NodeStatus.SOLVED, NodeStatus.DEAD):
+    if node.status in (NodeStatus.READY, NodeStatus.DEAD):
         return 0.0
     if node.stv is None:
         return 0.0
@@ -57,14 +58,15 @@ def potential(node: ProofNode, cfg: RewardConfig) -> float:
 def edge_terminal_reward(edge: ProofHyperedge, graph: ProofHypergraph, cfg: RewardConfig) -> float:
     """Trustworthy per-edge terminal reward ``r_term`` (Approach 5), minus the step penalty.
 
-    +``terminal_success`` when this tactic directly closes the branch — a solved edge with no
-    remaining subgoals (QED). ``terminal_failure`` when the edge is dead (the tactic was
-    rejected or led to a dead subgoal). Interior progress carries only the step penalty; its
-    value flows through the bootstrap / AND-OR backup, not an immediate reward.
+    +``terminal_success`` when this tactic closes its obligation with no remaining children
+    on the certified witness. ``terminal_failure`` when the edge is dead (the tactic led to
+    a dead subgoal). Interior progress carries only the step penalty; its value flows
+    through the bootstrap / AND-OR backup, not an immediate reward. A childless edge that
+    is only a candidate earns no terminal reward.
     """
     if edge.status == EdgeStatus.DEAD:
         return cfg.terminal_failure - cfg.step_penalty
-    if edge.status == EdgeStatus.SOLVED and not edge.child_ids:
+    if not edge.child_ids and edge.id in graph.witnessed_edges():
         return cfg.terminal_success - cfg.step_penalty
     return -cfg.step_penalty
 

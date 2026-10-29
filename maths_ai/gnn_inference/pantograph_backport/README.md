@@ -429,3 +429,39 @@ Verification on 2026-10-18, CPU only:
   GNU. Both also fail on `e8e4b18`.
 - Not run here: the Mathlib-based factory and two-worker live test, and the
   setup smoke with `Mathlib`. Both need a compiled Mathlib.
+
+
+## 2026-10-28 handoff: PR #68 replay and resource follow-up
+
+On application head `7dadc1a1e844fa6f7a42893fa874a2679fe6c63b`, replay now
+retains deferred completion checks for siblings assigned through later pending
+obligations, including across a continuation. The final snapshot must pass
+those inspections and root kernel certification.
+
+`SnapshotRegistry.request` pins the input and obtains a result reservation
+before request I/O. `Reservation.adopt` transfers that slot to a retained
+allocation. Rejection, exceptions, cancellation, and invalidation refund unused
+slots. Admitted roots use the separate, capacity-checked `adopt_root` transfer.
+All callers were migrated. States being deleted remain counted until deletion
+completes. Pruning excludes pinned allocations, and the shared resource guard
+rechecks both memory pressure and capacity after every pruning pass.
+
+Validation used `Pantograph-Client@955a4921b4cacaa49f4b3087f3982d7ca3629566`
+from `/tmp/snapshot-pr68-client/src`. The companion executable was
+`/tmp/snapshot-pr-review-20261028/repl/.lake/build/bin/repl`, built from
+`2309b15e544cc5b0397027b1eb1037cb3dbc1998` with source equivalent to merged
+`9ecaaea242f427e534aff29314513c358b4d21ad`. The project was the local Mathlib
+installation at `maths_ai/sexpr_environment/sexpr_environment/mathlib4`.
+
+- Application tests: 425 passed, 28 skipped, 13 subtests passed. The existing
+  worker-count configuration test fails because the config specifies four
+  workers and its assertion expects one.
+- Live custom-REPL replay tests: 19 passed. The regression for
+  `∃ w v : Nat, w = v` certifies and its artifact reverifies in a fresh session.
+- Added coverage for deferred completion across continuations, persistent and
+  relieved memory pressure, overlapping requests, cancellation/error refunds,
+  input pinning, and allocations awaiting deletion.
+
+The installed Python environment, deployed REPL, dependency pins, and user
+configuration were preserved. Imported-content environment identity and the
+other unrelated review findings remain separate work.

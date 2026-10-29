@@ -82,7 +82,9 @@ policy — the thing that will be deployed — not the exploration distribution 
 (`HybridReasoner.prove`, joint_inference.py) and swaps in the sampled policy at exactly
 two seams. One search proceeds:
 
-1. **Root**: `ProofHypergraph(Goal(...))` creates node 0, `status=OPEN`.
+1. **Root**: the seed is admitted once (`materialize_seed`) and its Lean state is kept
+   in the theorem's `SnapshotRegistry` as the root anchor. `ProofHypergraph(Goal(...))`
+   creates node 0, `status=OPEN`, whose occurrence leases that snapshot.
 2. **Frontier pop**: `graph.frontier()` returns OPEN nodes sorted by `combined_rank`
    descending; the loop expands the top one. `combined_rank` starts as
    `gnn_probability × STV.score` and is continuously revised by backprop (step 6).
@@ -94,28 +96,42 @@ two seams. One search proceeds:
    node at that offset → a Lean argument string via `_resolve_local_node_name` (a `Hyp`
    node renders as its bound name, e.g. `h`). Identical decoded actions are deduplicated
    for the executor but counted (`multiplicity`).
-4. **Execution**: for each unique candidate, `PantographExecutor.apply` sends
-   `"{tactic} {args}"` to the live Lean server.
+4. **Execution**: for each unique candidate the search renders the command once
+   (`render_tactic_command`) and `PantographExecutor.apply` runs it on the node's own
+   retained snapshot, on the goal found by its metavariable name. No goal is rebuilt from
+   text after the root.
    - **Rejected** → no edge is created; the candidate stays in the pending stash and
      becomes a failure record (section 3).
-   - **Accepted, no subgoals** → QED: `add_edge(node, tactic, [])`, immediately SOLVED.
-   - **Accepted, subgoals** → PLN scores each subgoal concurrently
-     (`rank_subgoals` → `evaluate_async`, the petta subprocess dispatched off the event
-     loop), and every `(Goal, STV)` pair becomes a child of one **AND-edge**:
-     all Lean-returned obligations must eventually close for this tactic to count.
-5. **Cycle guard**: `add_edge` fingerprints every child (`expression::sorted(hyps)`)
-   against the node's ancestors; a child identical to an ancestor is force-marked DEAD —
-   otherwise a tactic that rewrites a goal into an earlier one loops forever.
+   - **Accepted** → the transition provenance says which goals the tactic produced for
+     the selected goal; siblings Lean carried over are not children. Without PLN the
+     children keep their tactic slot order; with PLN each gets an STV, which orders
+     expansion but never reorders or drops a child. Each open child leases the result
+     snapshot. An attempt without children is a READY candidate when the selected goal's
+     assignment is complete, or when it still refers only to other obligations on its
+     path (a conditional recipe that replay completes in the same state); it is JOINT
+     when it refers to metavariables the search does not know.
+5. **Cycle guard**: a child whose goal has no metavariables and matches an ancestor's
+   fingerprint is force-marked DEAD. A goal with metavariables can look identical while
+   hidden assignments differ, so it is never treated as a cycle.
 6. **Propagation**: every mutation triggers `_propagate` — a bottom-up fixpoint walk that
-   re-derives the AND-OR statuses (node SOLVED ⇐ any edge SOLVED; edge SOLVED ⇐ all
-   children SOLVED or no children; edge DEAD ⇐ any child DEAD; node DEAD ⇐ exhausted and
-   all edges DEAD) and re-ranks every ancestor (`combined_rank = max(local_score,
-   max_edge tactic_prob × min_child rank)` — OR-max over edges, pessimistic AND-min over
-   children). This is what makes the search *best-first in provability*: a PLN score
-   assigned to a new leaf immediately re-orders the global frontier.
-7. **Termination**: the graph records `ROOT_SOLVED`, `ROOT_DEAD`, `MAX_NODES`,
-   `FRONTIER_EMPTY`, or `EXTERNAL_ABORT`. A clean `MAX_NODES` result is a root-level
-   finite-budget failure only; untouched internal nodes remain unknown.
+   re-derives candidate readiness (node READY ⇐ any edge READY; edge READY ⇐ all children
+   READY, or no children with a complete assignment; edge DEAD ⇐ any child DEAD; node DEAD
+   ⇐ exhausted and all edges DEAD) and re-ranks every ancestor (`combined_rank =
+   max(local_score, max_edge tactic_prob × min_child rank)`). READY is not a proof.
+7. **Replay and certification**: whenever readiness changes, `ReplayCoordinator`
+   replays the root's candidate recipes one after another against a single Lean state
+   from the root anchor, re-pointing arguments through declaration keys, and asks the
+   kernel to certify the finished root (`goal.certify`). Branches explored in separate
+   snapshots can disagree about a shared witness; replay is where that shows up, as a
+   conflict that backtracks to another alternative. Only a certificate makes
+   `graph.is_solved()` true. An obligation a shared assignment changed and that no
+   recorded attempt solves becomes a continuation node, searched on the actual replay
+   state.
+8. **Termination**: the graph records `ROOT_CERTIFIED`, `ROOT_DEAD`, `MAX_NODES`,
+   `FRONTIER_EMPTY`, `EXTERNAL_ABORT` or `RESOURCE_LIMIT`. A clean `MAX_NODES` result is a
+   root-level finite-budget failure only; untouched internal nodes remain unknown. The
+   returned graph keeps observations, recipes, the certificate and counters, but no
+   handle; scope exit deletes every remaining snapshot.
 
 So during the search the AND-OR graph plays two roles at once: it is the **control
 structure** (frontier ordering decides where the policy is asked next) and it is
@@ -130,8 +146,8 @@ would pin the memory of every intermediate activation for minutes. What is store
 (rl_reasoner.py):
 
 - **Pending stash** — during a node's expansion, every decoded draw sits in
-  `self._pending: {fingerprint → EdgeAction}` where the fingerprint is
-  `(goal_expr, hyps, tactic_name, args)` and `EdgeAction` is three integers-worth of data:
+  `self._pending: {command → EdgeAction}`, keyed by the command it renders to within that
+  one occurrence's expansion, and `EdgeAction` is three integers-worth of data:
   `tactic_id`, `arg_indices` (the raw sampled pointer positions, including out-of-range
   ones — the recompute must evaluate what was actually sampled), `multiplicity`.
 - **Edge join** (seam 2, `_link`) — when the base `_expand` links an accepted tactic into
@@ -157,16 +173,19 @@ search established the outcome. `UNKNOWN` means that it did not. Unknown is not 
 to `0.0`.
 
 ```text
-SOLVED node                                -> KNOWN(1.0)
-locally exhausted node with all edges 0    -> KNOWN(0.0)
-OPEN, globally truncated, unelaborated     -> UNKNOWN
-AND edge: any known failed child           -> KNOWN(0.0)
-AND edge: every child known solved         -> KNOWN(1.0)
-AND edge: otherwise                        -> UNKNOWN
-OR node: any edge known 1                  -> KNOWN(1.0)
-OR node: locally exhausted and all edges 0 -> KNOWN(0.0)
-OR node: otherwise                         -> UNKNOWN
+attempt on the certified witness, observation and command matched -> KNOWN(1.0)
+its source node                                                   -> KNOWN(1.0)
+hole-free, locally exhausted node with all edges 0                -> KNOWN(0.0)
+AND edge with a hole-free child that is known to fail             -> KNOWN(0.0)
+READY candidate not on the certified witness                      -> UNKNOWN
+any goal with metavariables, pruned, unsupported, unelaborated    -> UNKNOWN
+OPEN or globally truncated                                        -> UNKNOWN
 ```
+
+Positive evidence needs the kernel certificate: child labels are never multiplied into
+an edge's success, because two children can each succeed in their own snapshot while
+disagreeing about a shared witness. A replay step whose observation changed under a
+shared assignment gives the original sample no credit.
 
 `CANDIDATES_EXHAUSTED` and `NO_CANDIDATES` are local failure boundaries. `DEPTH_LIMIT`
 and `CYCLE` can fail the incoming tactic path, but do not receive standalone critic rows,
@@ -183,10 +202,10 @@ only provably-safe slot:
 
 ```
 r = r_term + Σ_j ( γ·Φ(child_j) − Φ(parent) )
-r_term = +terminal_success − step_penalty   if the edge is QED (no children, SOLVED)
+r_term = +terminal_success − step_penalty   if the edge closes its goal on the certified witness
          terminal_failure − step_penalty    if the edge is DEAD
          −step_penalty                      otherwise
-Φ(s)   = PLN strength σ of s, and 0 for SOLVED/DEAD nodes
+Φ(s)   = PLN strength σ of s, and 0 for READY/DEAD nodes
 ```
 
 The shaping term is potential-based (Ng–Harada–Russell): because Φ is a function of state
@@ -310,7 +329,7 @@ Two data-side choices matter for why this learns at all:
 | one optimizer step per collect | loop structure of `train_step_onpolicy` + driver | recomputed log-probs off-policy; biased gradient |
 | featurizer identity collect↔train | `reasoner.dag_featurize_data` passed to the trainer | stored arg indices point at wrong DAG nodes |
 | vocabs from `prepared_root` only | `_load_vocabs`; never `build_vocab` on rollout states | warm-started embeddings mean the wrong tokens |
-| Φ(terminal) = 0 | `potential` returns 0 for SOLVED/DEAD | shaping stops telescoping; terminals get biased by `γ^T Φ(s_T)` |
+| Φ(terminal) = 0 | `potential` returns 0 for READY/DEAD | shaping stops telescoping; terminals get biased by `γ^T Φ(s_T)` |
 | critic sees unique valid node rows | `extract_critic_samples` and the separate critic batch | failed actions and duplicate edge labels poison state values |
 | dedup with multiplicity | `EdgeAction.multiplicity` weighting | high-probability actions under-weighted |
 | value target from backup, not PLN | `compute_backups` uses closure provenance | unreliable PLN and unknown evidence train the critic |
