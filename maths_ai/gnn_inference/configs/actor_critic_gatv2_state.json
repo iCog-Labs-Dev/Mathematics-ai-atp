@@ -4,7 +4,6 @@
   "seed": 42,
   "device": "auto",
   "edge_mode": "bidirectional",
-  "arg_loss_weight": 0.5,
   "critic_weight": 0.5,
   "entropy_weight": 0.01,
   "arg_lr_multiplier": 0.1,
@@ -15,7 +14,11 @@
     "dropout": 0.2,
     "use_node_type": true,
     "max_args": 3,
-    "encoder": {"num_layers": 4, "heads": 8, "readout": "state"}
+    "encoder": {
+      "num_layers": 4,
+      "heads": 8,
+      "readout": "state"
+    }
   },
   "training": {
     "batch_size": 256,

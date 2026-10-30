@@ -1,9 +1,13 @@
 from __future__ import annotations
+import hashlib
 
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import torch
 
 import numpy as np
 
@@ -44,7 +48,9 @@ class LemmaIndex:
             raise ValueError("lemma_ids length must match lemma_vectors rows.")
         if self.lemma_names and len(self.lemma_names) != len(self.lemma_ids):
             raise ValueError("lemma_names length must match lemma_ids length.")
-        if hasattr(self.index, "d") and int(self.index.d) != int(self.lemma_vectors.shape[1]):
+        if hasattr(self.index, "d") and int(self.index.d) != int(
+            self.lemma_vectors.shape[1]
+        ):
             raise ValueError("FAISS index dimension does not match lemma_vectors.")
 
     @classmethod
@@ -80,7 +86,9 @@ class LemmaIndex:
         if not names_path.exists():
             raise FileNotFoundError(f"Lemma name map not found at '{names_path}'.")
         if not manifest_path.exists():
-            raise FileNotFoundError(f"Lemma index manifest not found at '{manifest_path}'.")
+            raise FileNotFoundError(
+                f"Lemma index manifest not found at '{manifest_path}'."
+            )
 
         lemma_vectors = np.load(vectors_path)
         lemma_ids = json.loads(ids_path.read_text(encoding="utf-8"))
@@ -122,25 +130,28 @@ class LemmaIndex:
             query = _normalize_rows(query)
 
         scores, indices = self.index.search(query, k)
-        
+
         num_lemmas = len(self.lemma_ids)
         lemma_ids = [
-            [self.lemma_ids[int(idx)] if 0 <= int(idx) < num_lemmas else -1 for idx in row]
+            [
+                self.lemma_ids[int(idx)] if 0 <= int(idx) < num_lemmas else -1
+                for idx in row
+            ]
             for row in indices
         ]
-        
+
         valid_mask = (indices >= 0) & (indices < num_lemmas)
         safe_indices = np.where(valid_mask, indices, 0)
-        
+
         if num_lemmas > 0:
             lemma_vecs = self.lemma_vectors[safe_indices]
             lemma_vecs[~valid_mask] = 0.0
         else:
             lemma_vecs = np.zeros(
                 (indices.shape[0], indices.shape[1], self.lemma_vectors.shape[1]),
-                dtype=self.lemma_vectors.dtype
+                dtype=self.lemma_vectors.dtype,
             )
-            
+
         return lemma_ids, lemma_vecs, scores
 
     @staticmethod
@@ -162,3 +173,37 @@ def _normalize_rows(array: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(array, axis=1, keepdims=True)
     norms = np.clip(norms, 1e-12, None)
     return array / norms
+
+
+def _tensor_bytes(tensor: Any) -> bytes:
+    """Raw bytes of a tensor, whatever its dtype (bfloat16 has no numpy)."""
+    import torch
+
+    t = tensor.detach().cpu().contiguous()
+    try:
+        return t.numpy().tobytes()
+    except (TypeError, RuntimeError):
+        return (
+            t.view(torch.int16).numpy().tobytes()
+            if t.element_size() == 2
+            else t.view(torch.uint8).numpy().tobytes()
+        )
+
+
+def state_dict_sha256(state_dict: Any) -> str:
+    """Hash an encoder's weights, independent of file layout and key order.
+
+    The same encoder weights can sit in a bare baseline checkpoint or under
+    ``backbone.`` in a pointer checkpoint (and under ``module.`` when a run
+    used DataParallel); the index may legitimately be built from either.
+    Hashing the sorted (key, dtype, shape, bytes) sequence of the tensors
+    identifies the *encoder*, not the file it happened to be saved in.
+    """
+    digest = hashlib.sha256()
+    for key in sorted(state_dict.keys()):
+        tensor = state_dict[key]
+        digest.update(str(key).encode("utf-8"))
+        digest.update(str(tensor.dtype).encode("utf-8"))
+        digest.update(str(tuple(tensor.shape)).encode("utf-8"))
+        digest.update(_tensor_bytes(tensor))
+    return digest.hexdigest()

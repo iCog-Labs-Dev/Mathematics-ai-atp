@@ -1,3 +1,4 @@
+from maths_ai.gnn_inference.atp_lean_gnn.graph import model_goal_to_dag
 """Shared caller contracts after the atomic owned-client migration."""
 
 import asyncio
@@ -52,14 +53,15 @@ def test_prediction_is_synchronous_canonical_and_gradient_free_in_active_loop():
     seen = []
     pipeline = object.__new__(InferencePipeline)
 
-    def predict(dag, *, top_k, declarations):
-        assert declarations == local_declarations(goal)
+    def predict(observation, *, top_k):
+        assert observation is goal
+        dag = model_goal_to_dag(goal)
         seen.append(
             (torch.is_grad_enabled(), (parameter * 2).requires_grad, dag.state_root_id)
         )
         return SimpleNamespace(top_tactic_predictions=[{"tactic_name": "trivial"}])
 
-    pipeline._predict_from_dag = predict
+    pipeline.predict_from_goal = predict
     predictor = object.__new__(GNNPredictor)
     predictor.pipeline = pipeline
 
@@ -241,6 +243,18 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
     )
     assert recovery["target_base_commit"] == "c52f74c24a6aa7a74524c6d22d1a904dc5d7851b"
     for entry in recovery["sources"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        expected[entry["path"]] = entry["sha256"]
+    # The source-aware action architecture follows on top of replay recovery.
+    source_aware = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "source_aware_actions/source_manifest.json").read_text()
+    )
+    assert source_aware["target_base_commit"] == "e96d2f7a733d1301e8167f52de2d988ea6eb28ff"
+    assert source_aware["application_source_commit"] == (
+        "96f8bcae7d999fb124ef1b3499f15f4e364f68f5"
+    )
+    for entry in source_aware["sources"]:
         if entry["path"] in expected:
             assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
         expected[entry["path"]] = entry["sha256"]

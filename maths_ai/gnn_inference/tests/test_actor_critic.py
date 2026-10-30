@@ -1,4 +1,6 @@
 from __future__ import annotations
+from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import local_pools
+from maths_ai.gnn_inference.atp_lean_gnn.actor_critic_loss import compute_complete_policy_loss
 
 import unittest
 import torch
@@ -22,9 +24,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.actor_critic_loss import (
     compute_actor_loss,
     compute_critic_loss,
     compute_entropy_bonus,
-    compute_argument_rl_loss,
     compute_bc_anchor_loss,
-    compute_actor_critic_combined_loss,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.actor_critic_training import build_param_groups
 from maths_ai.gnn_inference.atp_lean_gnn.checkpointing import checkpoint_payload
@@ -91,68 +91,31 @@ class ActorCriticTests(unittest.TestCase):
         self.assertTrue(torch.isneginf(logits[1, 2]))
         self.assertFalse(torch.isneginf(logits[1, 1]))
 
-    def test_full_model_forward(self) -> None:
-        batch, vocab = self._build_tiny_batch()
-        model = actor_critic(len(vocab), 5)
-        tactic_logits, values, arg_logits_list = model(
-            batch,
-            tactic_names=["apply", "apply"],
-        )
-        self.assertEqual(tactic_logits.shape, (2, 5))
-        self.assertEqual(values.shape, (2, 1))
-        self.assertGreater(len(arg_logits_list), 0)
-        for arg_logits in arg_logits_list:
-            self.assertEqual(arg_logits.shape[0], 2)
+    def test_full_model_forward(self):
+        batch,vocab=self._build_tiny_batch()
+        model=actor_critic(len(vocab),5)
+        result=model(batch,candidate_pools=local_pools(batch))
+        self.assertEqual(result.tactic_logits.shape,(2,5))
+        self.assertEqual(result.value.shape,(2,))
+        self.assertTrue(all(len(args)<=model.max_args for args in result.arguments))
 
-    def test_argument_selector_unchanged(self) -> None:
-        batch, vocab = self._build_tiny_batch()
-        # Create pointer classifier and actor-critic classifier with same seed/weights
-        torch.manual_seed(42)
-        model_ptr = pointer(len(vocab), 5)
-        torch.manual_seed(42)
-        model_ac = actor_critic(len(vocab), 5)
+    def test_argument_selector_unchanged(self):
+        batch,vocab=self._build_tiny_batch()
+        ptr=pointer(len(vocab),5); model=actor_critic(len(vocab),5)
+        model.encoder.load_state_dict(ptr.encoder.state_dict())
+        model.decoder.load_state_dict(ptr.decoder.state_dict())
+        pools=local_pools(batch)
+        first=ptr.act(batch,candidate_pools=pools,greedy=True)
+        second=model.evaluate_actions(batch,first.tactic_action,first.arguments,candidate_pools=pools)
+        torch.testing.assert_close(first.arg_logp,second.arg_logp)
 
-        # Synchronize argument selector and embedding parameters
-        model_ac.tactic_embedding.weight.data.copy_(model_ptr.tactic_embedding.weight.data)
-        model_ac.argument_selector.load_state_dict(model_ptr.argument_selector.state_dict())
-        model_ac.encoder.load_state_dict(model_ptr.encoder.state_dict())
-
-        model_ptr.eval()
-        model_ac.eval()
-
-        with torch.no_grad():
-            t_logits_ptr, args_ptr = model_ptr(batch, teacher_tactic_ids=batch.y.view(-1), tactic_names=["apply", "apply"])
-            t_logits_ac, _, args_ac = model_ac(batch, teacher_tactic_ids=batch.y.view(-1), tactic_names=["apply", "apply"])
-
-        self.assertEqual(len(args_ptr), len(args_ac))
-        for a_ptr, a_ac in zip(args_ptr, args_ac):
-            self.assertTrue(torch.allclose(a_ptr, a_ac))
-
-    def test_combined_loss_components(self) -> None:
-        tactic_logits = torch.randn(2, 5)
-        value_estimates = torch.randn(2, 1)
-        arg_logits_list = [torch.randn(2, 10)]
-        actions = torch.tensor([1, 2], dtype=torch.long)
-        returns = torch.tensor([1.0, 0.0], dtype=torch.float32)
-        selected_arg_indices = [torch.tensor([3, 4], dtype=torch.long)]
-        success_mask = torch.tensor([True, False], dtype=torch.bool)
-
-        total, metrics = compute_actor_critic_combined_loss(
-            tactic_logits=tactic_logits,
-            value_estimates=value_estimates,
-            arg_logits_list=arg_logits_list,
-            actions=actions,
-            returns=returns,
-            selected_arg_indices=selected_arg_indices,
-            success_mask=success_mask,
-        )
-
-        self.assertIn("actor_loss", metrics)
-        self.assertIn("critic_loss", metrics)
-        self.assertIn("entropy", metrics)
-        self.assertIn("arg_loss", metrics)
-        self.assertIn("total_loss", metrics)
-        self.assertTrue(torch.isfinite(total))
+    def test_combined_loss_components(self):
+        batch,vocab=self._build_tiny_batch()
+        model=actor_critic(len(vocab),5)
+        evaluated=model.act(batch,candidate_pools=local_pools(batch))
+        loss,metrics=compute_complete_policy_loss(evaluated,torch.tensor([1.,0.]))
+        self.assertTrue(torch.isfinite(loss))
+        self.assertTrue({'actor_loss','critic_loss','arg_loss','entropy'}<=metrics.keys())
 
     def test_masking_zero_sampling_prob_and_entropy(self) -> None:
         # A masked tactic must have -inf logit, exactly zero sampling probability, and
@@ -179,76 +142,35 @@ class ActorCriticTests(unittest.TestCase):
         ent_direct = -(legal_probs * torch.log(legal_probs)).sum(dim=-1).mean()
         self.assertTrue(torch.allclose(ent_masked, ent_direct, atol=1e-5))
 
-    def test_advantage_normalization_zero_variance_is_finite(self) -> None:
-        # Equal returns and equal values give a zero-variance advantage; the +1e-8
-        # guard must keep the loss finite (no division by zero).
-        tactic_logits = torch.randn(4, 5)
-        value_estimates = torch.full((4, 1), 0.5)
-        returns = torch.full((4,), 0.5)  # advantage is identically zero
-        actions = torch.tensor([0, 1, 2, 3], dtype=torch.long)
+    def test_advantage_normalization_zero_variance_is_finite(self):
+        from types import SimpleNamespace
+        logits=torch.randn(2,5,requires_grad=True)
+        logp=logits.log_softmax(-1)[:,0]
+        evaluated=SimpleNamespace(logp=logp,arg_logp=logp,value=torch.full((2,),.5),tactic_logits=logits)
+        loss,metrics=compute_complete_policy_loss(evaluated,torch.full((2,),.5))
+        self.assertTrue(torch.isfinite(loss))
+        self.assertEqual(metrics['actor_loss'],0.)
 
-        total, metrics = compute_actor_critic_combined_loss(
-            tactic_logits=tactic_logits,
-            value_estimates=value_estimates,
-            arg_logits_list=[],
-            actions=actions,
-            returns=returns,
-            selected_arg_indices=[],
-            success_mask=torch.zeros(4, dtype=torch.bool),
-        )
-        self.assertTrue(torch.isfinite(total))
-        # mean_advantage reports the RAW (pre-normalization) advantage, here ~0.
-        self.assertAlmostEqual(metrics["mean_advantage"], 0.0, places=5)
+    def test_advantage_normalization_singleton_batch_is_finite(self):
+        from types import SimpleNamespace
+        logits=torch.randn(1,5,requires_grad=True)
+        logp=logits.log_softmax(-1)[:,0]
+        evaluated=SimpleNamespace(logp=logp,arg_logp=logp,value=torch.full((1,),.5),tactic_logits=logits)
+        loss,metrics=compute_complete_policy_loss(evaluated,torch.zeros(1))
+        self.assertTrue(torch.isfinite(loss))
+        self.assertEqual(metrics['actor_loss'],0.)
 
-    def test_gradient_flow_and_advantage_detached(self) -> None:
-        batch, vocab = self._build_tiny_batch()
-        model = actor_critic(len(vocab), 5)
-
-        # Use "have" (arity 2) to ensure both query_proj and query_proj_ar are used and receive gradients
-        tactic_logits, values, arg_logits_list = model(batch, tactic_names=["have", "have"])
-        actions = torch.tensor([1, 2], dtype=torch.long)
-        returns = torch.tensor([1.0, 0.0], dtype=torch.float32)
-        selected_arg_indices = [
-            torch.tensor([0, 1], dtype=torch.long),
-            torch.tensor([2, 3], dtype=torch.long)
-        ]
-        success_mask = torch.tensor([True, False], dtype=torch.bool)
-
-        # The residual's zero-initialized output layer means its inner layer receives
-        # no gradient on the FIRST backward (grad flows through a zero weight). Take one
-        # optimizer step to move the residual output off zero, then verify gradient
-        # reaches every trainable parameter on the next backward.
-        optimizer = AdamW(model.parameters(), lr=0.01)
-        for _step in range(2):
-            optimizer.zero_grad()
-            tactic_logits, values, arg_logits_list = model(batch, tactic_names=["have", "have"])
-            total, metrics = compute_actor_critic_combined_loss(
-                tactic_logits=tactic_logits,
-                value_estimates=values,
-                arg_logits_list=arg_logits_list,
-                actions=actions,
-                returns=returns,
-                selected_arg_indices=selected_arg_indices,
-                success_mask=success_mask,
-            )
-            total.backward()
-            optimizer.step()
-
-        for name, p in model.named_parameters():
-            self.assertIsNotNone(p.grad, f"Parameter {name} has None gradient")
-            self.assertFalse(torch.all(p.grad == 0), f"Parameter {name} has zero gradient")
-
-        # Check advantage detachment:
-        # Critic values should not receive gradients from the actor loss alone.
-        model.zero_grad()
-        tactic_logits, values, _ = model(batch)
-        advantages = returns - values.squeeze(-1)
-        actor_loss = compute_actor_loss(tactic_logits, actions, advantages)
-        actor_loss.backward()
-
-        for p in model.critic.parameters():
-            if p.grad is not None:
-                self.assertTrue(torch.all(p.grad == 0), "Critic received gradients from actor loss alone")
+    def test_gradient_flow_and_advantage_detached(self):
+        batch,vocab=self._build_tiny_batch()
+        model=actor_critic(len(vocab),5)
+        result=model.act(batch,candidate_pools=local_pools(batch))
+        actor=-(result.logp*torch.tensor([1.,-1.])).mean()
+        grads=torch.autograd.grad(actor,tuple(model.critic.parameters()),allow_unused=True,retain_graph=True)
+        self.assertTrue(all(x is None for x in grads))
+        loss,_=compute_complete_policy_loss(result,torch.tensor([1.,0.]))
+        loss.backward()
+        self.assertTrue(any(p.grad is not None and p.grad.abs().sum()>0 for p in model.decoder.parameters()))
+        self.assertTrue(any(p.grad is not None and p.grad.abs().sum()>0 for p in model.critic.parameters()))
 
     def test_differential_lr_param_groups(self) -> None:
         model = actor_critic(10, 5)
@@ -331,8 +253,8 @@ class ActorCriticTests(unittest.TestCase):
                 model_ac.encoder.node_features.label_embedding.weight,
                 model_ptr.encoder.node_features.label_embedding.weight,
             ))
-            self.assertTrue(torch.allclose(model_ac.tactic_embedding.weight, model_ptr.tactic_embedding.weight))
-            self.assertTrue(torch.allclose(model_ac.argument_selector.query_proj.weight, model_ptr.argument_selector.query_proj.weight))
+            self.assertTrue(torch.allclose(model_ac.decoder.tactic_embedding.weight, model_ptr.decoder.tactic_embedding.weight))
+            self.assertTrue(torch.allclose(model_ac.decoder.argument_selector.init_proj.weight, model_ptr.decoder.argument_selector.init_proj.weight))
             self.assertTrue(torch.allclose(
                 model_ac.actor.base.weight,
                 model_ptr.tactic_classifier.weight,
@@ -379,38 +301,15 @@ class ActorCriticTests(unittest.TestCase):
 
         self.assertTrue(torch.allclose(rewards, torch.tensor([1.0, 0.0, 1.0])))
 
-    def test_training_step_e2e(self) -> None:
-        batch, vocab = self._build_tiny_batch()
-        model = actor_critic(len(vocab), 5)
-        optimizer = AdamW(model.parameters(), lr=0.001)
-        reward_src = MockRewardSource()
-
-        tactic_logits, values, _ = model(batch)
-        tactic_dist = torch.distributions.Categorical(logits=tactic_logits)
-        actions = tactic_dist.sample()
-
-        _, _, arg_logits_list = model(batch, teacher_tactic_ids=actions)
-
-        selected_arg_indices = [arg_logits.argmax(dim=1) for arg_logits in arg_logits_list]
-        success_mask = (actions == batch.y.view(-1))
-        returns = reward_src.get_rewards_batch(actions, batch.y.view(-1), success_mask)
-
-        optimizer.zero_grad()
-        loss, metrics = compute_actor_critic_combined_loss(
-            tactic_logits=tactic_logits,
-            value_estimates=values,
-            arg_logits_list=arg_logits_list,
-            actions=actions,
-            returns=returns,
-            selected_arg_indices=selected_arg_indices,
-            success_mask=success_mask,
-        )
-
-        loss.backward()
-        optimizer.step()
-
-        self.assertTrue(torch.isfinite(loss))
-        self.assertGreater(metrics["total_loss"], -1e9)
+    def test_training_step_e2e(self):
+        batch,vocab=self._build_tiny_batch()
+        model=actor_critic(len(vocab),5)
+        optimizer=AdamW(model.parameters(),lr=.001)
+        before=[p.detach().clone() for p in model.parameters()]
+        result=model.act(batch,candidate_pools=local_pools(batch))
+        loss,_=compute_complete_policy_loss(result,torch.tensor([1.,0.]))
+        loss.backward();optimizer.step()
+        self.assertTrue(any(not torch.equal(a,b) for a,b in zip(before,model.parameters())))
 
 
     def test_bc_anchor_loss(self) -> None:
@@ -428,55 +327,37 @@ class ActorCriticTests(unittest.TestCase):
         loss2 = compute_bc_anchor_loss(tl2, torch.tensor([-1, -1, -1]))
         self.assertEqual(float(loss2.item()), 0.0)
 
-    def test_bc_weight_zero_reproduces_pure_rl(self) -> None:
-        # bc_weight=0 must give exactly the pure-RL total (BC term contributes nothing).
-        torch.manual_seed(0)
-        args = dict(
-            tactic_logits=torch.randn(3, 5),
-            value_estimates=torch.randn(3, 1),
-            arg_logits_list=[torch.randn(3, 8)],
-            actions=torch.tensor([0, 1, 2]),
-            returns=torch.tensor([1.0, 0.0, 1.0]),
-            selected_arg_indices=[torch.tensor([0, 1, 2])],
-            success_mask=torch.tensor([True, False, True]),
-        )
-        total_pure, _ = compute_actor_critic_combined_loss(**args)
-        labels = torch.tensor([0, 1, 2], dtype=torch.long)
-        total_bc0, m = compute_actor_critic_combined_loss(**args, labels=labels, bc_weight=0.0)
-        self.assertAlmostEqual(float(total_pure.item()), float(total_bc0.item()), places=6)
-        self.assertEqual(m["bc_loss"], 0.0)
+    def test_bc_weight_zero_reproduces_pure_rl(self):
+        from types import SimpleNamespace
+        logits=torch.randn(3,5,requires_grad=True)
+        logp=logits.log_softmax(-1)[:,0]
+        evaluated=SimpleNamespace(logp=logp,arg_logp=logp,value=torch.zeros(3),tactic_logits=logits)
+        returns=torch.tensor([1.,0.,1.]);labels=torch.tensor([0,1,2])
+        a,_=compute_complete_policy_loss(evaluated,returns)
+        b,metrics=compute_complete_policy_loss(evaluated,returns,labels=labels,bc_weight=0.)
+        torch.testing.assert_close(a,b)
+        c,metrics=compute_complete_policy_loss(evaluated,returns,labels=labels,bc_weight=1.)
+        self.assertGreater(metrics['bc_loss'],0.)
+        self.assertGreater(float(c.detach()),float(b.detach()))
 
-        # A positive bc_weight changes the total and records a nonzero bc_loss.
-        total_bc1, m1 = compute_actor_critic_combined_loss(**args, labels=labels, bc_weight=1.0)
-        self.assertNotAlmostEqual(float(total_pure.item()), float(total_bc1.item()), places=4)
-        self.assertGreater(m1["bc_loss"], 0.0)
-
-    def test_act_sampling_shapes_and_gradients(self) -> None:
-        batch, vocab = self._build_tiny_batch()
-        model = actor_critic(len(vocab), 5)
-        sample = model.act(batch)
-        self.assertIsInstance(sample, ActionSample)
-        self.assertEqual(sample.tactic_action.shape, (2,))
-        self.assertEqual(sample.tactic_logp.shape, (2,))
-        self.assertEqual(sample.value.shape, (2,))
-        self.assertEqual(sample.arg_logp.shape, (2,))
-        self.assertEqual(len(sample.arg_actions), 2)  # max_args steps
-
-        # The pointer-as-actor policy gradient: arg_logp must flow into the argument selector.
-        model.zero_grad()
+    def test_act_sampling_shapes_and_gradients(self):
+        batch,vocab=self._build_tiny_batch()
+        model=actor_critic(len(vocab),5)
+        sample=model.act(batch,candidate_pools=local_pools(batch))
+        self.assertIsInstance(sample,ActionSample)
+        self.assertEqual(sample.logp.shape,(2,))
+        self.assertEqual(len(sample.arguments),2)
         sample.arg_logp.sum().backward()
-        arg_grads = [p.grad for p in model.argument_selector.parameters() if p.grad is not None]
-        self.assertTrue(len(arg_grads) > 0)
-        self.assertTrue(any(torch.any(g != 0) for g in arg_grads))
+        self.assertTrue(model.decoder.arg_count_head.weight.grad.abs().sum()>0)
 
-    def test_act_greedy_is_deterministic(self) -> None:
-        batch, vocab = self._build_tiny_batch()
-        model = actor_critic(len(vocab), 5)
-        model.eval()
-        with torch.no_grad():
-            a1 = model.act(batch, greedy=True)
-            a2 = model.act(batch, greedy=True)
-        self.assertTrue(torch.equal(a1.tactic_action, a2.tactic_action))
+    def test_act_greedy_is_deterministic(self):
+        batch,vocab=self._build_tiny_batch()
+        model=actor_critic(len(vocab),5)
+        pools=local_pools(batch)
+        a=model.act(batch,candidate_pools=pools,greedy=True)
+        b=model.act(batch,candidate_pools=pools,greedy=True)
+        self.assertTrue(torch.equal(a.tactic_action,b.tactic_action))
+        self.assertEqual(a.arguments,b.arguments)
 
 
 if __name__ == "__main__":

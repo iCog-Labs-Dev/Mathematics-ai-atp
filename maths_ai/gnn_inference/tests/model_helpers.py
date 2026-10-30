@@ -272,3 +272,12 @@ def certify_witness(graph, *edge_ids: int, matched: bool = True) -> None:
             )
         )
     graph.witness = tuple(steps)
+
+
+class LocalCandidateProvider:
+    """Controlled local-only retrieval fixture; production uses verified artifacts."""
+    async def retrieve(self, goal, local_ids, graph_fingerprint, *, excluded=()):
+        from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import CandidatePoolSnapshot
+        from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import fingerprint
+        from maths_ai.gnn_inference.atp_lean_gnn.retrieval_artifacts import goal_query
+        return CandidatePoolSnapshot(tuple(local_ids),graph_fingerprint=graph_fingerprint,query_fingerprint=fingerprint(goal_query(goal)))

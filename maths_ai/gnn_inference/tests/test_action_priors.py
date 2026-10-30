@@ -10,7 +10,12 @@ import torch
 
 from maths_ai.data_models.proof_components import Goal, ProposedAction, TacticCandidate
 from maths_ai.gnn_inference.atp_lean_gnn.actor_critic import ActionSample
-from maths_ai.gnn_inference.atp_lean_gnn.inference import _ranked_choice_log_prior, local_declarations
+from maths_ai.gnn_inference.atp_lean_gnn.inference import InferencePipeline, local_declarations
+from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import (
+    ArgumentReference,
+    CandidatePoolSnapshot,
+    LocalCandidateProvider,
+)
 from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import ObservationOutcome
 from maths_ai.gnn_inference.tests.model_helpers import ScriptedExecutor, structured_goal
 from maths_ai.gnn_inference.tests.test_rl_reasoner import (
@@ -130,12 +135,24 @@ class AliasTests(unittest.TestCase):
 
 
 class GenericProviderLawTests(unittest.TestCase):
-    def test_ranked_arguments_use_a_softmax_without_replacement(self):
-        scores = torch.tensor([2.0, 1.0, 0.0])
-        first = torch.log_softmax(scores, dim=-1)[0]
-        second = torch.log_softmax(torch.tensor([float("-inf"), 1.0, 0.0]), dim=-1)[1]
-        self.assertAlmostEqual(_ranked_choice_log_prior(scores, [0, 1]), float(first + second), places=6)
-        self.assertEqual(_ranked_choice_log_prior(scores, []), 0.0)
+    def test_the_engine_prior_is_its_greedy_complete_action_probability(self):
+        reasoner, model, vocab = _make_reasoner(_CountingExecutor())
+        pipeline = InferencePipeline(
+            model, LocalCandidateProvider(), vocab, reasoner.tactic_vocab, torch.device("cpu")
+        )
+        goal = structured_goal(GOAL_EXPR, HYPS)
+        asyncio.run(pipeline.prepare_goal(goal))
+        model.eval()
+        result = pipeline.predict_from_goal(goal, top_k=3)
+        for prediction in result.top_tactic_predictions:
+            self.assertAlmostEqual(
+                prediction["probability"], math.exp(prediction["action_log_prior"]), places=6
+            )
+            tactic_id, references = prediction["raw_action_id"]
+            self.assertEqual(tactic_id, prediction["tactic_id"])
+            self.assertEqual(len(references), len(prediction["selected_arguments"]))
+        priors = [p["action_log_prior"] for p in result.top_tactic_predictions]
+        self.assertTrue(all(value <= 0.0 for value in priors))
 
 
 def _stack(samples: list[ActionSample]) -> ActionSample:
@@ -145,14 +162,12 @@ def _stack(samples: list[ActionSample]) -> ActionSample:
         tactic_action=cat([s.tactic_action for s in samples]),
         tactic_logp=cat([s.tactic_logp for s in samples]),
         tactic_entropy=cat([s.tactic_entropy for s in samples]),
-        arg_actions=[cat(step) for step in zip(*(s.arg_actions for s in samples))],
-        arg_logp=cat([s.arg_logp for s in samples]),
+        arguments=tuple(args for s in samples for args in s.arguments),
+        count_logp=cat([s.count_logp for s in samples]),
+        source_logp=cat([s.source_logp for s in samples]),
+        identity_logp=cat([s.identity_logp for s in samples]),
         value=cat([s.value for s in samples]),
         tactic_logits=cat([s.tactic_logits for s in samples]),
-        arities=cat([s.arities for s in samples]),
-        complete=cat([s.complete for s in samples]),
-        arg_step_logp=[cat(step) for step in zip(*(s.arg_step_logp for s in samples))],
-        arg_step_valid=[cat(step) for step in zip(*(s.arg_step_valid for s in samples))],
     )
 
 
@@ -166,18 +181,17 @@ class ActorPriorTests(unittest.TestCase):
 
     @staticmethod
     def _exact(index: int, arg_logp: float) -> ActionSample:
+        """``exact`` with one local argument whose whole log-probability is ``arg_logp``."""
         return ActionSample(
             tactic_action=torch.tensor([2]),  # "exact"
             tactic_logp=torch.tensor([-0.5]),
             tactic_entropy=torch.tensor([1.0]),
-            arg_actions=[torch.tensor([index])],
-            arg_logp=torch.tensor([arg_logp]),
+            arguments=((ArgumentReference("local", index),),),
+            count_logp=torch.tensor([arg_logp]),
+            source_logp=torch.tensor([0.0]),
+            identity_logp=torch.tensor([0.0]),
             value=torch.tensor([0.0]),
             tactic_logits=torch.zeros(1, 3),
-            arities=torch.tensor([1]),
-            complete=torch.tensor([True]),
-            arg_step_logp=[torch.tensor([arg_logp])],
-            arg_step_valid=[torch.tensor([True])],
         )
 
     def _positions(self, reasoner):
@@ -191,8 +205,9 @@ class ActorPriorTests(unittest.TestCase):
         reasoner, _model, _vocab = _make_reasoner(_CountingExecutor())
         goal, dag, data, hyp, fv = self._positions(reasoner)
         declarations = local_declarations(goal)
-        a, _ = reasoner._decode(self._exact(hyp, -0.1), dag, declarations, "fp")
-        b, _ = reasoner._decode(self._exact(fv, -2.0), dag, declarations, "fp")
+        pool = CandidatePoolSnapshot(tuple(sorted({hyp, fv})))
+        a, _ = reasoner._decode(self._exact(hyp, -0.1), dag, declarations, "fp", pool)
+        b, _ = reasoner._decode(self._exact(fv, -2.0), dag, declarations, "fp", pool)
         self.assertEqual(a.candidate.tactic_name, b.candidate.tactic_name)
         self.assertAlmostEqual(a.log_prior, -0.6, places=6)
         self.assertAlmostEqual(b.log_prior, -2.5, places=6)
@@ -211,14 +226,15 @@ class ActorPriorTests(unittest.TestCase):
 
         self.assertEqual(executor.calls, ["exact p"])
         (edge,) = result.graph.edges.values()
-        self.assertEqual(set(edge.raw_log_priors), {(2, (hyp,)), (2, (fv,))})
-        self.assertAlmostEqual(edge.raw_log_priors[(2, (hyp,))], -0.6, places=6)
-        self.assertAlmostEqual(edge.raw_log_priors[(2, (fv,))], -2.5, places=6)
+        on_hyp, on_fv = (2, (("local", hyp),)), (2, (("local", fv),))
+        self.assertEqual(set(edge.raw_log_priors), {on_hyp, on_fv})
+        self.assertAlmostEqual(edge.raw_log_priors[on_hyp], -0.6, places=6)
+        self.assertAlmostEqual(edge.raw_log_priors[on_fv], -2.5, places=6)
         self.assertAlmostEqual(edge.log_mass, math.log(math.exp(-0.6) + math.exp(-2.5)), places=6)
-        observations = {o.action.arg_indices: o for o in result.observations}
-        self.assertEqual(set(observations), {(hyp,), (fv,)})
-        self.assertEqual(observations[(hyp,)].action.multiplicity, 2)
-        self.assertEqual(observations[(fv,)].action.multiplicity, 1)
+        observations = {o.action.raw_action_id: o for o in result.observations}
+        self.assertEqual(set(observations), {on_hyp, on_fv})
+        self.assertEqual(observations[on_hyp].action.multiplicity, 2)
+        self.assertEqual(observations[on_fv].action.multiplicity, 1)
         for observation in observations.values():
             self.assertEqual(observation.outcome, ObservationOutcome.ACCEPTED)
             self.assertEqual(observation.edge_id, edge.id)

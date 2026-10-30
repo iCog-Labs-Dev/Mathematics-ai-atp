@@ -187,11 +187,9 @@ class HybridReasoner:
         self,
         config_path: Path,
         tactic_model_path: Path,
-        argument_model_path: Path,
+        retrieval_config_path: Path,
         *,
         executor: PantographExecutor,
-        index_path: Optional[Path] = None,
-        corpus_path: Optional[Path] = None,
         top_k_tactics: int = 3,
         max_depth: int = 10,
         max_nodes: int = 500,
@@ -233,9 +231,7 @@ class HybridReasoner:
         self.gnn_engine = self._build_gnn_engine(
             config_path=config_path,
             tactic_model_path=tactic_model_path,
-            argument_model_path=argument_model_path,
-            index_path=index_path,
-            corpus_path=corpus_path,
+            retrieval_config_path=retrieval_config_path,
         )
 
         self.atomic_tactics = {}
@@ -303,9 +299,7 @@ class HybridReasoner:
         *,
         config_path: Path,
         tactic_model_path: Path,
-        argument_model_path: Path,
-        index_path: Optional[Path],
-        corpus_path: Optional[Path],
+        retrieval_config_path: Path,
     ) -> Optional[GNNModelEngine]:
         """Construct the tactic-prediction engine.
 
@@ -318,9 +312,7 @@ class HybridReasoner:
         return GNNModelEngine(
             config_path=config_path,
             tactic_predictor_model_path=tactic_model_path,
-            argument_predictor_model_path=argument_model_path,
-            index_path=index_path,
-            corpus_path=corpus_path,
+            retrieval_config_path=retrieval_config_path,
         )
 
     def predict_next_tactic(self, sub_goal: Goal) -> List[ProposedAction]:
@@ -1040,7 +1032,7 @@ class HybridReasoner:
             await self._release_closed_sources(graph)
             return
 
-        proposals = self._propose_observable(graph, requests, draws)
+        proposals = await self._propose_observable(graph, requests, draws)
         await self._release_closed_sources(graph)
         if len(proposals) != len(requests):
             raise RuntimeError("Batched proposals do not align with the leaf batch.")
@@ -1072,27 +1064,40 @@ class HybridReasoner:
         self._on_expansion_complete(node, ExpansionResult.RESOURCE_LIMIT)
         return False
 
-    def _propose_observable(
+    async def _propose_observable(
         self, graph: ProofHypergraph, nodes: List[ProofNode], draws: List[int]
     ) -> List[Optional[List[ProposedAction]]]:
-        """Propose for ``nodes``; a node the model cannot observe gets ``None``.
+        """Prepare and propose for ``nodes``; a node the model cannot observe gets ``None``.
 
-        An unobservable goal fails the whole batched forward, so the batch is
-        retried node by node and only the goals the model cannot read are
-        closed, as unsupported rather than failed.
+        Each node's proposal inputs (its candidate pool) are prepared first. An
+        unobservable goal fails its preparation, or the whole batched forward,
+        so the batch is then retried node by node and only the goals the model
+        cannot read are closed, as unsupported rather than failed.
         """
-        try:
-            return list(self.predict_next_tactics_for_nodes(nodes, draws))
-        except UnsupportedObservation:
-            pass
-        proposals: List[Optional[List[ProposedAction]]] = []
-        for node, count in zip(nodes, draws):
+        observable: List[ProofNode] = []
+        for node in nodes:
             try:
-                proposals.append(self.predict_next_tactics_for_nodes([node], [count])[0])
+                await self.prepare_node(node)
             except UnsupportedObservation as exc:
                 self._close_unsupported(graph, node, exc)
-                proposals.append(None)
-        return proposals
+                continue
+            observable.append(node)
+        counts = {node.id: count for node, count in zip(nodes, draws)}
+        by_node: Dict[int, List[ProposedAction]] = {}
+        try:
+            batch = self.predict_next_tactics_for_nodes(
+                observable, [counts[node.id] for node in observable]
+            ) if observable else []
+            by_node = {node.id: actions for node, actions in zip(observable, batch)}
+        except UnsupportedObservation:
+            for node in observable:
+                try:
+                    by_node[node.id] = self.predict_next_tactics_for_nodes(
+                        [node], [counts[node.id]]
+                    )[0]
+                except UnsupportedObservation as exc:
+                    self._close_unsupported(graph, node, exc)
+        return [by_node.get(node.id) for node in nodes]
 
     def _close_unsupported(
         self, graph: ProofHypergraph, node: ProofNode, exc: UnsupportedObservation
@@ -1357,6 +1362,7 @@ class HybridReasoner:
             return
         print(f"  [GNN Input] goal={node.goal.expression}  hyps={node.goal.hypotheses}")
         try:
+            await self.prepare_node(node)
             candidates = self.predict_next_tactics_for_nodes([node])[0]
         except UnsupportedObservation as exc:
             self._close_unsupported(graph, node, exc)
@@ -1368,6 +1374,15 @@ class HybridReasoner:
         finally:
             self._expanding = set()
             await self._release_closed_sources(graph)
+
+    async def prepare_goal(self, goal: Goal) -> None:
+        """Prepare state-dependent proposal inputs before synchronous model scoring."""
+        if self.gnn_engine is not None:
+            await self.gnn_engine.prepare_goal(goal)
+
+    async def prepare_node(self, node: ProofNode) -> None:
+        """Prepare ``node``'s proposal inputs; the RL subclass keeps one pool per node."""
+        await self.prepare_goal(node.goal.require_model_state())
 
     async def _drop_snapshot(self, node: ProofNode) -> None:
         """Release only this graph occurrence's proposal ownership."""
@@ -1636,10 +1651,8 @@ class HybridReasoner:
 async def main(
     config_path: Path,
     tactic_model_path: Path,
-    argument_model_path: Path,
+    retrieval_config_path: Path,
     *,
-    index_path: Optional[Path] = None,
-    corpus_path: Optional[Path] = None,
     goal_statement: str,
     hypotheses: Optional[List[str]] = None,
     depth_limit: int = 10,
@@ -1683,9 +1696,7 @@ async def main(
         hybrid_reasoner = HybridReasoner(
             config_path=config_path,
             tactic_model_path=tactic_model_path,
-            argument_model_path=argument_model_path,
-            index_path=index_path,
-            corpus_path=corpus_path,
+            retrieval_config_path=retrieval_config_path,
             executor=PantographExecutor(server=server),
             top_k_tactics=top_k_tactics,
             max_depth=depth_limit,
@@ -1701,6 +1712,8 @@ async def main(
         for h in hypotheses or []:
             print(repr(h))
         try:
+            if hybrid_reasoner.gnn_engine is not None:
+                hybrid_reasoner.gnn_engine.provider.verify_environment(env)
             proof_graph = await hybrid_reasoner.prove(
                 seed_from_text(goal=goal_statement, hypotheses=hypotheses or [])
             )
@@ -1731,6 +1744,8 @@ async def main(
             if dts_state_output and hybrid_reasoner.dts_sampler is not None:
                 dts_state_output.parent.mkdir(parents=True, exist_ok=True)
                 hybrid_reasoner.dts_sampler.save_to(str(dts_state_output))
+            if hybrid_reasoner.gnn_engine is not None:
+                await hybrid_reasoner.gnn_engine.aclose()
 
 
 if __name__ == "__main__":
@@ -1775,20 +1790,20 @@ if __name__ == "__main__":
     args_parser.add_argument("--pantograph-repl", type=Path, required=True)
     args = args_parser.parse_args()
 
-    asyncio.run(main(
-        config_path=_argument_selection_run / "config.json",
-        tactic_model_path=_argument_selection_run / "best.pt",
-        argument_model_path=_premise_selection_run / "best.pt",
-        index_path=settings.root_dir / "gnn_inference" / "runs" / "lemma_index_v1",
-        corpus_path=settings.root_dir / "gnn_inference" / "runs" / "lemma_corpus_v1" / "lemmas.jsonl",
-        goal_statement=args.goal_statement,
-        hypotheses=args.hypotheses.split(",") if args.hypotheses else None,
-        depth_limit=_depth_limit,
-        dts_state_input=args.dts_state_input,
-        dts_state_output=args.dts_state_output,
-        dts_c=args.dts_c,
-        dts_random_seed=args.dts_random_seed,
-        top_k_tactics=args.top_k_tactics,
-        source_root=args.source_root,
-        pantograph_repl=args.pantograph_repl,
-    ))
+    asyncio.run(
+        main(
+            config_path=_argument_selection_run / "config.json",
+            tactic_model_path=_argument_selection_run / "best.pt",
+            retrieval_config_path=settings.root_dir / "gnn_inference" / "configs" / "retrieval.example.json",
+            goal_statement=args.goal_statement,
+            hypotheses=args.hypotheses.split(",") if args.hypotheses else None,
+            depth_limit=_depth_limit,
+            dts_state_input=args.dts_state_input,
+            dts_state_output=args.dts_state_output,
+            dts_c=args.dts_c,
+            dts_random_seed=args.dts_random_seed,
+            top_k_tactics=args.top_k_tactics,
+            source_root=args.source_root,
+            pantograph_repl=args.pantograph_repl,
+        )
+    )

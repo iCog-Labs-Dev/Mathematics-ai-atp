@@ -63,12 +63,13 @@ class RenderTacticCommandTests(unittest.TestCase):
         self.assertIsNone(render_tactic_command(_tactic("rw", "?m.2235")))
         self.assertIsNone(render_tactic_command(_tactic("rw")))
 
-    def test_unusable_arguments_are_filtered_from_the_rule_list(self):
-        self.assertEqual(render_tactic_command(_tactic("rw", "↑13", "h")), "rw [h]")
+    def test_unusable_arguments_reject_the_whole_selected_action(self):
+        self.assertIsNone(render_tactic_command(_tactic('rw', 'h', '↑13')))
+        self.assertIsNone(render_tactic_command(_tactic('simp', 'h', '↑13')))
 
     def test_bracket_optional_tactic_runs_bare_without_rules(self):
         self.assertEqual(render_tactic_command(_tactic("simp")), "simp")
-        self.assertEqual(render_tactic_command(_tactic("simp", "↑13")), "simp")
+        self.assertIsNone(render_tactic_command(_tactic("simp", "↑13")))
 
     def test_bracket_optional_tactic_takes_brackets_with_rules(self):
         self.assertEqual(render_tactic_command(_tactic("simp", "h")), "simp [h]")
@@ -148,7 +149,7 @@ class ExecutorRenderingTests(unittest.TestCase):
                 return [[scored(_tactic("rw", "↑13"))] for _ in nodes]
 
         reasoner = Reasoner(
-            config_path=None, tactic_model_path=None, argument_model_path=None,
+            config_path=None, tactic_model_path=None, retrieval_config_path=None,
             executor=executor, use_pln=False, max_nodes=5,
         )
         graph = asyncio.run(reasoner.prove(seed_from_text(goal="p", hypotheses=["p : Prop"])))

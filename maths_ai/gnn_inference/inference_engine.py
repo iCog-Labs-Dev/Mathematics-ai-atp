@@ -1,199 +1,92 @@
+"""Validated source-aware model and live retrieval for deterministic search."""
+
+import json
 from pathlib import Path
-from typing import List, Optional, cast
-
 import torch
-
-from maths_ai.data_models.proof_components import Goal, ProposedAction, TacticCandidate
-from maths_ai.gnn_inference.atp_lean_gnn.checkpointing import (
-    build_model_from_checkpoint,
-)
-from maths_ai.gnn_inference.atp_lean_gnn.lemma_corpus import load_lemma_corpus
-from maths_ai.gnn_inference.atp_lean_gnn.lemma_index import LemmaIndex
-from maths_ai.gnn_inference.atp_lean_gnn.premise_scoring import (
-    PremiseScorer,
-    load_scorer_checkpoint,
-)
-from maths_ai.gnn_inference.atp_lean_gnn.training import (
-    load_actor_critic_config,
-    load_pointer_config,
-    load_prepared_metadata,
-)
-
 from .model import GNNPredictor
+from .atp_lean_gnn.checkpointing import build_model_from_checkpoint
+from .atp_lean_gnn.training import load_prepared_metadata
+from .atp_lean_gnn.retrieval_artifacts import RetrievalConfig, LiveLemmaProvider
+from maths_ai.data_models.proof_components import ArgumentRef, ProposedAction, TacticCandidate
+
+# The engine's prior law: the greedy complete action's exact log-probability.
+ENGINE_PRIOR = "gnn-engine/source-aware-greedy-v1"
 
 
 class GNNModelEngine:
     def __init__(
         self,
-        config_path: Path,
-        tactic_predictor_model_path: Path,
-        argument_predictor_model_path: Path,
+        config_path,
+        tactic_predictor_model_path,
+        retrieval_config_path,
         *,
-        model_type: str = "pointer",
-        index_path: Optional[Path] = None,
-        corpus_path: Optional[Path] = None,
-        scorer_mode: str = "dot",
-        k: int = 500,
-        device: str = "cuda",
+        device="cpu",
     ):
-        """
-        Args:
-            config_path: path to the baseline training config.json (model architecture
-                and the prepared dataset root used to recover the node/tactic vocabs)
-            tactic_predictor_model_path: checkpoint (.pt) holding "model_state_dict" for
-                the trained TacticWithArgsClassifier
-            argument_predictor_model_path: checkpoint (.pt) holding "scorer_state_dict"
-                for the trained PremiseScorer
-            index_path: optional path to a FAISS lemma index directory
-            corpus_path: optional path to lemmas.jsonl for decoding retrieved lemma IDs
-        """
-        self.device = torch.device(device if torch.cuda.is_available() else "cpu")
-
-        if model_type == "actor_critic":
-            config = load_actor_critic_config(config_path)
-        else:
-            config = load_pointer_config(config_path)
-
-        metadata = load_prepared_metadata(config.prepared_root)
-
-        tactic_checkpoint = torch.load(
+        self.device = torch.device(device)
+        config = json.loads(Path(config_path).read_text())
+        metadata = load_prepared_metadata(Path(config["prepared_root"]), splits=())
+        checkpoint = torch.load(
             tactic_predictor_model_path, map_location=self.device, weights_only=False
         )
-        expected_kind = (
-            "actor_critic_with_args"
-            if model_type == "actor_critic"
-            else "tactic_with_args"
-        )
-        tactic_model, checkpoint_manifest, checkpoint_spec = (
-            build_model_from_checkpoint(
-                tactic_checkpoint,
-                node_vocab=metadata.node_vocab,
-                tactic_vocab=metadata.tactic_vocab,
-                graph_representation=metadata.graph_representation,
-                expected_model_kind=expected_kind,
-            )
-        )
-
-        tactic_model = tactic_model.to(self.device)
-        tactic_model.eval()
-
-        argument_model = PremiseScorer(
-            hidden_dim=checkpoint_spec.hidden_dim, mode=scorer_mode
-        )
-        argument_checkpoint = torch.load(
-            argument_predictor_model_path, map_location=self.device, weights_only=False
-        )
-        expected_fingerprint = str(checkpoint_manifest["encoder_fingerprint"])
-        load_scorer_checkpoint(
-            argument_model,
-            argument_checkpoint,
-            expected_encoder_fingerprint=expected_fingerprint,
-        )
-        argument_model = argument_model.to(self.device)
-        argument_model.eval()
-
-        lemma_index = self._load_lemma_index(
-            index_path,
-            checkpoint_spec.hidden_dim,
-            expected_fingerprint,
-        )
-        lemma_corpus = self._load_lemma_corpus(corpus_path)
-
-        self.gnn_inference = GNNPredictor(
-            tactic_model=tactic_model,
-            argument_model=argument_model,
-            lemma_index=lemma_index,
+        model, _, spec = build_model_from_checkpoint(
+            checkpoint,
             node_vocab=metadata.node_vocab,
             tactic_vocab=metadata.tactic_vocab,
-            device=self.device,
-            k=k,
-            lemma_corpus=lemma_corpus,
+            graph_representation=metadata.graph_representation,
+        )
+        self.provider = LiveLemmaProvider(
+            RetrievalConfig(**json.loads(Path(retrieval_config_path).read_text()))
+        )
+        if spec.retrieval_binding != self.provider.library.fingerprint:
+            raise ValueError("Model and retrieval artifact differ.")
+        self.gnn_inference = GNNPredictor(
+            model.to(self.device).eval(),
+            self.provider,
+            metadata.node_vocab,
+            metadata.tactic_vocab,
+            self.device,
         )
 
-    @staticmethod
-    def _load_lemma_index(
-        index_path: Optional[Path],
-        hidden_dim: int,
-        encoder_fingerprint: str,
-    ) -> LemmaIndex:
-        if index_path is not None and Path(index_path).exists():
-            lemma_index = LemmaIndex.load(index_path)
-            lemma_index.validate_encoder_fingerprint(encoder_fingerprint)
-            return lemma_index
+    async def prepare_goal(self, goal):
+        await self.gnn_inference.prepare_goal(goal)
 
-        import faiss
-        import numpy as np
-
-        return LemmaIndex(
-            index=faiss.IndexFlatL2(hidden_dim),
-            lemma_ids=[],
-            lemma_vectors=np.empty((0, hidden_dim), dtype=np.float32),
-            encoder_fingerprint=encoder_fingerprint,
-        )
-
-    @staticmethod
-    def _load_lemma_corpus(corpus_path: Optional[Path]):
-        if corpus_path is None or not Path(corpus_path).exists():
-            return None
-
-        records = load_lemma_corpus(corpus_path)
-        return {record.lemma_id: record for record in records}
-
-    def inference(self, goal: Goal, top_k: int = 3) -> List[TacticCandidate]:
-        """Predict ranked tactic candidates for a complete canonical ``goal``.
-
-        Contract (depended on by ``HybridReasoner.predict_next_tactic``):
-        return up to ``top_k`` candidates, each a ``TacticCandidate``
-        carrying the tactic family name, its selected argument/premise
-        names, and the model's predicted probability — sorted by
-        probability, descending.
-        """
-        predictions = self.gnn_inference.predict_tactics_with_arguments(
-            goal.require_model_state(), top_k=top_k
-        )
-        print(*predictions, "\n")
-        result = [
+    def inference(self, goal, top_k=3):
+        return [
             TacticCandidate(
-                tactic_name=str(prediction["tactic_name"]),
-                arguments=[
-                    str(argument)
-                    for argument in cast(list, prediction["selected_arguments"])
-                ],
-                probability=float(cast(float, prediction["probability"])),
+                tactic_name=x["tactic_name"],
+                arguments=x["selected_arguments"],
+                probability=x["probability"],
             )
-            for prediction in predictions
+            for x in self.gnn_inference.predict_tactics_with_arguments(goal, top_k)
         ]
 
-        return result
+    def propose(self, goal, top_k=3):
+        """Ranked complete actions as search proposals, each with its exact prior.
 
-    def propose(self, goal: Goal, top_k: int = 3) -> List[ProposedAction]:
-        """Ranked candidates as search proposals, each with its action prior.
-
-        The prior is the tactic's log-probability plus the log-probability of
-        the ranked arguments under the predictor's argument law (a softmax
-        over the eligible pool, without replacement). A prediction whose
-        tactic needs arguments it could not choose is incomplete and is not
-        proposed. The source is finite: the same goal gives the same ranks.
+        Each of the top tactics is completed greedily by the source-aware
+        decoder; its prior is the log-probability of that complete action. The
+        source is finite: a prepared goal gives the same actions every time.
         """
-        predictions = self.gnn_inference.predict_tactics_with_arguments(
-            goal.require_model_state(), top_k=top_k
-        )
-        proposals: List[ProposedAction] = []
-        for prediction in predictions:
-            log_prior = prediction.get("action_log_prior")
-            if log_prior is None:
-                continue
-            arguments = [str(argument) for argument in cast(list, prediction["selected_arguments"])]
+        proposals = []
+        for x in self.gnn_inference.predict_tactics_with_arguments(goal, top_k):
+            refs = x.get("argument_refs")
             proposals.append(
                 ProposedAction(
                     candidate=TacticCandidate(
-                        tactic_name=str(prediction["tactic_name"]),
-                        arguments=arguments,
-                        probability=float(cast(float, prediction["probability"])),
+                        tactic_name=x["tactic_name"],
+                        arguments=x["selected_arguments"],
+                        probability=x["probability"],
+                        argument_refs=None if refs is None else [
+                            ArgumentRef(kind=kind, text=text, internal_name=internal)
+                            for kind, text, internal in refs
+                        ],
                     ),
-                    raw_action_id=(int(cast(int, prediction["tactic_id"])), tuple(arguments)),
-                    log_prior=float(log_prior),
-                    provider=f"gnn-engine/{prediction['argument_law']}-v1",
+                    raw_action_id=x["raw_action_id"],
+                    log_prior=x["action_log_prior"],
+                    provider=ENGINE_PRIOR,
                 )
             )
         return proposals
+
+    async def aclose(self):
+        await self.provider.aclose()

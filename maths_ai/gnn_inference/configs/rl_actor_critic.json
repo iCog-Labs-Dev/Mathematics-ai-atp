@@ -20,23 +20,19 @@
   "max_pool_size": 5000,
   "max_state_chars": null,
   "eval_pool_size": 200,
-
   "curriculum_start_size": 200,
   "curriculum_growth_factor": 1.5,
   "curriculum_solve_threshold": 0.3,
   "curriculum_window_rounds": 10,
-
   "bc_anneal_start": 0.5,
   "bc_anneal_end": 0.05,
   "bc_anneal_rounds": 200,
-
   "num_rounds": 500,
   "theorems_per_round": 8,
   "theorem_timeout_s": 120.0,
   "checkpoint_every": 20,
   "eval_every": 25,
   "max_dead_rounds": 3,
-
   "top_k_tactics": 4,
   "max_depth": 8,
   "max_nodes": 64,

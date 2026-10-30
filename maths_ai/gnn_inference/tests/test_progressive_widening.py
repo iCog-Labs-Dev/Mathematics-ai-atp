@@ -128,7 +128,10 @@ class WideningPolicyTests(unittest.TestCase):
 
 
 class _StubEngine:
-    """The generic engine's ``propose`` contract: ranked proposals per goal."""
+    """The generic engine's ``prepare_goal``/``propose`` contract: ranked proposals per goal."""
+
+    async def prepare_goal(self, goal):
+        return None
 
     def __init__(self, ranked: dict[str, list[str]]):
         self.ranked = ranked

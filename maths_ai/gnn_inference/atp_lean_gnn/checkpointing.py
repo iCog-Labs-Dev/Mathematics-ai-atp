@@ -18,7 +18,7 @@ from .model_factory import (
 from .model_spec import ModelSpec
 
 
-CHECKPOINT_FORMAT_VERSION = 3
+CHECKPOINT_FORMAT_VERSION = 4
 MODEL_BUILDERS = {
     "supervised_tactic": build_supervised_tactic_model,
     "tactic_with_args": build_pointer_model,
@@ -83,6 +83,8 @@ def build_checkpoint_manifest(
     definition = architecture_definition(model_spec.architecture)
     return {
         "checkpoint_format_version": CHECKPOINT_FORMAT_VERSION,
+        "policy_schema": "count-source-identity-gru-v1",
+        "behavior_mode": "dropout-disabled-v1",
         "model_kind": model_kind,
         "model_spec": model_spec.to_dict(),
         "architecture_version": definition.version,
@@ -133,7 +135,7 @@ def validate_checkpoint_manifest(
     manifest = checkpoint.get("manifest")
     if not isinstance(manifest, dict):
         raise ValueError(
-            "Checkpoint has no version-3 manifest. Migrate it with "
+            "Checkpoint has no version-4 manifest. Migrate it with "
             "scripts/migrate_model_checkpoint.py before loading."
         )
     if int(manifest.get("checkpoint_format_version", -1)) != CHECKPOINT_FORMAT_VERSION:
@@ -141,6 +143,8 @@ def validate_checkpoint_manifest(
             "Unsupported checkpoint format version "
             f"{manifest.get('checkpoint_format_version')}."
         )
+    if manifest.get("policy_schema") != "count-source-identity-gru-v1" or manifest.get("behavior_mode") != "dropout-disabled-v1":
+        raise ValueError("Checkpoint policy or behavior contract differs.")
     model_kind = str(manifest.get("model_kind", ""))
     if model_kind not in MODEL_BUILDERS:
         raise ValueError(f"Unknown checkpoint model kind '{model_kind}'.")

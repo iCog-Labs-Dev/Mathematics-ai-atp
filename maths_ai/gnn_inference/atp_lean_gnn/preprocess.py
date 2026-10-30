@@ -289,7 +289,17 @@ def process_split(
                 arg_lemma_ids[idx] = -1
         data.arg_node_indices = torch.tensor(arg_indices, dtype=torch.long) if arg_indices else torch.tensor([], dtype=torch.long)
         data.arg_lemma_ids = torch.tensor(arg_lemma_ids, dtype=torch.long) if arg_lemma_ids else torch.tensor([], dtype=torch.long)
-        data.arg_count = len(arg_indices)
+        from .flat_action_targets import flat_reference_syntax
+        flat_tokens, reason = flat_reference_syntax(row.tactic)
+        supported = reason == "supported" and flat_tokens == arg_tokens and all(
+            (local >= 0) != (lemma >= 0) for local, lemma in zip(arg_indices, arg_lemma_ids)
+        ) and len(flat_tokens) <= 3
+        data.action_target_supported = supported
+        data.action_target_reason = reason if reason != "supported" else ("supported" if supported else "unresolved_or_over_budget")
+        if not supported:
+            data.arg_node_indices = torch.empty(0, dtype=torch.long)
+            data.arg_lemma_ids = torch.empty(0, dtype=torch.long)
+        data.arg_count = len(arg_indices) if supported else 0
         # --------------------------------------------------------------
 
         write_pyg_artifact(

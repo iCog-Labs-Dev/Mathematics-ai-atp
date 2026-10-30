@@ -1,0 +1,14 @@
+{
+  "query_artifact": "/path/to/exported-query-tower",
+  "lemma_index": "/path/to/paired-lemma-index",
+  "corpus_path": "/path/to/lemmas.jsonl",
+  "declaration_inventory": "/path/to/declaration-inventory.json",
+  "device": "cpu",
+  "top_k": 200,
+  "cache_max_entries": 1024,
+  "cache_max_bytes": 67108864,
+  "queue_max_size": 16,
+  "microbatch_max_size": 8,
+  "microbatch_wait_ms": 2.0,
+  "faiss_threads": 1
+}

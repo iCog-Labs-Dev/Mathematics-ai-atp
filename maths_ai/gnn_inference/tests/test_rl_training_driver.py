@@ -10,6 +10,7 @@ from unittest.mock import patch
 import torch
 from torch.optim import AdamW
 
+from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import LocalCandidateProvider
 from maths_ai.data_models.proof_components import Goal, STV
 from maths_ai.lean_replay import (
     ReplayFailure,
@@ -168,6 +169,7 @@ def _make_reasoner(model, node_vocab, executor, *, top_k=3):
         node_vocab,
         TACTIC_VOCAB,
         executor=executor,
+        candidate_provider=LocalCandidateProvider(),
         top_k_tactics=top_k,
         max_depth=3,
         max_nodes=20,
@@ -1005,7 +1007,8 @@ class HTPSDriverTests(unittest.TestCase):
             self.assertIsInstance(tactic_row["goal"], dict)
             self.assertTrue(tactic_row["graph_fingerprint"])
             self.assertIsInstance(tactic_row["tactic_id"], int)
-            self.assertIsInstance(tactic_row["arg_indices"], list)
+            self.assertIsInstance(tactic_row["arguments"], list)
+            self.assertIsInstance(tactic_row["candidate_pool"], dict)
             self.assertGreater(len(state["critic_queue"]), 0)
             critic_row = state["critic_queue"][0]
             self.assertIsInstance(critic_row["goal"], dict)

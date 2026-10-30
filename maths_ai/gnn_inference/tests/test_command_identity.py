@@ -33,14 +33,21 @@ class RecordingExecutor(_ScriptedExecutor):
 
 @pytest.mark.parametrize("policy", ["legacy", "puct"])
 def test_generic_aliases_share_the_rendered_command(policy):
-    actions = [proposal("simp", [f"<lemma_{i}>"], (i,)) for i in range(2)]
-    engine = type("Engine", (), {"propose": lambda self, goal, top_k: actions[:top_k]})()
-    executor = RecordingExecutor({"simp": ["A"]})
+    # Two raw actions whose arguments render one command.
+    actions = [proposal("exact", [arg], (i,)) for i, arg in enumerate(["p", "p:"])]
+
+    async def prepare_goal(self, goal):
+        return None
+
+    engine = type("Engine", (), {
+        "propose": lambda self, goal, top_k: actions[:top_k], "prepare_goal": prepare_goal,
+    })()
+    executor = RecordingExecutor({"exact": ["A"]})
     settings = {"num_simulations": 1} if policy == "puct" else {}
     reasoner = _GenericReasoner(executor, engine, selection_policy=policy, top_k_tactics=2,
                                 max_nodes=2, **settings)
     graph = asyncio.run(reasoner.prove(SEED))
-    assert executor.calls == ["simp"]
+    assert executor.calls == ["exact p"]
     assert len(graph.root.outgoing_edge_ids) == 1
     edge = graph.edges[graph.root.outgoing_edge_ids[0]]
     assert set(edge.raw_log_priors) == {(0,), (1,)}
@@ -53,6 +60,9 @@ def test_cache_reuses_rendered_aliases_across_rounds(accepted):
 
     class Engine:
         requests = 0
+
+        async def prepare_goal(self, goal):
+            return None
 
         def propose(self, goal, top_k):
             if goal.expression != GOAL_EXPR:
@@ -116,17 +126,17 @@ def test_rl_preserves_raw_observations_when_rendering_merges_or_rejects(policy, 
         action, observation = decode(*args, **kwargs)
         candidate = action.candidate.model_copy(update={
             "tactic_name": "exact" if renderable else "rw",
-            "arguments": ["p:" if observation.arg_indices == (hyp,) else "p"]
-            if renderable else [f"<unresolved_{observation.arg_indices}>"]
+            "arguments": ["p:" if observation.arguments[0].identity == hyp else "p"]
+            if renderable else [f"<unresolved_{observation.arguments[0].identity}>"]
         })
         return replace(action, candidate=candidate), observation
 
     reasoner._decode_row = altered_rendering
     result = asyncio.run(reasoner.prove(SEED, proposal=SAMPLE))
-    observations = {o.action.arg_indices: o for o in result.observations}
-    assert set(observations) == {(hyp,), (fv,)}
-    assert observations[(hyp,)].action.multiplicity == 2
-    assert observations[(fv,)].action.multiplicity == 1
+    observations = {o.action.arguments[0].identity: o for o in result.observations}
+    assert set(observations) == {hyp, fv}
+    assert observations[hyp].action.multiplicity == 2
+    assert observations[fv].action.multiplicity == 1
     if renderable:
         assert executor.calls == ["exact p"]
         (edge,) = result.graph.edges.values()

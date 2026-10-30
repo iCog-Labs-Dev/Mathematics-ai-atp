@@ -2,11 +2,16 @@
 
 ``RLHybridReasoner`` overrides these seams of ``HybridReasoner``:
 
+  * ``prepare_node`` — retrieve the node's candidate pool (its local
+    declarations and library lemmas) once, before its first round; later widening
+    rounds draw from the same pool, so raw actions keep one meaning per node.
   * ``predict_next_tactics_for_nodes`` — instead of the deterministic GNN-engine
-    top-k, draw ``k`` actions per node from the actor-critic policy (``model.act``)
-    in one multi-graph forward, and decode each into a ``ProposedAction``: the
-    command the executor applies plus the raw action's complete log-prior. The
-    integer action record (``EdgeAction``) waits in the node's pending round.
+    top-k, draw ``k`` complete actions per node from the source-aware policy
+    (``model.propose_actions``) in one multi-graph forward, and decode each into a
+    ``ProposedAction``: the command the executor applies plus the raw action's
+    complete log-prior (tactic, argument count, each argument's source and
+    identity). The typed action record (``EdgeAction``) waits in the node's
+    pending round.
   * ``_on_command_settled`` — once a command has a checked outcome (a new or
     existing edge, or a Lean rejection, possibly from the node's cache), every
     raw action that rendered it becomes a ``PolicyObservation`` for the train phase.
@@ -26,9 +31,9 @@ so it adds no policy observations and changes no multiplicity. A replay
 continuation is searched like any node, so its proposals are fresh draws for its
 actual observation.
 
-Only integers are stored (no autograd graph): the train phase recomputes log-probs under
-the current parameters via ``model.evaluate_actions``, which is exactly on-policy under the
-one-optimizer-step-per-collect invariant.
+Only typed actions and their pools are stored (no autograd graph): the train phase
+recomputes log-probs under the current parameters via ``model.evaluate_actions``, which is
+exactly on-policy under the one-optimizer-step-per-collect invariant.
 """
 
 from __future__ import annotations
@@ -55,7 +60,8 @@ from maths_ai.hybrid_reasoner.proposal import ProposalSpec
 from maths_ai.lean_replay import LeanGoalSeed
 from pantograph_async import PantographStateError
 
-from .actor_critic import ActorCriticWithArgsClassifier, action_arity
+from .actor_critic import ActorCriticWithArgsClassifier
+from .policy_actions import CandidatePoolSnapshot, with_type_signals
 from .inference import (
     _resolve_local_node_name,
     local_declaration_ids,
@@ -69,9 +75,9 @@ from .pln_rl_training import (
     make_dag_featurizer,
 )
 
-# The actor's prior law: log π(τ|s) plus the pointer log-probs of the steps the
-# action owns.
-ACTOR_PRIOR = "actor-pointer-v1"
+# The actor's prior law: the complete source-aware action's log-probability,
+# log π(τ|s) plus the argument count, source and identity log-probs.
+ACTOR_PRIOR = "actor-source-aware-v1"
 
 
 @dataclass
@@ -131,12 +137,14 @@ class RLHybridReasoner(HybridReasoner):
         tactic_vocab: dict[str, int],
         *,
         executor,
+        candidate_provider,
         device: torch.device | None = None,
         **reasoner_kwargs,
     ) -> None:
         # The base __init__ calls self._build_gnn_engine (overridden below to return
         # None), so these must exist before super().__init__ runs — Python sets them
         # first because the override reads only instance attributes set here.
+        self.candidate_provider = candidate_provider
         self.model = model
         self.device = device or torch.device("cpu")
         self.node_vocab = node_vocab
@@ -149,7 +157,7 @@ class RLHybridReasoner(HybridReasoner):
         super().__init__(
             config_path=None,
             tactic_model_path=None,
-            argument_model_path=None,
+            retrieval_config_path=None,
             executor=executor,
             **reasoner_kwargs,
         )
@@ -160,6 +168,11 @@ class RLHybridReasoner(HybridReasoner):
         self._pending: Dict[int, _PendingNode] = {}
         self._ledgers: Dict[int, _NodeLedger] = {}
         self._observations: Dict[tuple, PolicyObservation] = {}
+        # Each node's candidate pool, retrieved once; goal-keyed pools serve
+        # callers that propose for bare goals. The seed's own declaration is
+        # excluded from retrieval.
+        self._pools: Dict[object, CandidatePoolSnapshot] = {}
+        self._excluded_declarations: tuple[str, ...] = ()
         self._result: Optional[RLSearchResult] = None
         # The running search's proposal mode and its own generator; set per prove().
         self._proposal: Optional[ProposalSpec] = None
@@ -172,6 +185,33 @@ class RLHybridReasoner(HybridReasoner):
     # ------------------------------------------------------------------
     # Proposal: draw k actions per node and decode them
     # ------------------------------------------------------------------
+
+    async def _retrieve(self, goal: Goal) -> CandidatePoolSnapshot:
+        dag, data = self.dag_featurize(goal)
+        local_ids = tuple(data.premise_mask.nonzero().flatten().tolist())
+        pool = await self.candidate_provider.retrieve(
+            goal,
+            local_ids,
+            str(data.graph_fingerprint),
+            excluded=self._excluded_declarations,
+        )
+        if self.model.decoder.local_type_bonus_strength:
+            pool = with_type_signals(pool, goal, dag, self.tactic_vocab)
+        return pool
+
+    async def prepare_goal(self, goal: Goal) -> None:
+        self._pools[("goal", goal.state_fingerprint())] = await self._retrieve(goal)
+
+    async def prepare_node(self, node: ProofNode) -> None:
+        """Retrieve ``node``'s pool before its first round and keep it for later rounds."""
+        if node.id not in self._pools:
+            self._pools[node.id] = await self._retrieve(node.goal.require_model_state())
+
+    def _pool_for(self, key, goal: Goal) -> CandidatePoolSnapshot:
+        pool = self._pools.get(key if key >= 0 else ("goal", goal.state_fingerprint()))
+        if pool is None:
+            raise RuntimeError("Proposal inputs were not prepared for this observation.")
+        return pool
 
     def predict_next_tactic(self, sub_goal: Goal) -> List[ProposedAction]:
         """Draw ``top_k_tactics`` actions from π(·|s) and decode each.
@@ -225,6 +265,7 @@ class RLHybridReasoner(HybridReasoner):
         pendings: List[_PendingNode] = []
         dags = []
         datas = []
+        pools: List[CandidatePoolSnapshot] = []
         declaration_maps: list[dict[str, str]] = []
         declaration_ids: list[dict[str, str]] = []
         if node_ids is not None and len(node_ids) != len(sub_goals):
@@ -250,6 +291,7 @@ class RLHybridReasoner(HybridReasoner):
             pendings.append(pending)
             dags.append(dag)
             datas.append(data)
+            pools.append(self._pool_for(key, sub_goal))
             # Each row resolves arguments only through its own goal's locals.
             declaration_maps.append(local_declarations(sub_goal))
             declaration_ids.append(local_declaration_ids(sub_goal))
@@ -265,7 +307,7 @@ class RLHybridReasoner(HybridReasoner):
             sample, rows = self.model.propose_actions(
                 batch,
                 counts,
-                id_to_tactic=self.id_to_tactic,
+                candidate_pools=tuple(pools),
                 greedy=self._proposal.greedy,
                 generator=self._generator,
             )
@@ -277,9 +319,10 @@ class RLHybridReasoner(HybridReasoner):
                     dag,
                     declarations,
                     pending.graph_fingerprint,
+                    pools[row],
                     declaration_ids=declaration_ids[row],
                 )
-                raw_id = (action.tactic_id, action.arg_indices)
+                raw_id = action.raw_action_id
                 if proposal is None:
                     known = pending.unrenderable.get(raw_id)
                     pending.unrenderable[raw_id] = (
@@ -308,55 +351,52 @@ class RLHybridReasoner(HybridReasoner):
         dag,
         declarations: dict[str, str],
         graph_fingerprint: str,
+        pool: CandidatePoolSnapshot,
         *,
         declaration_ids: Optional[dict[str, str]] = None,
     ) -> tuple[Optional[ProposedAction], EdgeAction]:
-        """Turn row ``row`` of a batched ``ActionSample`` into
+        """Turn instance ``row`` of a batched ``ActionSample`` into
         ``(ProposedAction, EdgeAction)``.
 
         Tactic: ``tactic_id → name`` via the inverted tactic vocab; an id outside the
-        vocab (or the ``<UNK>`` family) is unplayable — drop the draw. Arguments: each
-        chosen index is a padded per-graph position, which equals the node's offset in
-        this row's ``dag.nodes`` (``_score_nodes`` assigns offsets within each graph),
-        so render it with ``_resolve_local_node_name`` through ``declarations``, the
-        row's own context-label -> live-name map (``local_declarations``). A
-        multi-graph batch runs as many argument steps as its largest arity; the row
-        keeps only the ``sample.arities[row]`` steps it owns (``action_arity``),
-        matching what a single-graph proposal would have chosen. The draw is
-        unplayable when its tactic needs more arguments than the model chooses, or
-        when one of its own steps had no legal premise (that index is a
-        placeholder). Out-of-range indices (padding) are dropped from the argument
-        list but KEPT in ``arg_indices`` — the recompute must evaluate the log-prob of
-        what was actually chosen, and ``forced_step`` zeroes invalid rows. With
-        ``declaration_ids`` each argument also records the live ID of the
-        declaration the pointer chose, so replay can find it in another lineage.
+        vocab (or the ``<UNK>`` family) is unplayable. Arguments: each reference
+        is a local node of this row's graph (its offset in ``dag.nodes``) or a
+        library lemma of ``pool``. A local is rendered with
+        ``_resolve_local_node_name`` through ``declarations``, the row's own
+        context-label -> live-name map, and a lemma by its library name. With
+        ``declaration_ids`` each local also records the live ID of the declaration
+        the decoder chose and each lemma its global name, so replay can rebind
+        them in another lineage. Unplayable draws keep their complete typed action
+        and pool as rejected-action training records.
 
-        The proposal's prior is ``tactic_logp + arg_logp`` of this row: the tactic and
-        exactly its own pointer steps, unrounded. ``candidate.probability`` keeps the
-        tactic's probability alone, for ranking.
+        The proposal's prior is the complete action's unrounded log-probability:
+        the tactic plus the argument count, sources and identities.
+        ``candidate.probability`` keeps the tactic's probability alone, for
+        ranking.
         """
         tactic_id = int(sample.tactic_action[row])
         tactic_name = self.id_to_tactic.get(tactic_id)
-        arity, complete = action_arity(tactic_name, self.model.max_args)
-        if int(sample.arities[row]) != arity:
-            raise AssertionError(
-                f"Row {row} owns {int(sample.arities[row])} argument steps, expected {arity}."
-            )
-        arg_indices = tuple(int(a[row]) for a in sample.arg_actions[:arity])
+        references = tuple(sample.arguments[row])
         action = EdgeAction(
             tactic_id=tactic_id,
-            arg_indices=arg_indices,
-            multiplicity=1,
+            candidate_pool=pool,
             graph_fingerprint=graph_fingerprint,
+            arguments=references,
+            multiplicity=1,
         )
-        if not complete or not all(
-            bool(valid[row]) for valid in sample.arg_step_valid[:arity]
-        ):
+        if tactic_name is None or tactic_name.startswith("<"):
             return None, action
 
         arguments: List[str] = []
         refs: Optional[List[ArgumentRef]] = [] if declaration_ids is not None else None
-        for idx in arg_indices:
+        for reference in references:
+            if reference.source == "library":
+                name = pool.library.name(reference.identity)
+                arguments.append(name)
+                if refs is not None:
+                    refs.append(ArgumentRef(kind="global", text=name))
+                continue
+            idx = reference.identity
             if not 0 <= idx < len(dag.nodes):
                 return None, action
             try:
@@ -364,7 +404,7 @@ class RLHybridReasoner(HybridReasoner):
             except ValueError:
                 return None, action
             arguments.append(name)
-            # The pointer chose a declaration; keep its live ID, not just its name.
+            # The decoder chose a declaration; keep its live ID, not just its name.
             internal = (declaration_ids or {}).get(local_node_label(dag.nodes[idx], dag) or "")
             if refs is not None and internal is not None:
                 refs.append(ArgumentRef(kind="local", text=name, internal_name=internal))
@@ -383,7 +423,7 @@ class RLHybridReasoner(HybridReasoner):
             return None, action
         proposal = ProposedAction(
             candidate=candidate,
-            raw_action_id=(tactic_id, arg_indices),
+            raw_action_id=action.raw_action_id,
             log_prior=log_prior,
             provider=ACTOR_PRIOR,
         )
@@ -395,13 +435,15 @@ class RLHybridReasoner(HybridReasoner):
         dag,
         declarations: dict[str, str],
         graph_fingerprint: str,
+        pool: CandidatePoolSnapshot,
         *,
         declaration_ids: Optional[dict[str, str]] = None,
     ) -> tuple[Optional[ProposedAction], EdgeAction]:
         """Batch-size-1 view of ``_decode_row`` (kept for tests and callers
         holding a single-graph ``ActionSample``)."""
         return self._decode_row(
-            sample, 0, dag, declarations, graph_fingerprint, declaration_ids=declaration_ids
+            sample, 0, dag, declarations, graph_fingerprint, pool,
+            declaration_ids=declaration_ids,
         )
 
     def _proposal_source_is_finite(self) -> bool:
@@ -423,7 +465,7 @@ class RLHybridReasoner(HybridReasoner):
         edge_id: Optional[int] = None,
         proposal: Optional[ProposedAction] = None,
     ) -> None:
-        key = (node.id, (action.tactic_id, action.arg_indices))
+        key = (node.id, action.raw_action_id)
         known = self._observations.get(key)
         if known is not None:
             if known.outcome != outcome or known.edge_id != edge_id:
@@ -562,6 +604,10 @@ class RLHybridReasoner(HybridReasoner):
         self._pending = {}
         self._ledgers = {}
         self._observations = {}
+        self._pools = {}
+        self._excluded_declarations = tuple(
+            str(value) for key, value in seed.source if key in {"theorem", "theorem_name"}
+        )
         self._proposal = proposal
         self._generator = torch.Generator(device=self.device).manual_seed(proposal.seed)
         self._result = RLSearchResult(graph=None)  # graph attached after the base search
@@ -578,6 +624,8 @@ class RLHybridReasoner(HybridReasoner):
             self._pending.clear()
             self._ledgers = {}
             self._observations = {}
+            self._pools = {}
+            self._excluded_declarations = ()
             self._proposal = None
             self._generator = None
             self._result = None

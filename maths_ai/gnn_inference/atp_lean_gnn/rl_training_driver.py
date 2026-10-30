@@ -79,6 +79,9 @@ from .search_harvest import (
     extract_critic_samples,
     extract_minimal_hypertree,
 )
+from .policy_actions import ArgumentReference, CandidatePoolSnapshot, LocalCandidateProvider
+from .retrieval_artifacts import RetrievalConfig, LiveLemmaProvider
+from dataclasses import asdict
 from .seed_admission import (
     AdmissionReport,
     TheoremItem,
@@ -206,7 +209,11 @@ class RLTrainingConfig:
     grad_clip: float = 1.0
     critic_weight: float = 0.5
     entropy_weight: float = 0.01
+    # HTPS imitation: weight of the arguments' log-probability against the tactic's.
     arg_loss_weight: float = 0.5
+    retrieval: RetrievalConfig | None = None
+    max_update_candidates: int = 100000
+    max_update_candidate_bytes: int = 268435456
     max_update_nodes: int = 0
     max_update_edges: int = 0
 
@@ -249,6 +256,9 @@ class RLTrainingConfig:
         )
         self.widening()
         self.evaluation_settings()
+        for name in ("max_update_candidates", "max_update_candidate_bytes"):
+            if type(getattr(self, name)) is not int or getattr(self, name) < 1:
+                raise ValueError(f"{name} must be a positive integer.")
 
     def widening(self) -> WideningPolicy | None:
         return resolve_widening(
@@ -285,6 +295,9 @@ class RLTrainingConfig:
             payload = json.load(f)
         kwargs: dict[str, Any] = {}
         for key, value in payload.items():
+            if key == "retrieval":
+                kwargs[key] = RetrievalConfig(**value) if value is not None else None
+                continue
             # Recorded with a run's config, not settings of the config itself.
             if key in ("graph_representation", "search_evidence"):
                 continue
@@ -299,7 +312,14 @@ class RLTrainingConfig:
         for key, value in self.__dict__.items():
             if key.startswith("_"):
                 continue
-            out[key] = str(value) if isinstance(value, Path) else value
+            out[key] = (
+                {
+                    k: str(v) if isinstance(v, Path) else v
+                    for k, v in asdict(value).items()
+                }
+                if isinstance(value, RetrievalConfig)
+                else (str(value) if isinstance(value, Path) else value)
+            )
         return out
 
     def retention_limits(self) -> RetentionLimits:
@@ -731,6 +751,44 @@ def search_counters(results: list[RLSearchResult]) -> dict[str, float]:
 RL_TARGET_SCHEMA_VERSION = 4
 
 
+def _pool_payload(pool: CandidatePoolSnapshot) -> dict[str, Any]:
+    """A candidate pool as JSON-safe data; the library is reattached on load."""
+    return {
+        "local_ids": list(pool.local_ids),
+        "lemma_ids": list(pool.lemma_ids),
+        "lemma_scores": list(pool.lemma_scores),
+        "graph_fingerprint": pool.graph_fingerprint,
+        "query_fingerprint": pool.query_fingerprint,
+        "artifact_fingerprint": pool.artifact_fingerprint,
+        "policy_fingerprint": pool.policy_fingerprint,
+        "type_signals": [[key, list(values)] for key, values in pool.type_signals],
+    }
+
+
+def _pool_from_payload(payload: dict[str, Any], library) -> CandidatePoolSnapshot:
+    """Rebuild a pool; one with library lemmas needs the same open library."""
+    lemma_ids = tuple(int(value) for value in payload["lemma_ids"])
+    if lemma_ids and (library is None or library.fingerprint != payload["artifact_fingerprint"]):
+        raise ValueError(
+            "Resume checkpoint has imitation samples drawn from a retrieval library "
+            "that is not the one now open."
+        )
+    return CandidatePoolSnapshot(
+        tuple(int(value) for value in payload["local_ids"]),
+        lemma_ids,
+        tuple(float(value) for value in payload["lemma_scores"]),
+        graph_fingerprint=str(payload["graph_fingerprint"]),
+        query_fingerprint=str(payload["query_fingerprint"]),
+        artifact_fingerprint=str(payload["artifact_fingerprint"]),
+        policy_fingerprint=str(payload["policy_fingerprint"]),
+        library=library if lemma_ids else None,
+        type_signals=tuple(
+            (int(key), tuple(float(value) for value in values))
+            for key, values in payload["type_signals"]
+        ),
+    )
+
+
 def save_checkpoint(
     model: ActorCriticWithArgsClassifier,
     optimizer: torch.optim.Optimizer,
@@ -786,7 +844,8 @@ def save_checkpoint(
                 "goal": s.goal.model_dump(mode="json"),
                 "graph_fingerprint": s.graph_fingerprint,
                 "tactic_id": s.tactic_id,
-                "arg_indices": list(s.arg_indices),
+                "arguments": [[ref.source, ref.identity] for ref in s.arguments],
+                "candidate_pool": _pool_payload(s.candidate_pool),
             }
             for s in tactic_queue
         ]
@@ -952,6 +1011,25 @@ async def _create_live_reasoner_pool(
     """Create workers whose reasoners preserve the complete MCTS configuration."""
     from maths_ai.hybrid_reasoner.joint_inference import PantographExecutor
 
+    if cfg.retrieval is None:
+        # Only a model bound to no retrieval library may run on local candidates.
+        if model.model_spec.retrieval_binding:
+            raise ValueError(
+                "Live source-aware RL requires retrieval artifacts. Migrate the RL config first."
+            )
+        provider = LocalCandidateProvider()
+    else:
+        if cfg.retrieval.faiss_threads > plan.usable_cpu_count:
+            raise ValueError("Retrieval thread budget exceeds the available CPU quota.")
+        provider = LiveLemmaProvider(cfg.retrieval)
+        try:
+            provider.verify_environment(env)
+            if model.model_spec.retrieval_binding != provider.library.fingerprint:
+                raise ValueError("Checkpoint and live retrieval artifacts differ.")
+        except BaseException:
+            await provider.aclose()
+            raise
+
     async def server_factory(_worker_id: int):
         return await create_model_sexpr_client(env)
 
@@ -963,6 +1041,7 @@ async def _create_live_reasoner_pool(
         del worker_id
         return RLHybridReasoner(
             model=replica,
+            candidate_provider=provider,
             node_vocab=node_vocab,
             tactic_vocab=tactic_vocab,
             executor=PantographExecutor(server),
@@ -976,23 +1055,29 @@ async def _create_live_reasoner_pool(
     async def search_factory(reasoner, theorem, proposal, deadline):
         return await reasoner.prove(theorem.seed, proposal=proposal, deadline=deadline)
 
-    return await LiveReasonerPool.create(
-        model=model,
-        plan=plan,
-        server_factory=server_factory,
-        reasoner_factory=reasoner_factory,
-        search_factory=search_factory,
-        is_solved=lambda result: result.graph.is_solved(),
-        is_cooperative_deadline=lambda result: (
-            result.graph.end_reason == SearchEndReason.DEADLINE
-        ),
-        startup_timeout_s=cfg.server_start_timeout_s,
-        shutdown_timeout_s=cfg.worker_shutdown_timeout_s,
-        queue_size=cfg.worker_queue_size,
-        environment_description=env.describe(),
-        model_generation=model_generation,
-        log=console_print,
-    )
+    try:
+        result = await LiveReasonerPool.create(
+            model=model,
+            plan=plan,
+            server_factory=server_factory,
+            reasoner_factory=reasoner_factory,
+            search_factory=search_factory,
+            is_solved=lambda result: result.graph.is_solved(),
+            is_cooperative_deadline=lambda result: (
+                result.graph.end_reason == SearchEndReason.DEADLINE
+            ),
+            startup_timeout_s=cfg.server_start_timeout_s,
+            shutdown_timeout_s=cfg.worker_shutdown_timeout_s,
+            queue_size=cfg.worker_queue_size,
+            environment_description=env.describe(),
+            model_generation=model_generation,
+            log=console_print,
+        )
+    except BaseException:
+        await provider.aclose()
+        raise
+    result.close_callbacks.append(provider.aclose)
+    return result
 
 
 async def run_rl_training(
@@ -1031,7 +1116,7 @@ async def _run_rl_training_impl(
     resource_plan = cfg.resource_plan()
     device = resource_plan.update_device
     console_print(f"RL resources: {resource_plan.describe()}")
-    metadata = load_prepared_metadata(cfg.prepared_root)
+    metadata = load_prepared_metadata(cfg.prepared_root, splits=())
     require_graph_representation(metadata.graph_representation)
     node_vocab, tactic_vocab = metadata.node_vocab, metadata.tactic_vocab
 
@@ -1117,15 +1202,9 @@ async def _run_rl_training_impl(
         model.load_state_dict(resumed_model.state_dict(), strict=True)
         optimizer.load_state_dict(state["optimizer_state_dict"])
         optimizer_htps.load_state_dict(state["optimizer_htps_state_dict"])
-        tactic_queue.extend(
-            TacticImitationSample(
-                goal=Goal.model_validate(row["goal"]),
-                graph_fingerprint=str(row["graph_fingerprint"]),
-                tactic_id=int(row["tactic_id"]),
-                arg_indices=tuple(int(value) for value in row["arg_indices"]),
-            )
-            for row in state.get("tactic_queue", [])
-        )
+        # Imitation rows point into retrieval pools; they are restored once the
+        # live library they were drawn from is open.
+        resumed_tactic_rows = list(state.get("tactic_queue", []))
         critic_queue.extend(
             CriticSample(
                 node_id=int(row["node_id"]),
@@ -1136,7 +1215,7 @@ async def _run_rl_training_impl(
             )
             for row in state.get("critic_queue", [])
         )
-        for sample in [*tactic_queue, *critic_queue]:
+        for sample in critic_queue:
             sample.goal.require_model_state()
             if (
                 dag_fingerprint(model_goal_to_dag(sample.goal))
@@ -1153,6 +1232,7 @@ async def _run_rl_training_impl(
         curriculum_size_override = int(state.get("curriculum_size", 0)) or None
         console_print(f"Resumed {run_dir} at round {start_round} (best proof rate {best_proof_rate:.3f})")
     else:
+        resumed_tactic_rows = []
         run_dir = _create_run_dir(cfg.run_root)
         with open(run_dir / "config.json", "w") as f:
             run_config = cfg.to_dict()
@@ -1186,6 +1266,26 @@ async def _run_rl_training_impl(
     else:
         env = None
         reasoner = reasoner_factory(model, node_vocab, tactic_vocab, cfg)
+    library = getattr(getattr(reasoner, "candidate_provider", None), "library", None)
+    for row in resumed_tactic_rows:
+        sample = TacticImitationSample(
+            goal=Goal.model_validate(row["goal"]),
+            graph_fingerprint=str(row["graph_fingerprint"]),
+            tactic_id=int(row["tactic_id"]),
+            candidate_pool=_pool_from_payload(row["candidate_pool"], library),
+            arguments=tuple(
+                ArgumentReference(str(source), int(identity))
+                for source, identity in row["arguments"]
+            ),
+        )
+        sample.goal.require_model_state()
+        if dag_fingerprint(model_goal_to_dag(sample.goal)) != sample.graph_fingerprint:
+            raise ValueError(
+                "Resume checkpoint contains an imitation sample whose canonical goal "
+                "does not match its graph fingerprint."
+            )
+        sample.candidate_pool.validate(sample.arguments)
+        tactic_queue.append(sample)
 
     # Theorem pool (injectable for tests), validated by its own preflight
     # client before any collection worker uses it.
@@ -1242,7 +1342,8 @@ async def _run_rl_training_impl(
                 device=device,
                 critic_weight=cfg.critic_weight,
                 entropy_weight=cfg.entropy_weight,
-                arg_loss_weight=cfg.arg_loss_weight,
+                max_update_candidates=cfg.max_update_candidates,
+                max_update_candidate_bytes=cfg.max_update_candidate_bytes,
                 bc_weight=bc_weight,
                 max_update_nodes=cfg.max_update_nodes,
                 max_update_edges=cfg.max_update_edges,
@@ -1535,7 +1636,7 @@ def driver_main(argv: list[str] | None = None) -> int:
             resource_plan = cfg.resource_plan()
             device = resource_plan.update_device
             console_print(f"RL resources: {resource_plan.describe()}")
-            metadata = load_prepared_metadata(cfg.prepared_root)
+            metadata = load_prepared_metadata(cfg.prepared_root, splits=())
             require_graph_representation(metadata.graph_representation)
             node_vocab, tactic_vocab = metadata.node_vocab, metadata.tactic_vocab
             checkpoint = torch.load(

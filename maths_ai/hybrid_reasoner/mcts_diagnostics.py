@@ -425,6 +425,7 @@ async def verify_learning_round(client: PantographClient) -> dict:
 
     from maths_ai.gnn_inference.atp_lean_gnn.graph import model_goal_to_dag
     from maths_ai.gnn_inference.atp_lean_gnn.model_factory import build_actor_critic_model
+    from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import LocalCandidateProvider
     from maths_ai.gnn_inference.atp_lean_gnn.model_spec import ModelSpec
     from maths_ai.gnn_inference.atp_lean_gnn.pln_reward import RewardConfig
     from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import (
@@ -476,6 +477,7 @@ async def verify_learning_round(client: PantographClient) -> dict:
             node_vocab,
             LEARNING_TACTICS,
             executor=PantographExecutor(client),
+            candidate_provider=LocalCandidateProvider(),
             top_k_tactics=3,
             use_pln=False,
             **PUCT_SETTINGS,

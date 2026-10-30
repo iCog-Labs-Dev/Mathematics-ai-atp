@@ -14,7 +14,8 @@ from torch import Tensor
 from torch.optim import AdamW
 from torch_geometric.loader import DataLoader
 
-from .argument_selector import TacticWithArgsClassifier, compute_combined_loss
+from .argument_selector import TacticWithArgsClassifier, supervised_loss
+from .policy_actions import local_pools
 from .labels import get_tactic_arity, parse_tactic_arguments
 from .lemma_index import LemmaIndex
 from .premise_pool import build_unified_pools
@@ -51,13 +52,11 @@ def _extract_tactic_names(batch) -> list[str]:
     return [""] * batch_size
 
 
-def _extract_arg_targets(
-    batch, max_args: int, device: torch.device
-) -> torch.Tensor:
+def _extract_arg_targets(batch, max_args: int, device: torch.device) -> torch.Tensor:
     """Extract ground-truth argument node indices [B, max_args], padded with -1."""
     batch_size = int(batch.y.size(0)) if hasattr(batch, "y") else 1
     targets = torch.full((batch_size, max_args), -1, dtype=torch.long, device=device)
-    
+
     if hasattr(batch, "arg_node_indices") and hasattr(batch, "arg_count"):
         flat_targets = batch.arg_node_indices.to(device=device, dtype=torch.long)
         counts = batch.arg_count.tolist()
@@ -71,7 +70,7 @@ def _extract_arg_targets(
                 sample_targets[valid] += ptr[i]
                 targets[i, :n_copy] = sample_targets
             offset += count
-            
+
     return targets
 
 
@@ -83,7 +82,9 @@ def _recover_lemma_targets(
 ) -> tuple[Tensor, int, int]:
     """Recover external lemma ids from raw tactic arguments and indexed names."""
 
-    name_to_id = getattr(lemma_index, "name_to_id", {}) if lemma_index is not None else {}
+    name_to_id = (
+        getattr(lemma_index, "name_to_id", {}) if lemma_index is not None else {}
+    )
     if not hasattr(batch, "tactic_raw"):
         return lemma_targets, 0, 0
     raw_tactics = batch.tactic_raw
@@ -105,13 +106,11 @@ def _recover_lemma_targets(
     return recovered, recovered_count, unresolved_count
 
 
-def _extract_arg_lemma_ids(
-    batch, max_args: int, device: torch.device
-) -> torch.Tensor:
+def _extract_arg_lemma_ids(batch, max_args: int, device: torch.device) -> torch.Tensor:
     """Extract ground-truth lemma IDs [B, max_args], padded with -1."""
     batch_size = int(batch.y.size(0)) if hasattr(batch, "y") else 1
     targets = torch.full((batch_size, max_args), -1, dtype=torch.long, device=device)
-    
+
     if hasattr(batch, "arg_lemma_ids") and hasattr(batch, "arg_count"):
         flat_targets = batch.arg_lemma_ids.to(device=device, dtype=torch.long)
         counts = batch.arg_count.tolist()
@@ -121,7 +120,7 @@ def _extract_arg_lemma_ids(
             if n_copy > 0:
                 targets[i, :n_copy] = flat_targets[offset : offset + n_copy]
             offset += count
-            
+
     return targets
 
 
@@ -137,6 +136,7 @@ def train_one_epoch_with_premises(
     grad_clip: float,
     unknown_tactic_id: int,
     arg_loss_weight: float,
+    candidate_provider,
     premise_loss_weight: float,
     k: int = 500,
     epoch: int,
@@ -167,9 +167,7 @@ def train_one_epoch_with_premises(
     )
 
     for batch_index, batch in enumerate(loader, start=1):
-        batch = batch.to(
-            device, non_blocking=(device.type == "cuda" and pin_memory)
-        )
+        batch = batch.to(device, non_blocking=(device.type == "cuda" and pin_memory))
         targets = batch.y.view(-1)
         tactic_names = _extract_tactic_names(batch)
         arg_targets = _extract_arg_targets(batch, model.max_args, device)
@@ -192,23 +190,14 @@ def train_one_epoch_with_premises(
             dtype=amp_dtype,
         ):
             # Forward pass through model
-            tactic_logits, arg_logits_list = model(
+            ta_loss, ta_metrics, evaluated = supervised_loss(
+                model,
                 batch,
-                teacher_tactic_ids=targets,
-                tactic_names=tactic_names,
-            )
-
-            # Combined tactic + argument loss
-            ta_loss, ta_metrics = compute_combined_loss(
-                tactic_logits,
-                arg_logits_list,
-                targets,
-                arg_targets,
-                batch.batch,
-                tactic_arity_per_sample=tactic_arities,
-                arg_loss_weight=arg_loss_weight,
+                candidate_pools=candidate_provider(batch),
                 unknown_tactic_id=unknown_tactic_id,
+                argument_weight=arg_loss_weight,
             )
+            tactic_logits = evaluated.tactic_logits
 
             # Recompute embeddings (detached) for the premise scoring branch
             with torch.no_grad():
@@ -219,12 +208,10 @@ def train_one_epoch_with_premises(
             state_emb = state_emb.detach()
 
             # Get tactic embeddings
-            tactic_emb = model.tactic_embedding(targets)
+            tactic_emb = model.decoder.tactic_embedding(targets)
 
             # Build premise mask
-            premise_mask = batch.premise_mask.to(
-                dtype=torch.bool, device=device
-            )
+            premise_mask = batch.premise_mask.to(dtype=torch.bool, device=device)
 
             # Build unified candidate pools
             pools = build_unified_pools(
@@ -264,7 +251,11 @@ def train_one_epoch_with_premises(
         )
         grad_scaler.scale(total_loss).backward()
         grad_scaler.unscale_(optimizer)
-        trainable_params = [p for p in list(model.parameters()) + list(scorer.parameters()) if p.requires_grad]
+        trainable_params = [
+            p
+            for p in list(model.parameters()) + list(scorer.parameters())
+            if p.requires_grad
+        ]
         torch.nn.utils.clip_grad_norm_(trainable_params, grad_clip)
         grad_scaler.step(optimizer)
         grad_scaler.update()
@@ -312,6 +303,7 @@ def evaluate_model_with_premises(
     device: torch.device,
     unknown_tactic_id: int,
     arg_loss_weight: float,
+    candidate_provider,
     premise_loss_weight: float,
     k: int = 500,
     split_name: str | None = None,
@@ -350,9 +342,7 @@ def evaluate_model_with_premises(
         )
 
     for batch_index, batch in enumerate(loader, start=1):
-        batch = batch.to(
-            device, non_blocking=(device.type == "cuda" and pin_memory)
-        )
+        batch = batch.to(device, non_blocking=(device.type == "cuda" and pin_memory))
         targets = batch.y.view(-1)
         tactic_names = _extract_tactic_names(batch)
         arg_targets = _extract_arg_targets(batch, model.max_args, device)
@@ -372,29 +362,22 @@ def evaluate_model_with_premises(
             enabled=use_amp,
             dtype=amp_dtype,
         ):
-            tactic_logits, arg_logits_list = model(
-                batch, tactic_names=tactic_names
-            )
-            ta_loss, ta_metrics = compute_combined_loss(
-                tactic_logits,
-                arg_logits_list,
-                targets,
-                arg_targets,
-                batch.batch,
-                tactic_arity_per_sample=tactic_arities,
-                arg_loss_weight=arg_loss_weight,
+            ta_loss, ta_metrics, evaluated = supervised_loss(
+                model,
+                batch,
+                candidate_pools=candidate_provider(batch),
                 unknown_tactic_id=unknown_tactic_id,
+                argument_weight=arg_loss_weight,
             )
+            tactic_logits = evaluated.tactic_logits
 
             with torch.no_grad():
                 encoded = model.encode_graph(batch)
                 node_embeddings = encoded.node_embeddings
                 state_emb = encoded.state_embeddings
             tactic_ids = tactic_logits.argmax(dim=1)
-            tactic_emb = model.tactic_embedding(tactic_ids)
-            premise_mask = batch.premise_mask.to(
-                dtype=torch.bool, device=device
-            )
+            tactic_emb = model.decoder.tactic_embedding(tactic_ids)
+            premise_mask = batch.premise_mask.to(dtype=torch.bool, device=device)
 
             pools = build_unified_pools(
                 state_emb,
@@ -414,8 +397,7 @@ def evaluate_model_with_premises(
         total_arg_loss += ta_metrics["arg_loss"] * bs
         total_premise_loss += p_metrics["premise_loss"] * bs
         total_combined_loss += (
-            ta_metrics["total_loss"]
-            + premise_loss_weight * p_metrics["premise_loss"]
+            ta_metrics["total_loss"] + premise_loss_weight * p_metrics["premise_loss"]
         ) * bs
         premise_valid += p_metrics["valid_samples"]
         premise_target_present += p_metrics["target_present_count"]

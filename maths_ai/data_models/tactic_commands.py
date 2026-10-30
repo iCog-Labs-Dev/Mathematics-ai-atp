@@ -32,7 +32,11 @@ def render_tactic_command(tactic: TacticInput) -> str | None:
     arguments = [arg.rstrip(":").strip() for arg in tactic.arguments]
     arguments = [arg for arg in arguments if arg]
     if name in _BRACKET_REQUIRED_TACTICS or name in _BRACKET_OPTIONAL_TACTICS:
-        rules = [arg for arg in arguments if _is_lean_identifier(arg)]
+        # Every selected argument is part of the action: one that is not a rule
+        # name rejects the whole action rather than leaving a different one.
+        if any(not _is_lean_identifier(arg) for arg in arguments):
+            return None
+        rules = arguments
         if rules:
             return f"{name} [{', '.join(rules)}]"
         if name in _BRACKET_REQUIRED_TACTICS:

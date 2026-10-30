@@ -10,6 +10,7 @@ import torch
 from torch.optim import AdamW
 from torch_geometric.data import Batch
 
+from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import LocalCandidateProvider
 from maths_ai.data_models.proof_components import STV, TacticCandidate
 from maths_ai.lean_replay import seed_from_text
 from maths_ai.hybrid_reasoner.execution_types import ExecutionOccurrence
@@ -25,6 +26,10 @@ from maths_ai.pln_inference.model import PLNResult
 from maths_ai.gnn_inference.atp_lean_gnn.actor_critic import (
     ActionSample,
     ActorCriticWithArgsClassifier,
+)
+from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import (
+    ArgumentReference,
+    CandidatePoolSnapshot,
 )
 from maths_ai.gnn_inference.tests.model_helpers import (
     FakeResultState,
@@ -155,6 +160,7 @@ def _make_reasoner(executor, *, top_k=3, seed=0, reasoner_cls=RLHybridReasoner, 
         node_vocab,
         TACTIC_VOCAB,
         executor=executor,
+        candidate_provider=LocalCandidateProvider(),
         top_k_tactics=top_k,
         max_depth=3,
         max_nodes=20,
@@ -162,6 +168,37 @@ def _make_reasoner(executor, *, top_k=3, seed=0, reasoner_cls=RLHybridReasoner, 
     )
     reasoner.petta_chainer = _StubPLN()  # keep unit tests free of the petta subprocess
     return reasoner, model, node_vocab
+
+
+def _local_sample(indices, *, tactic_id=2, arg_logp=-0.3):
+    """One draw per batch row of ``tactic_id`` with one local argument
+    ``indices[row]``; the argument's whole log-probability is ``arg_logp``."""
+    rows = len(indices)
+    return ActionSample(
+        tactic_action=torch.tensor([tactic_id] * rows),
+        tactic_logp=torch.tensor([-0.5] * rows),
+        tactic_entropy=torch.tensor([1.0] * rows),
+        arguments=tuple((ArgumentReference("local", index),) for index in indices),
+        count_logp=torch.tensor([arg_logp] * rows),
+        source_logp=torch.tensor([0.0] * rows),
+        identity_logp=torch.tensor([0.0] * rows),
+        value=torch.tensor([0.0] * rows),
+        tactic_logits=torch.zeros(rows, 3),
+    )
+
+
+def _pool_of(dag) -> CandidatePoolSnapshot:
+    """A pool admitting every node of ``dag``; decoding does not narrow it."""
+    return CandidatePoolSnapshot(tuple(range(len(dag.nodes))))
+
+
+def _goal_pool(reasoner, goal) -> CandidatePoolSnapshot:
+    """The pool live collection retrieves for ``goal``."""
+    _dag, data = reasoner.dag_featurize(goal)
+    local_ids = data.premise_mask.nonzero().flatten().tolist()
+    return asyncio.run(
+        LocalCandidateProvider().retrieve(goal, local_ids, str(data.graph_fingerprint))
+    )
 
 
 class DecodeTests(unittest.TestCase):
@@ -173,56 +210,34 @@ class DecodeTests(unittest.TestCase):
         # The hypothesis node's first child is its name node ("p").
         hyp_idx = next(i for i, n in enumerate(dag.nodes) if n.label == "Hyp")
 
-        sample = ActionSample(
-            tactic_action=torch.tensor([2]),  # "exact"
-            tactic_logp=torch.tensor([-0.5]),
-            tactic_entropy=torch.tensor([1.0]),
-            arg_actions=[torch.tensor([hyp_idx])],
-            arg_logp=torch.tensor([-0.3]),
-            value=torch.tensor([0.0]),
-            tactic_logits=torch.zeros(1, 3),
-            arities=torch.tensor([1]),
-            complete=torch.tensor([True]),
-            arg_step_logp=[torch.tensor([-0.3])],
-            arg_step_valid=[torch.tensor([True])],
-        )
+        sample = _local_sample([hyp_idx])  # "exact"
         from maths_ai.gnn_inference.atp_lean_gnn.inference import local_declarations
+        pool = _pool_of(dag)
         candidate, action = reasoner._decode(
-            sample, dag, local_declarations(goal), str(data.graph_fingerprint)
+            sample, dag, local_declarations(goal), str(data.graph_fingerprint), pool
         )
         self.assertEqual(candidate.candidate.tactic_name, "exact")
         self.assertEqual(candidate.candidate.arguments, ["p"])
-        # The prior is the tactic and its one owned argument step.
+        # The prior is the complete action: the tactic and its argument.
         self.assertAlmostEqual(candidate.log_prior, -0.8, places=6)
-        self.assertEqual(candidate.raw_action_id, (2, (hyp_idx,)))
+        self.assertEqual(candidate.raw_action_id, (2, (("local", hyp_idx),)))
         self.assertEqual(action.tactic_id, 2)
-        self.assertEqual(action.arg_indices, (hyp_idx,))
+        self.assertEqual(action.arguments, (ArgumentReference("local", hyp_idx),))
+        self.assertIs(action.candidate_pool, pool)
 
     def test_decode_out_of_range_argument_dropped_from_command(self):
         reasoner, _model, _vocab = _make_reasoner(_QEDExecutor())
         goal = structured_goal(GOAL_EXPR, HYPS)
         dag, data = reasoner.dag_featurize(goal)
 
-        oob = len(dag.nodes) + 5  # padding position
-        sample = ActionSample(
-            tactic_action=torch.tensor([1]),  # "intro"
-            tactic_logp=torch.tensor([-0.5]),
-            tactic_entropy=torch.tensor([1.0]),
-            arg_actions=[torch.tensor([oob])],
-            arg_logp=torch.tensor([0.0]),
-            value=torch.tensor([0.0]),
-            tactic_logits=torch.zeros(1, 3),
-            arities=torch.tensor([1]),
-            complete=torch.tensor([True]),
-            arg_step_logp=[torch.tensor([0.0])],
-            arg_step_valid=[torch.tensor([True])],
-        )
+        oob = len(dag.nodes) + 5  # outside the graph
+        sample = _local_sample([oob], tactic_id=1, arg_logp=0.0)  # "intro"
         from maths_ai.gnn_inference.atp_lean_gnn.inference import local_declarations
         candidate, action = reasoner._decode(
-            sample, dag, local_declarations(goal), str(data.graph_fingerprint)
+            sample, dag, local_declarations(goal), str(data.graph_fingerprint), _pool_of(dag)
         )
         self.assertIsNone(candidate)
-        self.assertEqual(action.arg_indices, (oob,))
+        self.assertEqual(action.arguments, (ArgumentReference("local", oob),))
         self.assertEqual(action.graph_fingerprint, str(data.graph_fingerprint))
 
 
@@ -232,20 +247,7 @@ class DeclarationResolutionTests(unittest.TestCase):
     @staticmethod
     def _sample(indices):
         """One ``exact`` draw per batch row, each selecting ``indices[row]``."""
-        rows = len(indices)
-        return ActionSample(
-            tactic_action=torch.tensor([2] * rows),  # "exact"
-            tactic_logp=torch.tensor([-0.5] * rows),
-            tactic_entropy=torch.tensor([1.0] * rows),
-            arg_actions=[torch.tensor(indices)],
-            arg_logp=torch.tensor([-0.3] * rows),
-            value=torch.tensor([0.0] * rows),
-            tactic_logits=torch.zeros(rows, 3),
-            arities=torch.tensor([1] * rows),
-            complete=torch.tensor([True] * rows),
-            arg_step_logp=[torch.tensor([-0.3] * rows)],
-            arg_step_valid=[torch.tensor([True] * rows)],
-        )
+        return _local_sample(indices)
 
     @staticmethod
     def _positions(dag, label):
@@ -274,7 +276,7 @@ class DeclarationResolutionTests(unittest.TestCase):
         for label, live in (("FV5", "x_1"), ("FV6", "x")):
             for index in self._positions(dag, label):
                 candidate, _ = reasoner._decode(
-                    self._sample([index]), dag, declarations, "fingerprint"
+                    self._sample([index]), dag, declarations, "fingerprint", _pool_of(dag)
                 )
                 self.assertEqual(candidate.candidate.arguments, [live])
 
@@ -326,6 +328,7 @@ class DeclarationResolutionTests(unittest.TestCase):
             node_vocab,
             TACTIC_VOCAB,
             executor=_QEDExecutor(),
+            candidate_provider=LocalCandidateProvider(),
             top_k_tactics=1,
         )
         reasoner.petta_chainer = _StubPLN()
@@ -342,6 +345,10 @@ class DeclarationResolutionTests(unittest.TestCase):
                         self._positions(model_goal_to_dag(leaf), label)[kind] for leaf in batch
                     ]
                     reasoner._pending = {}
+                    reasoner._pools = {
+                        node_id: _pool_of(model_goal_to_dag(leaf))
+                        for node_id, leaf in zip(range(1, rows + 1), batch)
+                    }
                     reasoner.model.propose_actions = lambda *_args, **_kwargs: (
                         self._sample(indices), torch.arange(len(indices))
                     )
@@ -361,7 +368,7 @@ class ProposalSeedTests(unittest.TestCase):
     @staticmethod
     def _draws(result):
         return sorted(
-            (action.tactic_id, action.arg_indices, action.multiplicity)
+            (action.raw_action_id, action.multiplicity)
             for action in (o.action for o in result.observations)
         )
 
@@ -384,7 +391,7 @@ class ProposalSeedTests(unittest.TestCase):
         result = asyncio.run(reasoner.prove(SEED, proposal=ProposalSpec(mode="greedy", seed=0)))
         draws = self._draws(result)
         self.assertEqual(len(draws), 1)
-        self.assertEqual(draws[0][2], 4)
+        self.assertEqual(draws[0][1], 4)
 
     def test_prove_requires_a_proposal_spec(self):
         reasoner, _model, _vocab = _make_reasoner(_QEDExecutor())
@@ -448,12 +455,15 @@ class OnPolicyLossTests(unittest.TestCase):
         hyp_idx = next(i for i, n in enumerate(dag.nodes) if n.label == "Hyp")
 
         model.train()
-        tactic_logp, arg_logp, _entropy, _values, _logits = model.evaluate_actions(
-            batch, torch.tensor([2]), torch.tensor([[hyp_idx]])
+        evaluated = model.evaluate_actions(
+            batch,
+            torch.tensor([2]),
+            [(ArgumentReference("local", hyp_idx),)],
+            candidate_pools=(CandidatePoolSnapshot((hyp_idx,)),),
         )
-        loss = -(tactic_logp + arg_logp).sum()
+        loss = -evaluated.logp.sum()
         loss.backward()
-        grad = model.argument_selector.query_proj.weight.grad
+        grad = model.decoder.argument_selector.init_proj.weight.grad
         self.assertIsNotNone(grad)
         self.assertGreater(float(grad.abs().sum()), 0.0)
 
@@ -506,6 +516,7 @@ class OnPolicyLossTests(unittest.TestCase):
                 goal=goal,
                 action=EdgeAction(
                     tactic_id=1,
+                    candidate_pool=_goal_pool(reasoner, goal),
                     multiplicity=m,
                     graph_fingerprint=str(reasoner.dag_featurize(goal)[1].graph_fingerprint),
                 ),
@@ -823,6 +834,7 @@ class PLNDisabledTests(unittest.TestCase):
         raw = RLHybridReasoner(
             model, node_vocab, TACTIC_VOCAB,
             executor=_QEDExecutor(), top_k_tactics=3, max_depth=3, max_nodes=20,
+            candidate_provider=LocalCandidateProvider(),
             use_pln=False,
         )
         self.assertIsNone(raw.petta_chainer)
@@ -902,3 +914,55 @@ class PLNDisabledTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LibraryCandidateTests(unittest.TestCase):
+    """A node whose pool holds a library lemma, through search and observation."""
+
+    def test_a_library_argument_renders_by_name_and_keeps_its_pool(self):
+        import numpy as np
+
+        from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import fingerprint
+        from maths_ai.gnn_inference.atp_lean_gnn.retrieval_artifacts import (
+            LibraryMemory,
+            goal_query,
+        )
+
+        library = LibraryMemory([7], ["Nat.le_refl"], np.zeros((1, 4), dtype=np.float32), "lib")
+
+        class Provider:
+            async def retrieve(self, goal, local_ids, graph_fingerprint, *, excluded=()):
+                return CandidatePoolSnapshot(
+                    tuple(local_ids), (7,), (0.5,),
+                    graph_fingerprint=graph_fingerprint,
+                    query_fingerprint=fingerprint(goal_query(goal)),
+                    artifact_fingerprint="lib",
+                    library=library,
+                )
+
+        executor = ScriptedExecutor(lambda _occurrence, _command: [], server=_FakeServer())
+        reasoner, model, _vocab = _make_reasoner(executor, top_k=1)
+        reasoner.candidate_provider = Provider()
+        sample = ActionSample(
+            tactic_action=torch.tensor([2]),  # "exact"
+            tactic_logp=torch.tensor([-0.5]),
+            tactic_entropy=torch.tensor([1.0]),
+            arguments=((ArgumentReference("library", 7),),),
+            count_logp=torch.tensor([-0.2]),
+            source_logp=torch.tensor([-0.1]),
+            identity_logp=torch.tensor([0.0]),
+            value=torch.tensor([0.0]),
+            tactic_logits=torch.zeros(1, 3),
+        )
+        model.propose_actions = lambda *_args, **_kwargs: (sample, torch.tensor([0]))
+        result = asyncio.run(reasoner.prove(SEED, proposal=SAMPLE))
+
+        self.assertEqual(executor.calls, ["exact Nat.le_refl"])
+        (edge,) = result.graph.edges.values()
+        (ref,) = edge.tactic.argument_refs
+        self.assertEqual((ref.kind, ref.text), ("global", "Nat.le_refl"))
+        self.assertEqual(set(edge.raw_log_priors), {(2, (("library", 7),))})
+        self.assertAlmostEqual(edge.raw_log_priors[(2, (("library", 7),))], -0.8, places=6)
+        (observation,) = result.observations
+        self.assertEqual(observation.action.candidate_pool.lemma_ids, (7,))
+        self.assertIs(observation.action.candidate_pool.library, library)

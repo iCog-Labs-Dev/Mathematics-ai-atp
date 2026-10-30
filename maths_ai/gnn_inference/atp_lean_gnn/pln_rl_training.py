@@ -26,7 +26,8 @@ from torch_geometric.data import Batch, Data
 
 from .actor_critic import ActorCriticWithArgsClassifier
 from .actor_critic_loss import compute_bc_anchor_loss, compute_critic_loss, compute_entropy_bonus
-from .argument_selector import resolve_premise_mask
+from .policy_actions import ArgumentReference, CandidatePoolSnapshot, fingerprint
+from .retrieval_artifacts import goal_query
 from .graph import dag_fingerprint, model_goal_to_dag
 from .pyg import build_premise_mask, dag_to_pyg
 from .pln_reward import RewardConfig
@@ -153,18 +154,28 @@ class EdgeAction:
     """The integer record of one sampled action — everything the train phase needs to
     recompute its log-prob under the current parameters (no autograd graph is stashed).
 
+    ``arguments`` are the decoder's typed references (a local node or a library
+    lemma), resolved against ``candidate_pool``, the immutable support the action
+    was drawn from; the update re-evaluates them against that same pool.
+
     ``multiplicity`` is how many of the k i.i.d. draws produced this same action: the
     action was applied to Lean once (dedup for the executor) but its policy-gradient term
     must be weighted by ``m`` or high-probability actions are under-weighted.
     """
     tactic_id: int
-    arg_indices: tuple[int, ...] = ()
+    candidate_pool: CandidatePoolSnapshot
+    graph_fingerprint: str
+    arguments: tuple[ArgumentReference, ...] = ()
     multiplicity: int = 1
-    graph_fingerprint: str = ""
 
     def __post_init__(self) -> None:
         if not self.graph_fingerprint:
             raise ValueError("EdgeAction requires a graph fingerprint.")
+
+    @property
+    def raw_action_id(self) -> tuple:
+        """The concrete choice: tactic id and each argument's source and identity."""
+        return (self.tactic_id, tuple((ref.source, ref.identity) for ref in self.arguments))
 
 
 class ObservationOutcome(str, Enum):
@@ -177,11 +188,11 @@ class ObservationOutcome(str, Enum):
 class PolicyObservation:
     """Every draw of one raw action at one search node, with its checked outcome.
 
-    ``action`` holds the raw tactic id and argument indices, and its
+    ``action`` holds the raw tactic id and argument references, and its
     ``multiplicity`` is how many settled draws produced them, across every
     proposal round at the node. Two raw actions that render the same command
     share its one execution outcome but stay separate observations, so each
-    keeps its own pointer tuple and gradient. An accepted observation names
+    keeps its own argument references and gradient. An accepted observation names
     its ``edge_id``; its return comes from that edge. A rejected or
     unrenderable one enters the loss actor-only, with
     ``return = terminal_failure − step_penalty`` and no critic target: the
@@ -370,6 +381,27 @@ def compute_transition_loss(
     return total, metrics
 
 
+def _check_action(goal: Goal, data: Data, action: EdgeAction, owner: str) -> None:
+    _require_graph_fingerprint(data, action.graph_fingerprint, owner)
+    if action.candidate_pool is None:
+        raise ValueError(f"{owner} needs its immutable candidate pool.")
+    if action.candidate_pool.graph_fingerprint != data.graph_fingerprint:
+        raise ValueError(f"{owner}: the candidate pool's graph changed.")
+    if action.candidate_pool.query_fingerprint != fingerprint(goal_query(goal)):
+        raise ValueError(f"{owner}: the query text changed between collection and update.")
+
+
+def _candidate_budget(model, pools, *, max_candidates: int, max_bytes: int) -> tuple[int, int]:
+    count = sum(len(p.local_ids) + len(p.lemma_ids) for p in pools)
+    size = sum(
+        (len(p.local_ids) * model.hidden_dim + len(p.lemma_ids) * model.decoder.text_dim) * 4
+        for p in pools
+    )
+    if count > max_candidates or size > max_bytes:
+        raise ValueError("Collected update exceeds its candidate tensor budget.")
+    return count, size
+
+
 def compute_onpolicy_loss(
     model: ActorCriticWithArgsClassifier,
     transitions: list[ActorTransition],
@@ -380,25 +412,28 @@ def compute_onpolicy_loss(
     device: torch.device | None = None,
     critic_weight: float = 0.5,
     entropy_weight: float = 0.01,
-    arg_loss_weight: float = 0.5,
     bc_weight: float = 0.0,
     reward_cfg: RewardConfig | None = None,
     max_update_nodes: int = 0,
     max_update_edges: int = 0,
+    max_update_candidates: int = 100000,
+    max_update_candidate_bytes: int = 268435456,
 ) -> tuple[torch.Tensor, dict[str, float]] | None:
-    """On-policy actor-critic loss with the argument-level policy gradient (B2).
+    """On-policy actor-critic loss over complete source-aware actions.
 
-    Recompute pattern (refinement 2): the collect phase stored only the integer actions
-    (``EdgeAction``); here ``model.evaluate_actions`` rebuilds ``log π(τ|s)`` and
-    ``Σ_k log π(u_k|s,τ)`` with gradient under the current parameters. Exactly on-policy only
-    when no optimizer step ran between collect and this call.
+    Recompute pattern (refinement 2): the collect phase stored only the typed
+    actions and the candidate pools they were drawn from (``EdgeAction``); here
+    ``model.evaluate_actions`` rebuilds the complete action's log-probability
+    (tactic, argument count, each argument's source and identity) with gradient
+    under the current parameters. Exactly on-policy only when no optimizer step
+    ran between collect and this call.
 
     Per accepted observation whose edge has a harvested transition:
-      ``L_actor = −m · (log π(τ) + w_arg · Σ_k log π(u_k)) · Â.detach()``
-    with ``Â = return − V_pred(s)`` (normalized jointly with the failure rows) and
-    ``m`` the observation's multiplicity (refinement 1). Each edge's transition is
-    harvested once and shared by every raw action observed on it. The AND-OR
-    critic targets are supplied separately through ``critic_samples``.
+      ``L_actor = −m · log π(a) · Â.detach()``
+    with ``Â = return − V_pred(s)`` normalized over every row with multiplicity
+    weights, and ``m`` the observation's multiplicity (refinement 1). Each edge's
+    transition is harvested once and shared by every raw action observed on it.
+    The critic targets are supplied separately through ``critic_samples``.
 
     Per rejected or unrenderable observation (refinement 4): the same actor term with
     ``return = terminal_failure − step_penalty`` and NO critic target.
@@ -408,7 +443,8 @@ def compute_onpolicy_loss(
 
     actor_datas: list[Data] = []
     tactic_ids: list[int] = []
-    arg_rows: list[tuple[int, ...]] = []
+    argument_rows: list[tuple[ArgumentReference, ...]] = []
+    candidate_pools: list[CandidatePoolSnapshot] = []
     multiplicities: list[float] = []
     returns: list[float] = []
     is_success: list[bool] = []
@@ -427,12 +463,11 @@ def compute_onpolicy_loss(
             goal, return_, success = observation.goal, failure_return, False
             failures += 1
         data = featurize(goal)
-        _require_graph_fingerprint(
-            data, action.graph_fingerprint, f"{observation.outcome.value.capitalize()} action"
-        )
+        _check_action(goal, data, action, f"{observation.outcome.value.capitalize()} action")
         actor_datas.append(data)
         tactic_ids.append(action.tactic_id)
-        arg_rows.append(action.arg_indices)
+        argument_rows.append(action.arguments)
+        candidate_pools.append(action.candidate_pool)
         multiplicities.append(float(action.multiplicity))
         returns.append(return_)
         is_success.append(success)
@@ -451,34 +486,41 @@ def compute_onpolicy_loss(
         max_update_edges=max_update_edges,
     )
     zero = next(model.parameters()).sum() * 0.0
+    policy_diagnostics: dict[str, float] = {}
     if actor_datas:
-        batch = Batch.from_data_list(actor_datas).to(device)
-        max_args = max((len(row) for row in arg_rows), default=0)
-        if max_args > 0:
-            arg_indices = torch.full(
-                (len(arg_rows), max_args), -1, dtype=torch.long, device=device
-            )
-            for row_index, row in enumerate(arg_rows):
-                for arg_index, value in enumerate(row):
-                    arg_indices[row_index, arg_index] = value
-        else:
-            arg_indices = None
-
-        tactic_ids_t = torch.tensor(tactic_ids, dtype=torch.long, device=device)
-        tactic_logp, arg_logp, entropy, values, tactic_logits = model.evaluate_actions(
-            batch, tactic_ids_t, arg_indices
+        candidate_count, candidate_bytes = _candidate_budget(
+            model, candidate_pools,
+            max_candidates=max_update_candidates, max_bytes=max_update_candidate_bytes,
         )
+        batch = Batch.from_data_list(actor_datas).to(device)
+        tactic_ids_t = torch.tensor(tactic_ids, dtype=torch.long, device=device)
+        evaluated = model.evaluate_actions(
+            batch, tactic_ids_t, argument_rows, candidate_pools=candidate_pools
+        )
+        arg_logp, values, tactic_logits = evaluated.arg_logp, evaluated.value, evaluated.tactic_logits
         returns_t = torch.tensor(returns, dtype=torch.float32, device=device)
         mult_t = torch.tensor(multiplicities, dtype=torch.float32, device=device)
         success_t = torch.tensor(is_success, dtype=torch.bool, device=device)
         raw_adv = returns_t - values.detach()
-        advantages = (raw_adv - raw_adv.mean()) / (raw_adv.std(unbiased=False) + 1e-8)
-        joint_logp = tactic_logp + arg_loss_weight * arg_logp
+        mean_adv = (raw_adv * mult_t).sum() / mult_t.sum()
+        variance = ((raw_adv - mean_adv).square() * mult_t).sum() / mult_t.sum()
+        advantages = (raw_adv - mean_adv) / (variance.sqrt() + 1e-8)
+        joint_logp = evaluated.logp
         actor_loss = -(mult_t * joint_logp * advantages).sum() / mult_t.sum()
-        entropy_bonus = entropy.mean()
+        # Score-function surrogate of the complete action's entropy.
+        entropy_bonus = -((joint_logp.detach() + 1) * joint_logp * mult_t).sum() / mult_t.sum()
+        sampled_entropy = float((-(joint_logp.detach() * mult_t).sum() / mult_t.sum()).item())
+        policy_diagnostics = {
+            "mean_count_logp": float(evaluated.count_logp.detach().mean()),
+            "mean_source_logp": float(evaluated.source_logp.detach().mean()),
+            "mean_identity_logp": float(evaluated.identity_logp.detach().mean()),
+            "update_candidate_count": float(candidate_count),
+            "update_candidate_bytes": float(candidate_bytes),
+        }
     else:
         actor_loss = zero
         entropy_bonus = zero
+        sampled_entropy = 0.0
         returns_t = torch.empty(0, device=device)
         arg_logp = torch.empty(0, device=device)
         success_t = torch.empty(0, dtype=torch.bool, device=device)
@@ -516,7 +558,9 @@ def compute_onpolicy_loss(
     metrics = {
         "actor_loss": float(actor_loss.item()),
         "critic_loss": float(critic_loss.item()),
-        "entropy": float(entropy_bonus.item()),
+        "entropy": sampled_entropy,
+        "entropy_gradient_surrogate": float(-entropy_bonus.detach()),
+        **policy_diagnostics,
         "bc_loss": bc_val,
         "total_loss": float(total.item()),
         "mean_return": float(returns_t.mean().item()) if returns_t.numel() else 0.0,
@@ -622,10 +666,11 @@ def train_step_onpolicy(
     device: torch.device | None = None,
     critic_weight: float = 0.5,
     entropy_weight: float = 0.01,
-    arg_loss_weight: float = 0.5,
     bc_weight: float = 0.0,
     max_update_nodes: int = 0,
     max_update_edges: int = 0,
+    max_update_candidates: int = 100000,
+    max_update_candidate_bytes: int = 268435456,
 ) -> dict[str, float]:
     """One gradient step over a batch of ``RLSearchResult`` s (rl_reasoner.py).
 
@@ -671,8 +716,10 @@ def train_step_onpolicy(
     loss_result = compute_onpolicy_loss(
         model, transitions, critic_samples, observations, featurize,
         device=device, critic_weight=critic_weight, entropy_weight=entropy_weight,
-        arg_loss_weight=arg_loss_weight, bc_weight=bc_weight, reward_cfg=reward_cfg,
+        bc_weight=bc_weight, reward_cfg=reward_cfg,
         max_update_nodes=max_update_nodes, max_update_edges=max_update_edges,
+        max_update_candidates=max_update_candidates,
+        max_update_candidate_bytes=max_update_candidate_bytes,
     )
     if loss_result is None:
         return {
@@ -740,16 +787,15 @@ def train_step_htps_style(
 ) -> dict[str, float]:
     """One decoupled supervised step: tactic imitation + soft critic regression.
 
-    ``tactic_batch`` rows are (goal, tactic_id, arg_indices) pairs mined from minimal
-    proof hypertrees (``extract_minimal_hypertree``); ``critic_batch`` rows are
-    (goal, Q-or-status) targets (``extract_critic_samples``). Both sample sets are
-    featurized into ONE batch and pushed through one ``model.encode`` forward. Losses:
+    ``tactic_batch`` rows are complete actions (tactic id, argument references and
+    their candidate pool) mined from the certified proof hypertree
+    (``extract_minimal_hypertree``); ``critic_batch`` rows are (goal, Q-or-status)
+    targets (``extract_critic_samples``). Losses:
 
-      * ``L_tactic_imitation`` — cross-entropy of the tactic head toward ``tactic_id``
-        (via ``compute_bc_anchor_loss``; critic-only rows carry label ``-1`` and are
-        ignored), plus the teacher-forced argument log-probs through
-        ``ArgumentSelector.forced_step`` (the same path ``evaluate_actions`` uses),
-        weighted by ``arg_loss_weight``. Invalid/-1 argument positions contribute 0.
+      * ``L_tactic_imitation`` — the negative log-probability of the tactic plus,
+        weighted by ``arg_loss_weight``, that of its arguments (count, source and
+        identity), teacher-forced through ``evaluate_actions`` against the pool the
+        action was drawn from.
       * ``L_critic_soft`` — MSE of the value head against the stored targets on
         critic rows, raw scale (the advantage-normalization convention applies to the
         actor's score-function estimator only).
@@ -772,13 +818,15 @@ def train_step_htps_style(
 
     imitation_datas: list[Data] = []
     tactic_labels: list[int] = []
-    arg_rows: list[tuple[int, ...]] = []
+    argument_rows: list[tuple[ArgumentReference, ...]] = []
+    pools: list[CandidatePoolSnapshot] = []
     for s in tactic_batch:
         data = featurize(s.goal)
         _require_graph_fingerprint(data, s.graph_fingerprint, "Tactic imitation sample")
         imitation_datas.append(data)
         tactic_labels.append(s.tactic_id)
-        arg_rows.append(s.arg_indices)
+        argument_rows.append(s.arguments)
+        pools.append(s.candidate_pool)
     critic_datas = []
     for sample in critic_batch:
         data = featurize(sample.goal)
@@ -791,36 +839,14 @@ def train_step_htps_style(
     zero = next(model.parameters()).sum() * 0.0
     if imitation_datas:
         imitation_batch = Batch.from_data_list(imitation_datas).to(device)
-        node_embeddings, state_emb, tactic_logits, _actor_values = model.encode(imitation_batch)
         labels_t = torch.tensor(tactic_labels, dtype=torch.long, device=device)
-        tactic_loss = compute_bc_anchor_loss(tactic_logits, labels_t)
-    else:
-        imitation_batch = None
-        node_embeddings = state_emb = tactic_logits = labels_t = None
-        tactic_loss = zero
-
-    max_args = max((len(r) for r in arg_rows), default=0)
-    if max_args > 0 and imitation_datas:
-        arg_indices = torch.full(
-            (len(arg_rows), max_args), -1, dtype=torch.long, device=device
+        evaluated = model.evaluate_actions(
+            imitation_batch, labels_t, argument_rows, candidate_pools=pools
         )
-        for i, row in enumerate(arg_rows):
-            for j, idx in enumerate(row):
-                arg_indices[i, j] = idx
-        tactic_emb = model.tactic_embedding(labels_t)
-        premise_mask = resolve_premise_mask(imitation_batch, node_embeddings.device)
-        batch_index = imitation_batch.batch.to(device=node_embeddings.device)
-        arg_logp = torch.zeros(n_imitation, device=device)
-        prev_arg_emb = None
-        for t in range(max_args):
-            step_logp, selected_emb = model.argument_selector.forced_step(
-                state_emb, tactic_emb, node_embeddings, premise_mask, batch_index,
-                arg_indices[:, t], prev_arg_emb=prev_arg_emb,
-            )
-            arg_logp = arg_logp + step_logp
-            prev_arg_emb = selected_emb
-        arg_loss = -arg_logp.mean()
+        tactic_loss = -evaluated.tactic_logp.mean()
+        arg_loss = -evaluated.arg_logp.mean()
     else:
+        tactic_loss = zero
         arg_loss = zero
 
     imitation_loss = tactic_loss + arg_loss_weight * arg_loss

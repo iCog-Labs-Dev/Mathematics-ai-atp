@@ -31,6 +31,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.checkpointing import build_model_from_c
 from maths_ai.gnn_inference.atp_lean_gnn.logger import TrainingLogger
 from maths_ai.gnn_inference.atp_lean_gnn.premise_scoring import PremiseScorer, PremiseScorerConfig
 from maths_ai.gnn_inference.atp_lean_gnn.premise_training import evaluate_model_with_premises, train_one_epoch_with_premises
+from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import local_pools
 from maths_ai.gnn_inference.atp_lean_gnn.reporting import console_print
 from maths_ai.gnn_inference.atp_lean_gnn.training import build_dataloaders, load_pointer_config, load_prepared_metadata
 from maths_ai.gnn_inference.atp_lean_gnn.training_safety import resolve_amp_dtype
@@ -107,8 +108,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # Only train: tactic_embedding, argument_selector, and scorer
     trainable_params = (
-        list(model.tactic_embedding.parameters())
-        + list(model.argument_selector.parameters())
+        list(model.decoder.tactic_embedding.parameters())
+        + list(model.decoder.argument_selector.parameters())
         + list(scorer.parameters())
     )
     frozen_count = sum(p.numel() for p in model.encoder.parameters())
@@ -142,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
             grad_clip=config.training.grad_clip,
             unknown_tactic_id=metadata.unknown_tactic_id,
             arg_loss_weight=config.arg_loss_weight if hasattr(config, "arg_loss_weight") else 0.5,
+            candidate_provider=local_pools,
             premise_loss_weight=p_config.premise_loss_weight,
             k=p_config.k,
             epoch=epoch,
@@ -160,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
             device=device,
             unknown_tactic_id=metadata.unknown_tactic_id,
             arg_loss_weight=config.arg_loss_weight if hasattr(config, "arg_loss_weight") else 0.5,
+            candidate_provider=local_pools,
             premise_loss_weight=p_config.premise_loss_weight,
             k=p_config.k,
             split_name="val",
