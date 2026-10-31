@@ -1,5 +1,10 @@
 # Bounded rw/simp gold templates, V1
 
+Current extension: [semantic lookup and bounded V2 applied rules](tactic_templates_v2.md).
+V1 grammar/serialized targets stay bare-reference-only; current flat fallback
+also benefits from semantic-name lookup. Historical coverage below predates
+that lookup fix and is the frozen baseline for paired recovery measurement.
+
 This milestone extracts typed **gold targets** and validates their rendering.
 It does not add a prediction head, train a model, alter existing prepared
 labels or measure proof-search success. The removed library-query experiment

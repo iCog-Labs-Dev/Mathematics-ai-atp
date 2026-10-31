@@ -48,6 +48,10 @@ rw/simp directions, `only` and locations, while retaining flat rendering for
 other families. See [V1 grammar and typed gold targets](tactic_templates_v1.md).
 Default remains `--renderer flat`; existing model prediction is unchanged.
 
+`--renderer template-v2` additionally supports bounded reference applications
+inside rw/simp rules. All modes use validated source-or-exact-global-identity
+lookup. See [V2 grammar and paired recovery procedure](tactic_templates_v2.md).
+
 ## Backend and scope
 
 Use existing extraction environment:
@@ -95,7 +99,7 @@ Read final summary counts:
 
 - `selected_steps`: every selected dataset row.
 - `renderable_steps`: renderer produced a candidate string, before Lean checking.
-- `flat_renderable_steps`: old flat renderer produced text for the same rows.
+- `flat_renderable_steps`: flat grammar produced text for the same rows under the recorded lookup policy.
 - `template_v1_parsed_steps`: V1 typed target extracted before name rendering.
 - `newly_renderable_vs_flat`: chosen mode produced text where flat mode could not.
 - `input_model_match`: live normalized inputs agree with cached model inputs.

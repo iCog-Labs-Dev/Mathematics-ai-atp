@@ -131,3 +131,8 @@ extractor defects. Applied rule syntax is a promising bounded extension of V1,
 but its actual term forms, reference semantics and exact alignments need
 inspection before locking a new grammar. No further full-cohort scan is
 needed to inspect the already-generated report and examples.
+
+The inspected examples led to [semantic lookup and bounded applied-rule V2](tactic_templates_v2.md).
+Use its paired recovery audit against the original coverage report to measure
+actual rescues/losses. These historical census counts are opportunities,
+not measured recovery from the new implementation.

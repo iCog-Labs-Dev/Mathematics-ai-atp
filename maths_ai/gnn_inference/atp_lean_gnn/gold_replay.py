@@ -158,12 +158,16 @@ def resolve_references(references: list[FlatReference], local_context: list[dict
     return arguments
 
 
-def render_trace_action(raw_tactic: str, trace: dict, *, max_args: int = 3) -> str:
+def render_trace_action(raw_tactic: str, trace: dict, *, max_args: int = 3,
+                        reference_lookup: str = "semantic") -> str:
+    """Match original spellings or exact resolved global names, never suffix guesses."""
+    if reference_lookup not in {"source", "semantic"}:
+        raise ValueError("reference_lookup must be source or semantic")
     clean = clean_tactic_markup(raw_tactic).strip()
     tokens, reason = flat_reference_syntax(raw_tactic)
     if reason != "supported":
         raise RenderError(reason)
-    annotations = {}
+    annotations, declarations = {}, {}
     pending = [trace["source_syntax"]]
     while pending:
         node = pending.pop()
@@ -177,9 +181,17 @@ def render_trace_action(raw_tactic: str, trace: dict, *, max_args: int = 3) -> s
             continue
         reference = reference_from_identifier(node, trace["local_context"])
         annotations.setdefault(node["source"], set()).add(reference)
+        if reference.source == "library":
+            parts = _name_parts(reference.identity)
+            key = tuple(parts[1:] if parts[0] == "_root_" else parts)
+            declarations.setdefault(key, set()).add(reference)
     references = []
     for token in tokens:
-        options = annotations.get(token, set())
+        options = set(annotations.get(token, set()))
+        if reference_lookup == "semantic":
+            parts = _name_parts(token)
+            key = tuple(parts[1:] if parts[0] == "_root_" else parts)
+            options.update(declarations.get(key, set()))
         if len(options) != 1:
             raise RenderError("ambiguous or unannotated source reference")
         references.append(next(iter(options)))
@@ -305,7 +317,10 @@ def summarize_replays(rows: list[dict]) -> dict:
         "selected_steps": len(rows), "status_counts": dict(Counter(r["status"] for r in rows)),
         "renderable_steps": sum(isinstance(r.get("rendered_tactic"), str) for r in rows),
         "flat_renderable_steps": sum(bool(r.get("flat_renderable")) for r in rows),
-        "template_v1_parsed_steps": sum(r.get("template_target") is not None for r in rows),
+        "template_v1_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "rw_simp_template_v1" for r in rows),
+        "template_v2_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "rw_simp_template_v2" for r in rows),
+        "applied_rule_parsed_steps": sum(any(rule.get("arguments") for rule in (r.get("template_target") or {}).get("rules", []))
+                                         for r in rows),
         "newly_renderable_vs_flat": sum(isinstance(r.get("rendered_tactic"), str)
                                         and r.get("flat_renderable") is False for r in rows),
         "original_control_modes": dict(Counter(r.get("original_control", "unavailable") for r in rows)),

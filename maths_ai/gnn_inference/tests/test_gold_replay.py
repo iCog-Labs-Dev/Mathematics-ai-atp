@@ -404,6 +404,15 @@ def test_replay_runner_retains_failures_and_resume_binding(tmp_path, monkeypatch
     assert templates["summary"]["rendered_transition_match"] == 2
     typed = templates["files"]["A.lean"]["rows"][1]["template_target"]
     assert typed["only"] is True and typed["rule_count"] == 1
+    with pytest.raises(ValueError, match="resume bindings changed"):
+        runner.main([*argv, "--output-dir", str(template_output), "--renderer", "template-v2", "--resume"])
+    v2_output = tmp_path / "v2_output"
+    assert runner.main([*argv, "--output-dir", str(v2_output), "--renderer", "template-v2"]) == 0
+    v2 = json.loads((v2_output / "report.json").read_text())
+    assert v2["manifest"]["template_schema"] == "rw_simp_template_v2"
+    assert v2["summary"]["template_v1_parsed_steps"] == 0
+    assert v2["summary"]["template_v2_parsed_steps"] == 1
+    assert v2["summary"]["rendered_transition_match"] == 2
 
     def fail_native(*args, **kwargs):
         raise RuntimeError("backend failed")

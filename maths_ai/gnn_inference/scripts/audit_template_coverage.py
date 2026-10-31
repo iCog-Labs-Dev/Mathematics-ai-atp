@@ -189,6 +189,7 @@ def main(argv=None):
         "schema": "template_coverage_v1", "template_schema": tactic_templates.TEMPLATE_SCHEMA,
         "prepared_root": str(prepared), "cache_root": str(cache),
         "source_commit": DATASET_MATHLIB_COMMIT,
+        "reference_lookup": "validated_source_or_exact_global_identity_v1",
         "binding_policy": "prepared_metadata_and_raw_sidecar_digests_v1",
         "packed_manifest_sha256": file_sha256(manifest_path),
         "argument_labels_sha256": file_sha256(prepared / "argument_labels.json"),

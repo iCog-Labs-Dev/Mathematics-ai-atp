@@ -95,7 +95,7 @@ def main(argv=None):
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--file-timeout", type=float, default=600)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--renderer", choices=("flat", "template-v1"), default="flat")
+    parser.add_argument("--renderer", choices=("flat", "template-v1", "template-v2"), default="flat")
     args = parser.parse_args(argv)
     if args.num_theorems < 1 or not math.isfinite(args.file_timeout) or args.file_timeout <= 0:
         raise ValueError("theorem count and file timeout must be positive")
@@ -135,7 +135,9 @@ def main(argv=None):
         "runner_sha256": file_sha256(Path(__file__)),
         "renderer_sha256": file_sha256(Path(__file__).parents[1] / "atp_lean_gnn/gold_replay.py"),
         "renderer": args.renderer,
-        "template_schema": tactic_templates.TEMPLATE_SCHEMA if args.renderer == "template-v1" else None,
+        "reference_lookup": "validated_source_or_exact_global_identity_v1",
+        "template_schema": {"template-v1": tactic_templates.TEMPLATE_SCHEMA,
+                            "template-v2": tactic_templates.APPLICATION_TEMPLATE_SCHEMA}.get(args.renderer),
         "template_parser_sha256": file_sha256(Path(tactic_templates.__file__)),
         "rows": [{"row_index": p["row_index"], "cache_hashes": p["cache_hashes"]} for p in planned],
     }
