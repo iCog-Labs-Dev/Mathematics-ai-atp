@@ -152,14 +152,18 @@ def _prepare(root, seed, per_group):
     return cohort
 
 
-def _spec(task):
+def _options(heartbeats, rec_depth):
+    return f"\nset_option maxHeartbeats {heartbeats}\nset_option maxRecDepth {rec_depth}\n"
+
+
+def _spec(task, heartbeats=200000, rec_depth=1000):
     name = task["id"]
     stub, spec = "Expected_" + name, "Spec_" + name
     header = re.sub(r"^theorem\s+" + re.escape(name), "axiom " + stub, task["header"].lstrip(), count=1)
     # Stub is only used to elaborate the original header's type. The final
     # axiom audit forbids using this stub (or sorry) as a proof premise.
-    return (task["prefix"] + "\nset_option maxHeartbeats 200000\n"
-            f"run_elab do\n  if (← Lean.getEnv).contains `{name} then\n"
+    return (task["prefix"] + _options(heartbeats, rec_depth)
+            + f"run_elab do\n  if (← Lean.getEnv).contains `{name} then\n"
             '    throwError "Benchmark target already available in imports"\n'
             + header + "\n"
             "run_elab do\n"
@@ -171,13 +175,38 @@ def _spec(task):
             "    hints := .abbrev\n    safety := .safe\n  })\n")
 
 
-def _validate(task, raw, context, timeout):
+def _proof_code(raw):
+    """Extract a candidate, never treating an unfenced reasoning essay as Lean."""
+    if raw.count("```") % 2:
+        raise ValueError("Unterminated final code block")
+    blocks = re.findall(r"```([^\n`]*)\n(.*?)```", raw, re.DOTALL)
+    if blocks:
+        language, code = blocks[-1]
+        if language.strip().lower() not in {"", "lean", "lean4"}:
+            raise ValueError("Final code block is not Lean")
+        code = code.strip()
+    else:
+        code = raw.strip()
+        # Tactic-only responses remain supported, including the host portfolio.
+        if not re.match(r"(?:theorem|lemma|example|by|intro|intros|rintro|have|let|calc|"
+                        r"exact|apply|refine|constructor|cases|rcases|obtain|induction|"
+                        r"rw|simp|simpa|simp_all|rfl|assumption|aesop|omega|ring|ring_nf|"
+                        r"linarith|nlinarith|norm_num|positivity|unfold|first|solve)\b", code):
+            raise ValueError("No final Lean code block or recognizable tactic body; discussion is not a proof")
+    if not code:
+        raise ValueError("Empty final Lean code block")
+    if re.search(r"\b(?:sorry|admit)\b", _masked(code)):
+        raise ValueError("Final Lean proof contains a sorry/admit placeholder")
+    return code
+
+
+def _validate(task, raw, context, timeout, heartbeats=200000, rec_depth=1000):
     if task["ingest_status"] != "parsed":
         return {"status": "input_unsupported", "error": task["ingest_error"]}
-    if raw.count("```") % 2:
-        return {"status": "no_complete_body", "error": "Unterminated final code block"}
-    blocks = re.findall(r"```(?:lean4?)?[ \t]*\n(.*?)```", raw, re.DOTALL)
-    code = blocks[-1].strip() if blocks else raw.strip()
+    try:
+        code = _proof_code(raw)
+    except ValueError as error:
+        return {"status": "no_complete_body", "error": str(error)}
     decls = list(re.finditer(r"^[ \t]*(?:theorem|lemma)\s+([A-Za-z_][\w']*)", code, re.MULTILINE))
     if decls:
         chosen = next((m for m in decls if m.group(1) == task["id"]), decls[0])
@@ -185,46 +214,114 @@ def _validate(task, raw, context, timeout):
         candidate_name = chosen.group(1)
     else:
         try:
-            body = control._extract_body(raw)
+            body = control._extract_body(code)
         except ValueError as error:
             return {"status": "no_complete_body", "error": str(error)}
         candidate_name = task["id"]
         candidate = task["header"] + " := by\n" + "\n".join("  " + line for line in body.splitlines())
     namespace, checked = "Candidate_" + task["id"], "Checked_" + task["id"]
-    source = (_spec(task) + f"namespace {namespace}\n" + candidate
-              + f"\nend {namespace}\nset_option maxHeartbeats 200000\n"
-              f"theorem {checked} : Spec_{task['id']} := by exact {namespace}.{candidate_name}\n"
+    source = (_spec(task, heartbeats, rec_depth) + f"namespace {namespace}\n" + candidate
+              + f"\nend {namespace}\n" + _options(heartbeats, rec_depth)
+              + f"theorem {checked} : Spec_{task['id']} := by exact {namespace}.{candidate_name}\n"
               f"#print axioms {checked}\n")
-    return control._check_source(source, checked, context, timeout)
+    return {**control._check_source(source, checked, context, timeout), "candidate_code": code}
 
 
-def _messages(task, previous=None):
+def _messages(task, previous=None, *, proof_style="concise", retry_mode="auto"):
     source = task["prefix"] + task["header"] + " := by\n  sorry\n"
+    instructions = (control.PLAN if proof_style == "detailed" else
+                    "Keep the proof plan to at most three short sentences. Then return one final ```lean4 "
+                    "code block containing the complete theorem and proof. No sketches, sorry, admit, "
+                    "or new assumptions. Spend the output budget on the actual Lean proof.")
     messages = [{"role": "user", "content": "Complete the following Lean 4 code:\n```lean4\n"
-                 + source + "```\n" + control.PLAN}]
-    if previous:
-        raw = previous["raw_text"]
-        blocks = re.findall(r"```(?:lean4?)?[ \t]*\n(.*?)```", raw, re.DOTALL)
-        failed = blocks[-1] if blocks and raw.count("```") % 2 == 0 else raw[-1200:]
-        feedback = previous["lean"].get("diagnostics") or previous["lean"].get("error") or previous["lean"]["status"]
-        messages.extend([
-            {"role": "assistant", "content": "```lean4\n" + failed + "\n```"},
-            {"role": "user", "content": "Verifier feedback:\n" + feedback
-             + "\nProvide a corrected complete proof of the original statement without sorry or new assumptions."},
-        ])
+                 + source + "```\n" + instructions}]
+    if not previous or retry_mode == "resample" or previous.get("done_reason") in {"length", "time_limit"}:
+        return messages
+    try:
+        failed = _proof_code(previous["raw_text"])
+    except ValueError:
+        return messages  # Fresh sample, not misleading feedback about prose/sketches.
+    feedback = previous["lean"].get("diagnostics") or previous["lean"].get("error") or previous["lean"]["status"]
+    messages.extend([
+        {"role": "assistant", "content": "```lean4\n" + failed + "\n```"},
+        {"role": "user", "content": "Verifier feedback:\n" + feedback
+         + "\nCorrect the first substantive failure, changing the proof strategy if necessary. "
+         "Return a complete proof of the original statement without sorry or new assumptions. "
+         "Keep any plan brief, followed by one final Lean code block."},
+    ])
     return messages
+
+
+def _fit_prompt(tokenizer, messages, args):
+    try:
+        rendered, ids = smoke._render(tokenizer, messages, args)
+        return messages, rendered, ids, "repair" if len(messages) > 1 else "fresh"
+    except ValueError as error:
+        if "exceeds context" not in str(error) or len(messages) == 1:
+            raise
+    # Keep complete proof/error context or make an explicit fresh attempt.
+    rendered, ids = smoke._render(tokenizer, messages[:1], args)
+    return messages[:1], rendered, ids, "fresh_context_fallback"
+
+
+def _replay_source(path, cohort, toolchain, lake_sha):
+    text = path.read_text()
+    report = json.loads(text)
+    manifest = report["manifest"]
+    if (manifest.get("schema") not in {"minif2f_valid_dev_v1", "minif2f_valid_dev_v2"}
+            or control._sha(manifest) != report["binding"]
+            or manifest["cohort_sha256"] != control._sha(cohort)
+            or control._sha(report["cohort"]) != control._sha(cohort)
+            or [row["id"] for row in report["tasks"]] != [task["id"] for task in cohort["tasks"]]):
+        raise ValueError("Replay source has changed bindings or a different cohort")
+    if manifest["toolchain"] != toolchain or manifest["lake_manifest_sha256"] != lake_sha:
+        raise ValueError("Replay requires the original Lean environment")
+    return report, control._sha(text)
+
+
+def _replay(task, row, source_row, validate, save):
+    candidates = source_row.get("replays", []) + source_row["attempts"]
+    for index in range(len(row.setdefault("replays", [])), len(candidates)):
+        raw = candidates[index]["raw_text"]
+        row["replays"].append({"source_attempt": index + 1, "raw_text": raw, "lean": validate(task, raw)})
+        if row["replays"][-1]["lean"]["status"] == "passed":
+            row["complete"] = True
+        save()
+        if row.get("complete"):
+            break
 
 
 def _summary(report):
     result = smoke._summary(report)
+    model_solved = result.pop("solved_with_repairs")
+    after_first = result["newly_solved_by_repair"]
+    replayed = sum(any(a["lean"]["status"] == "passed" for a in row.get("replays", []))
+                   for row in report["tasks"])
+    solved_ids = {row["id"] for row in report["tasks"]
+                  if row.get("automation", {}).get("status") == "passed"
+                  or any(a.get("lean", {}).get("status") == "passed"
+                         for a in row["attempts"] + row.get("replays", []))}
+    prior_solved = set(report.get("prior_solved_ids", []))
+    repaired = sum(any(a.get("lean", {}).get("status") == "passed" and a.get("prompt_mode") == "repair"
+                       for a in row["attempts"][1:]) for row in report["tasks"])
     result.update(compatible_tasks=sum(row.get("input_status") == "passed" for row in report["tasks"]),
                   input_failures=sum(row.get("input_status") != "passed" for row in report["tasks"]),
                   baseline_checked_tasks=sum("automation" in row for row in report["tasks"]),
                   model_eligible_tasks=sum(row.get("input_status") == "passed"
                                            and row.get("automation", {}).get("status") != "passed"
+                                           and not any(a["lean"]["status"] == "passed" for a in row.get("replays", []))
                                            for row in report["tasks"]),
                   model_attempted_tasks=sum(bool(row["attempts"]) for row in report["tasks"]),
-                  combined_solved=result["automation_solved"] + result["model_only_solved"],
+                  model_solved=model_solved, replayed_solved=replayed,
+                  model_only_solved=result["model_only_solved"] + replayed,
+                  newly_solved_after_first=after_first, newly_solved_by_repair=repaired,
+                  newly_solved_by_resample=after_first - repaired,
+                  cumulative_model_calls=report.get("prior_model_calls", 0) + result["model_calls"],
+                  prior_solves_revalidated=len(prior_solved & solved_ids),
+                  additional_solved_since_source=len(solved_ids - prior_solved) if "prior_solved_ids" in report else 0,
+                  pending_model_tasks=sum(row.get("input_status") == "passed" and not row.get("complete")
+                                          for row in report["tasks"]),
+                  combined_solved=result["automation_solved"] + result["model_only_solved"] + replayed,
                   note="miniF2F-valid development subset; not official test, not pretraining-held-out accuracy.")
     return result
 
@@ -236,6 +333,8 @@ def main(argv=None):
     parser.add_argument("--per-group", type=int, default=5)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--baseline-only", action="store_true")
+    parser.add_argument("--replay-report", type=Path,
+                        help="Recheck saved model outputs in a new run before spending inference")
     parser.add_argument("--allow-environment-port", action="store_true")
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--dtype", choices=("bfloat16", "float16"), default="bfloat16")
@@ -243,12 +342,17 @@ def main(argv=None):
     parser.add_argument("--context-tokens", type=int, default=8192)
     parser.add_argument("--max-new-tokens", type=int, default=4096)
     parser.add_argument("--max-attempts", type=int, choices=(1, 2), default=2)
+    parser.add_argument("--proof-style", choices=("concise", "detailed"), default="concise")
+    parser.add_argument("--retry-mode", choices=("auto", "resample"), default="auto")
+    parser.add_argument("--max-heartbeats", type=int, default=200000)
+    parser.add_argument("--max-rec-depth", type=int, default=1000)
     parser.add_argument("--lean-timeout", type=float, default=120)
     parser.add_argument("--request-timeout", type=float, default=300)
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args(argv)
     if (args.per_group < 1 or args.seed < 0 or args.context_tokens <= args.max_new_tokens
-            or args.max_new_tokens < 1 or not math.isfinite(args.lean_timeout) or args.lean_timeout <= 0
+            or args.max_new_tokens < 1 or args.max_heartbeats < 1 or args.max_rec_depth < 1
+            or not math.isfinite(args.lean_timeout) or args.lean_timeout <= 0
             or not math.isfinite(args.request_timeout) or args.request_timeout <= 0):
         raise ValueError("Invalid cohort or token budget")
     if args.output_dir.exists() and not args.resume:
@@ -268,13 +372,21 @@ def main(argv=None):
     if not exact and not args.allow_environment_port:
         raise ValueError("Benchmark pins differ; use exact environment or explicitly --allow-environment-port")
     tasks = cohort["tasks"]
-    manifest = {"schema": "minif2f_valid_dev_v1", "cohort_sha256": control._sha(cohort),
+    lake_sha = control._sha(lake)
+    replay, replay_sha = (_replay_source(args.replay_report, cohort, context[1], lake_sha)
+                          if args.replay_report else (None, None))
+    if args.replay_report and args.replay_report.resolve() == (args.output_dir / "report.json").resolve():
+        raise ValueError("Replay source must be a separate report")
+    manifest = {"schema": "minif2f_valid_dev_v2", "cohort_sha256": control._sha(cohort),
                 "environment_mode": "upstream_pins" if exact else "explicit_development_port",
                 "toolchain": context[1], "mathlib_revision": mathlib,
-                "lake_manifest_sha256": control._sha(lake), "seed": args.seed,
+                "lake_manifest_sha256": lake_sha, "seed": args.seed,
                 "reference": control.REFERENCE, "reference_revision": control.REVISION,
                 "context_tokens": args.context_tokens, "max_new_tokens": args.max_new_tokens,
                 "max_attempts": args.max_attempts, "lean_timeout": args.lean_timeout,
+                "proof_style": args.proof_style, "retry_mode": args.retry_mode,
+                "max_heartbeats": args.max_heartbeats, "max_rec_depth": args.max_rec_depth,
+                "replay_report_sha256": replay_sha,
                 "request_timeout": args.request_timeout, "dtype": args.dtype, "device": args.device,
                 "runtime": control._runtime(), "runner_sha256": control._sha(Path(__file__).read_text()),
                 "smoke_sha256": control._sha(Path(smoke.__file__).read_text()),
@@ -282,12 +394,21 @@ def main(argv=None):
     path = args.output_dir / "report.json"
     binding = control._sha(manifest)
     report = {"manifest": manifest, "binding": binding, "cohort": cohort,
-              "tasks": [{"id": task["id"], "attempts": []} for task in tasks]}
+               "tasks": [{"id": task["id"], "attempts": []} for task in tasks]}
+    if replay:
+        report["prior_model_calls"] = replay.get("prior_model_calls", 0) + sum(
+            len(row["attempts"]) for row in replay["tasks"])
+        report["prior_solved_ids"] = [row["id"] for row in replay["tasks"]
+                                      if row.get("automation", {}).get("status") == "passed"
+                                      or any(a.get("lean", {}).get("status") == "passed"
+                                             for a in row["attempts"] + row.get("replays", []))]
     if path.exists():
         report = json.loads(path.read_text())
         if report["binding"] != binding:
             raise ValueError("Resume changes selection, sources, environment, code or budgets")
     save = lambda: control._write(path, report)
+    validate = lambda task, raw: _validate(task, raw, context, args.lean_timeout,
+                                         args.max_heartbeats, args.max_rec_depth)
     save()
     for task, row in zip(tasks, report["tasks"]):
         if "input_status" not in row:
@@ -295,19 +416,29 @@ def main(argv=None):
                 row["input_status"] = "unsupported"
                 row["input_error"] = task["ingest_error"]
             else:
-                preflight = _spec(task) + f"theorem Input_{task['id']} : True := by trivial\n#print axioms Input_{task['id']}\n"
+                preflight = (_spec(task, args.max_heartbeats, args.max_rec_depth)
+                             + f"theorem Input_{task['id']} : True := by trivial\n#print axioms Input_{task['id']}\n")
                 row["input_check"] = control._check_source(preflight, "Input_" + task["id"], context, args.lean_timeout)
                 row["input_status"] = row["input_check"]["status"]
             if row["input_status"] != "passed":
                 row["complete"] = True
+                print(json.dumps({"task": task["id"], "input": row["input_status"]}), flush=True)
             save()
         if row["input_status"] == "passed" and "automation" not in row:
-            row["automation"] = _validate(task, smoke.AUTOMATION, context, args.lean_timeout)
+            row["automation"] = validate(task, smoke.AUTOMATION)
             if row["automation"]["status"] == "passed":
                 row["complete"] = True
             save()
             print(json.dumps({"task": task["id"], "input": row["input_status"],
-                              "automation": row["automation"]["status"]}), flush=True)
+                               "automation": row["automation"]["status"]}), flush=True)
+    if replay:
+        for task, row, source_row in zip(tasks, report["tasks"], replay["tasks"]):
+            if not row.get("complete"):
+                _replay(task, row, source_row, validate, save)
+                print(json.dumps({"task": task["id"], "replayed": len(row["replays"]),
+                                  "replayed_solved": row.get("complete", False)}), flush=True)
+    report["summary"] = _summary(report)
+    save()
     if not args.baseline_only and any(not row.get("complete") for row in report["tasks"]):
         args.backend, args.min_free_disk_gib, args.local_files_only = "transformers", 1, True
         report["cached_weights"] = smoke._cached_weights(args.hf_cache)
@@ -320,16 +451,19 @@ def main(argv=None):
 
             def generate(messages, seed):
                 nonlocal model
-                messages, rendered, ids = smoke._fit_prompt(tokenizer, messages, args)
+                messages, rendered, ids, prompt_mode = _fit_prompt(tokenizer, messages, args)
                 if model is None:
                     model = stack.enter_context(control.ReferenceGenerator(args, tokenizer))
                 result = model.generate(ids, seed)
-                result.update(messages=messages, prompt_sha256=control._sha(rendered), input_ids_sha256=control._sha(ids))
+                result.update(messages=messages, prompt_mode=prompt_mode,
+                              prompt_sha256=control._sha(rendered), input_ids_sha256=control._sha(ids))
                 return result
 
             try:
-                smoke._run(report, generate, lambda task, raw: _validate(task, raw, context, args.lean_timeout),
-                           save, args.max_attempts, args.seed, tasks=tasks, messages_factory=_messages, automation_first=True)
+                smoke._run(report, generate, validate, save, args.max_attempts, args.seed, tasks=tasks,
+                           messages_factory=lambda task, previous: _messages(
+                               task, previous, proof_style=args.proof_style, retry_mode=args.retry_mode),
+                           automation_first=True)
             except Exception as error:
                 report["operational_error"] = {"type": type(error).__name__, "message": str(error)}
                 report["summary"] = _summary(report)
