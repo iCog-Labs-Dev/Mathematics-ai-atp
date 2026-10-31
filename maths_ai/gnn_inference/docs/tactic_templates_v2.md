@@ -100,7 +100,38 @@ The targeted census buckets contained **20,817 train / 378 val** rows, not a
 promised gain. Bounded argument shapes and secondary blockers limit recovery;
 parenthesis normalization can additionally recover other categories. All
 these coverage numbers are static, not full-cohort Lean execution or model
-accuracy. Full server recovery counts remain pending.
+accuracy. Completed server recovery counts follow.
+
+### Completed paired server result
+
+Same **218,727 train / 4,157 val** cohort on `63a359b`:
+
+| Static renderability stage | Train | Val |
+|---|---:|---:|
+| Frozen V1 baseline | 66,904 | 1,322 |
+| Lookup-fixed V1 | 72,837 | 1,436 |
+| V2 grammar + lookup | 78,324 | 1,531 |
+| Lookup rescues | 5,933 | 114 |
+| Applied-rule rescues | 5,482 | 95 |
+| Parenthesis-only bare-rule rescues | 5 | 0 |
+| Combined rescues | 11,420 | 209 |
+| Combined losses | 0 | 0 |
+
+Both intermediate stages also have **zero losses**. Static coverage rises
+**30.59% to 35.81% train / 31.80% to 36.83% val**. These are increases of
+**17.07% / 15.81% relative to baseline renderable populations**, not model
+accuracy gains.
+
+Exact-aligned combined support rises **61,836 to 72,197 train / 1,317 to
+1,526 val**, recovering **10,361 train / all 209 val** exact-aligned rows
+with no losses. The other **1,059 train rescues** have nonexact/unknown
+alignment and cannot automatically become dataset-step training labels.
+Quarantine remains **831 train / 9 val** rows.
+
+V2 typed parsing succeeds on **43,837 train / 870 val** rows. Applied-rule
+targets parse on **5,507 / 95**; **5,482 / 95** yield newly renderable
+actions. Thus **25** parsed train applications still fail rendering.
+Report: `maths_ai/gnn_inference/runs/template_v2_recovery/report.json`.
 
 ## Same-cohort native check
 
@@ -119,6 +150,22 @@ reported separately from V1 and applied-rule counts. Use a new report directory.
 This small theorem cohort is not a guarantee that every newly recovered full-
 cohort row has been exercised; native validation of recovered cases remains
 a gate before training/export.
+
+Server V2 replay on the same **86-step / 20-theorem** cohort completed:
+**86/86** input and captured-syntax original matches, **85/85** exact-aligned
+original matches and **30/30** exact-aligned rendered matches. V1 recheck
+had 26 rendered matches on this cohort. V2 parses **21** typed targets,
+including **2** applied-rule targets; current flat rendering supports **17**
+rows. Remaining **56** rows are explicitly unsupported; no replay failures.
+The single branch-opener row remains source-only. Reparsed-text diagnostic
+still matches **85/86**. Whole-proof success is not measured. Report:
+`maths_ai/gnn_inference/runs/native_gold_replay_template_v2/report.json`.
+
+Next gate: native replay specifically covering the **209 newly renderable
+exact-aligned val rows**, with separate lookup/application results, followed
+by checks on recovered exact-aligned train cases. The 30 small-cohort native
+matches do not certify all static rescues. Versioned graph/corpus reference
+mapping and target export follow that validation.
 
 Verification: **83 focused tests passed**, including the rebuilt pinned Lean
 backend. New native fixture verifies **9/9** rendered source transitions and

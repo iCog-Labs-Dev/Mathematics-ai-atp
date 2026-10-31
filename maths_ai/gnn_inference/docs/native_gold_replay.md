@@ -196,3 +196,9 @@ than gold control. Report:
 This clears the small-cohort replay gate. Next measure exact full-prepared
 train/val grammar coverage before target export or template-head training.
 This result measures neither model prediction nor whole-theorem proof success.
+
+V2 subsequently passed on the same 86-step cohort: **86/86** normalized
+input/original matches, **85/85** exact-aligned originals and **30/30**
+exact-aligned rendered transitions, with **56** unsupported and no failures.
+Two applied-rule targets are among the **21** V2 parsed targets. See
+[completed V2 recovery and native results](tactic_templates_v2.md).
