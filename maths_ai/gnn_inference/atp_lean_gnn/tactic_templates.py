@@ -13,7 +13,9 @@ from .labels import clean_tactic_markup, normalize_tactic
 
 TEMPLATE_SCHEMA = "rw_simp_template_v1"
 APPLICATION_TEMPLATE_SCHEMA = "rw_simp_template_v2"
+NAMED_APPLICATION_TEMPLATE_SCHEMA = "rw_simp_template_v3"
 MAX_RULES = 3
+MAX_V3_RULES = 16
 MAX_RULE_ARGUMENTS = 3
 WRAPPERS = {"null", "Lean.Parser.Tactic.tacticSeq", "Lean.Parser.Tactic.tacticSeq1Indented"}
 
@@ -25,10 +27,23 @@ class TemplateError(RenderError):
 
 
 @dataclass(frozen=True)
+class NamedRuleArgument:
+    reference: FlatReference
+    parameter: str
+
+    def __post_init__(self):
+        from .gold_replay import _quoted_name
+
+        if not isinstance(self.parameter, str) or self.parameter == "_":
+            raise TemplateError("invalid_parameter_label", "expected a named parameter label")
+        _quoted_name(self.parameter)
+
+
+@dataclass(frozen=True)
 class TemplateRule:
     reference: FlatReference
     backward: bool = False
-    arguments: tuple[FlatReference, ...] = ()
+    arguments: tuple[FlatReference | NamedRuleArgument, ...] = ()
 
     def __post_init__(self):
         if not isinstance(self.reference, FlatReference) or type(self.backward) is not bool:
@@ -42,6 +57,8 @@ class TemplateRule:
         if len(self.arguments) > MAX_RULE_ARGUMENTS:
             raise TemplateError("rule_argument_budget", f"at most {MAX_RULE_ARGUMENTS} arguments per rule")
         for argument in self.arguments:
+            if isinstance(argument, NamedRuleArgument):
+                argument = argument.reference
             if not isinstance(argument, FlatReference) or not (
                 (argument.source == "local" and type(argument.identity) is int and argument.identity >= 0)
                 or (argument.source == "library" and isinstance(argument.identity, str) and bool(argument.identity))
@@ -73,7 +90,7 @@ class RwSimpTemplate:
     schema: str = TEMPLATE_SCHEMA
 
     def __post_init__(self):
-        if self.schema not in {TEMPLATE_SCHEMA, APPLICATION_TEMPLATE_SCHEMA}:
+        if self.schema not in {TEMPLATE_SCHEMA, APPLICATION_TEMPLATE_SCHEMA, NAMED_APPLICATION_TEMPLATE_SCHEMA}:
             raise TemplateError("invalid_schema", "unknown bounded rule schema")
         if self.family not in {"rw", "simp"} or type(self.only) is not bool:
             raise TemplateError("invalid_family_or_modifier", "bounded templates support rw and simp")
@@ -81,10 +98,15 @@ class RwSimpTemplate:
             raise TemplateError("invalid_rules", "expected immutable typed rule list")
         if not isinstance(self.location, TemplateLocation):
             raise TemplateError("invalid_location", "expected typed location")
-        if len(self.rules) > MAX_RULES:
-            raise TemplateError("rule_budget", f"at most {MAX_RULES} rules")
+        rule_limit = MAX_V3_RULES if self.schema == NAMED_APPLICATION_TEMPLATE_SCHEMA else MAX_RULES
+        if len(self.rules) > rule_limit:
+            raise TemplateError("rule_budget", f"at most {rule_limit} rules")
         if self.schema == TEMPLATE_SCHEMA and any(rule.arguments for rule in self.rules):
             raise TemplateError("compound_rule_term", "V1 requires bare-reference rules")
+        if self.schema != NAMED_APPLICATION_TEMPLATE_SCHEMA and any(
+            isinstance(argument, NamedRuleArgument) for rule in self.rules for argument in rule.arguments
+        ):
+            raise TemplateError("named_rule_argument", "named arguments require V3")
         if self.family == "rw" and (not self.rules or self.only):
             raise TemplateError("invalid_rw", "rw requires rules and has no only modifier")
         if self.family == "simp" and any(rule.backward for rule in self.rules):
@@ -96,6 +118,12 @@ class RwSimpTemplate:
             for rule in target["rules"]:
                 rule.pop("arguments")  # Preserve existing V1 wire format.
         else:
+            if self.schema == NAMED_APPLICATION_TEMPLATE_SCHEMA:
+                for output_rule, rule in zip(target["rules"], self.rules):
+                    output_rule["arguments"] = tuple(
+                        {"reference": asdict(argument.reference), "parameter": argument.parameter}
+                        if isinstance(argument, NamedRuleArgument) else {"reference": asdict(argument), "parameter": None}
+                        for argument in rule.arguments)
             target["reference_count"] = sum(1 + len(rule.arguments) for rule in self.rules) + (
                 self.location.kind == "local")
         return target
@@ -183,6 +211,19 @@ def _rule_term(node, local_context, schema):
     references = []
     for argument in arguments:
         argument = _strip_parens(argument)
+        if (schema == NAMED_APPLICATION_TEMPLATE_SCHEMA and isinstance(argument, dict)
+                and argument.get("kind") == "Lean.Parser.Term.namedArgument"):
+            left, label, assignment, value, right = _children(argument, "Lean.Parser.Term.namedArgument", 5)
+            _atom(left, "(")
+            _atom(assignment, ":=")
+            _atom(right, ")")
+            if label.get("tag") != "identifier" or label.get("semanticRole") is not None:
+                raise TemplateError("invalid_parameter_label", "parameter label is syntax, not a premise reference")
+            value = _strip_parens(value)
+            if not isinstance(value, dict) or value.get("tag") != "identifier":
+                raise TemplateError("compound_rule_argument", "named argument value must be a resolved reference")
+            references.append(NamedRuleArgument(_reference(value, local_context), label.get("source")))
+            continue
         if not isinstance(argument, dict) or argument.get("tag") != "identifier":
             raise TemplateError("compound_rule_argument", "V2 arguments must be bare resolved references")
         references.append(_reference(argument, local_context))
@@ -224,10 +265,10 @@ def _location(node, local_context):
 
 def parse_rw_simp_trace(trace: dict, *, schema: str = TEMPLATE_SCHEMA) -> RwSimpTemplate:
     """Validate scope annotations and parse exact pinned syntax constructors."""
-    if schema not in {TEMPLATE_SCHEMA, APPLICATION_TEMPLATE_SCHEMA}:
+    if schema not in {TEMPLATE_SCHEMA, APPLICATION_TEMPLATE_SCHEMA, NAMED_APPLICATION_TEMPLATE_SCHEMA}:
         raise TemplateError("invalid_schema", "unknown bounded rule schema")
     try:
-        compiled = compile_source_syntax_trace(trace)
+        compiled = compile_source_syntax_trace(trace, allow_parameter_labels=schema == NAMED_APPLICATION_TEMPLATE_SCHEMA)
     except (ActionTargetError, KeyError, TypeError) as error:
         raise TemplateError("invalid_source_trace", str(error)) from error
     if compiled.unannotated_identifier_count or compiled.missing_count:
@@ -267,11 +308,22 @@ def parse_rw_simp_trace(trace: dict, *, schema: str = TEMPLATE_SCHEMA) -> RwSimp
     raise TemplateError("family_outside_v1", f"unsupported tactic root {kind!r}")
 
 
+def render_rule_term(rule: TemplateRule, local_context: list[dict]) -> str:
+    from .gold_replay import _quoted_name
+
+    names = resolve_references([rule.reference], local_context)
+    for argument in rule.arguments:
+        if isinstance(argument, NamedRuleArgument):
+            value, = resolve_references([argument.reference], local_context)
+            names.append(f"({_quoted_name(argument.parameter)} := {value})")
+        else:
+            value, = resolve_references([argument], local_context)
+            names.append(value)
+    return " ".join(names)
+
+
 def render_rw_simp_template(action: RwSimpTemplate, local_context: list[dict]) -> str:
-    rules = []
-    for rule in action.rules:
-        names = resolve_references([rule.reference, *rule.arguments], local_context)
-        rules.append(("← " if rule.backward else "") + " ".join(names))
+    rules = [("← " if rule.backward else "") + render_rule_term(rule, local_context) for rule in action.rules]
     text = action.family + (" only" if action.only else "")
     if rules or action.family == "rw" or action.only:
         text += f" [{', '.join(rules)}]"
@@ -284,8 +336,8 @@ def render_rw_simp_template(action: RwSimpTemplate, local_context: list[dict]) -
 def prepare_gold_rendering(raw_tactic: str, trace: dict, *, renderer: str = "flat",
                            reference_lookup: str = "semantic") -> dict:
     """Keep syntax extraction separate from name resolution and old-flat coverage."""
-    if renderer not in {"flat", "template-v1", "template-v2"}:
-        raise ValueError("renderer must be flat, template-v1 or template-v2")
+    if renderer not in {"flat", "template-v1", "template-v2", "template-v3"}:
+        raise ValueError("renderer must be flat, template-v1, template-v2 or template-v3")
     result = {"rendered_tactic": None, "render_error": None, "render_path": "flat",
               "flat_renderable": False, "flat_render_error": None, "template_target": None,
               "template_error_code": None}
@@ -296,11 +348,40 @@ def prepare_gold_rendering(raw_tactic: str, trace: dict, *, renderer: str = "fla
         flat_text = None
         result["flat_render_error"] = str(error)
     family = normalize_tactic(clean_tactic_markup(raw_tactic))
+    if renderer == "template-v3" and family in {"intro", "intros"}:
+        from .intro_templates import INTRO_TEMPLATE_SCHEMA, parse_intro_trace, render_intro_template
+
+        result["render_path"] = INTRO_TEMPLATE_SCHEMA
+        try:
+            action = parse_intro_trace(trace)
+            if action.family != family:
+                raise TemplateError("family_mismatch", "raw tactic family disagrees with binder syntax")
+            result["template_target"] = action.to_target()
+            result["rendered_tactic"] = render_intro_template(action)
+        except (RenderError, KeyError, TypeError) as error:
+            result["render_error"] = str(error)
+            result["template_error_code"] = error.code if isinstance(error, TemplateError) else "binder_rendering"
+        return result
+    if renderer == "template-v3" and family in {"exact", "apply", "refine"}:
+        from .application_templates import APPLICATION_TERM_SCHEMA, parse_application_trace, render_application_template
+
+        result["render_path"] = APPLICATION_TERM_SCHEMA
+        try:
+            action = parse_application_trace(trace)
+            if action.family != family:
+                raise TemplateError("family_mismatch", "raw tactic family disagrees with application syntax")
+            result["template_target"] = action.to_target()
+            result["rendered_tactic"] = render_application_template(action, trace["local_context"])
+        except (RenderError, KeyError, TypeError) as error:
+            result["render_error"] = str(error)
+            result["template_error_code"] = error.code if isinstance(error, TemplateError) else "reference_resolution"
+        return result
     if renderer == "flat" or family not in {"rw", "simp"}:
         result["rendered_tactic"] = flat_text
         result["render_error"] = result["flat_render_error"]
         return result
-    schema = APPLICATION_TEMPLATE_SCHEMA if renderer == "template-v2" else TEMPLATE_SCHEMA
+    schema = {"template-v1": TEMPLATE_SCHEMA, "template-v2": APPLICATION_TEMPLATE_SCHEMA,
+              "template-v3": NAMED_APPLICATION_TEMPLATE_SCHEMA}[renderer]
     result["render_path"] = schema
     try:
         action = parse_rw_simp_trace(trace, schema=schema)

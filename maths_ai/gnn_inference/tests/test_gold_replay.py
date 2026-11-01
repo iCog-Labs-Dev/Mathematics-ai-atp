@@ -343,7 +343,7 @@ def test_replay_runner_retains_failures_and_resume_binding(tmp_path, monkeypatch
             "raw_record_sha256": ModelSExprCache.raw_record_sha256(raw),
         })
         identifier = {"tag": "identifier", "source": "h", "semanticRole": "local", "contextIndex": 0}
-        syntax = syntax_node("Lean.Parser.Tactic.exact", identifier)
+        syntax = syntax_node("Lean.Parser.Tactic.exact", syntax_atom("exact"), identifier)
         if row.row_index == 2:
             syntax = syntax_node(
                 "Lean.Parser.Tactic.simp", syntax_atom("simp"), syntax_node("null"), syntax_node("null"),
@@ -413,6 +413,15 @@ def test_replay_runner_retains_failures_and_resume_binding(tmp_path, monkeypatch
     assert v2["summary"]["template_v1_parsed_steps"] == 0
     assert v2["summary"]["template_v2_parsed_steps"] == 1
     assert v2["summary"]["rendered_transition_match"] == 2
+    v3_output = tmp_path / "v3_output"
+    assert runner.main([*argv, "--output-dir", str(v3_output), "--renderer", "template-v3"]) == 0
+    v3 = json.loads((v3_output / "report.json").read_text())
+    assert v3["manifest"]["template_schema"] == "rw_simp_template_v3"
+    assert v3["manifest"]["intro_template_schema"] == "intro_binders_v1"
+    assert v3["manifest"]["application_term_schema"] == "reference_application_v1"
+    assert v3["summary"]["template_v3_parsed_steps"] == 1
+    assert v3["summary"]["template_v2_parsed_steps"] == 0
+    assert v3["summary"]["rendered_transition_match"] == 2
 
     def fail_native(*args, **kwargs):
         raise RuntimeError("backend failed")

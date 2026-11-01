@@ -1,5 +1,8 @@
 # Semantic-name lookup and bounded applied rules
 
+Next extension: [V3 binders, parameter roles and reference applications](tactic_templates_v3.md).
+V1/V2 behavior remains the comparison baseline for that opt-in renderer.
+
 This extends gold parsing/rendering, before prediction-head training or target
 export. Two fixes follow the completed unsupported-action census:
 

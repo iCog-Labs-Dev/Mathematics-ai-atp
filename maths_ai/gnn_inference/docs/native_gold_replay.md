@@ -52,6 +52,11 @@ Default remains `--renderer flat`; existing model prediction is unchanged.
 inside rw/simp rules. All modes use validated source-or-exact-global-identity
 lookup. See [V2 grammar and paired recovery procedure](tactic_templates_v2.md).
 
+`--renderer template-v3` adds bounded introduction declarations, named parameter
+arguments and reference applications for exact/apply/refine. See
+[V3 schemas and recovery procedure](tactic_templates_v3.md). Its report also
+binds introduction/application parsers and the syntax-role compiler by hash.
+
 ## Backend and scope
 
 Use existing extraction environment:

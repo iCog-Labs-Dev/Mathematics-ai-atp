@@ -319,8 +319,14 @@ def summarize_replays(rows: list[dict]) -> dict:
         "flat_renderable_steps": sum(bool(r.get("flat_renderable")) for r in rows),
         "template_v1_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "rw_simp_template_v1" for r in rows),
         "template_v2_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "rw_simp_template_v2" for r in rows),
+        "template_v3_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "rw_simp_template_v3" for r in rows),
+        "intro_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "intro_binders_v1" for r in rows),
+        "application_term_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "reference_application_v1" for r in rows),
         "applied_rule_parsed_steps": sum(any(rule.get("arguments") for rule in (r.get("template_target") or {}).get("rules", []))
                                          for r in rows),
+        "named_rule_parsed_steps": sum(any(argument.get("parameter") is not None
+                                           for rule in (r.get("template_target") or {}).get("rules", [])
+                                           for argument in rule.get("arguments", [])) for r in rows),
         "newly_renderable_vs_flat": sum(isinstance(r.get("rendered_tactic"), str)
                                         and r.get("flat_renderable") is False for r in rows),
         "original_control_modes": dict(Counter(r.get("original_control", "unavailable") for r in rows)),

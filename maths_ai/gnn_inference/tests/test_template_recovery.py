@@ -10,12 +10,14 @@ from maths_ai.gnn_inference.scripts import audit_template_recovery as recovery
 from maths_ai.gnn_inference.tests.test_template_coverage import _atom, _cache_row, _local, _node, _prepared, _snapshot
 
 
-def _rw(term, *, backward=False):
+def _rw(term, *, backward=False, count=1):
+    rules = []
+    for i in range(count):
+        if i:
+            rules.append(_atom(","))
+        rules.append(_node("Lean.Parser.Tactic.rwRule", _node("null", _atom("←")) if backward else _node("null"), term))
     return _node("Lean.Parser.Tactic.rwSeq", _atom("rw"), _node("null"),
-                 _node("Lean.Parser.Tactic.rwRuleSeq", _atom("["),
-                       _node("null", _node("Lean.Parser.Tactic.rwRule",
-                                            _node("null", _atom("←")) if backward else _node("null"), term)),
-                       _atom("]")), _node("null"))
+                 _node("Lean.Parser.Tactic.rwRuleSeq", _atom("["), _node("null", *rules), _atom("]")), _node("null"))
 
 
 @pytest.fixture
@@ -107,3 +109,45 @@ def test_recovery_rejects_changed_snapshot(tmp_path, frozen_baseline):
     with pytest.raises(ValueError, match="cache changed"):
         recovery.main(["--baseline-coverage-dir", str(baseline), "--output-dir", str(output)])
     assert not json.loads((output / "report.json").read_text())["complete"]
+
+
+def test_v3_recovery_separates_binders_named_roles_and_v2_support(tmp_path):
+    prepared, cache, baseline = (tmp_path / name for name in ("prepared", "cache", "baseline"))
+    introduction = _node("Lean.Parser.Tactic.intro", _atom("intro"), _node("null", {
+        "tag": "identifier", "source": "fresh", "semanticRole": "scoped_local"}))
+    parameter = _node("Lean.Parser.Term.namedArgument", _atom("("), {"tag": "identifier", "source": "n"},
+                      _atom(":="), _local(), _atom(")"))
+    application = _node("Lean.Parser.Term.app", {"tag": "identifier", "source": "Nat.add_zero",
+                        "semanticRole": "global", "name": "Nat.add_zero"}, _node("null", parameter))
+    train = [
+        _cache_row(cache, "train", 0, introduction, "intro fresh"),
+        _cache_row(cache, "train", 1, _rw(application), "rw [Nat.add_zero (n := h0)]"),
+        _cache_row(cache, "train", 2, _rw(_local()), "rw [h0]"),
+        _cache_row(cache, "train", 3, introduction, "intro fresh", alignment="branch_opener", target=False),
+        _cache_row(cache, "train", 4, _node("Lean.Parser.Tactic.exact", _atom("exact"),
+                   _node("Lean.Parser.Term.paren", _atom("("),
+                         _node("Lean.Parser.Term.app", _local(), _node("null", parameter)), _atom(")"))), "exact (h0 (n := h0))"),
+        _cache_row(cache, "train", 5, _rw(_local(), count=4), "rw [h0, h0, h0, h0]"),
+    ]
+    _prepared(prepared, {"train": train, "val": [_cache_row(cache, "val", 0, introduction, "intro fresh")]})
+    assert coverage.main(["--prepared-root", str(prepared), "--cache-root", str(cache), "--output-dir", str(baseline)]) == 0
+    output = tmp_path / "v3"
+    before = _snapshot(tmp_path)
+    assert recovery.main(["--baseline-coverage-dir", str(baseline), "--output-dir", str(output),
+                          "--renderer", "template-v3"]) == 0
+    report = json.loads((output / "report.json").read_text())
+    assert report["manifest"]["schema"] == "template_recovery_v2"
+    train = report["splits"]["train"]["summary"]
+    assert train["selected_steps"] == 6 and train["template_v2_renderable_steps"] == 1
+    assert train["template_v3_renderable_steps"] == 6 and train["v3_rescues_vs_v2"] == 5
+    assert train["intro_rescues"] == 2 and train["named_rule_rescues"] == 1
+    assert train["exact_aligned_v3_rescues_vs_v2"] == 4
+    assert train["application_term_rescues"] == 1
+    assert train["rule_list_rescues"] == train["long_rule_list_parsed_steps"] == 1
+    records = [json.loads(line) for line in (output / "rows.jsonl").read_text().splitlines()]
+    term = next(row for row in records if row["split"] == "train" and row["row_index"] == 4)
+    assert term["named_argument_count"] == 1
+    assert train["v3_losses_vs_v2"] == train["overall_v3_losses_vs_original"] == 0
+    after = _snapshot(tmp_path)
+    assert all(after[path] == digest for path, digest in before.items())
+    assert all(path in before or path.startswith("v3/") for path in after)

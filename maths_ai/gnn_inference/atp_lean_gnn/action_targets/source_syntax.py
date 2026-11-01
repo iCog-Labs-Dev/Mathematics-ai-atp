@@ -35,6 +35,7 @@ class CompiledSourceSyntaxTarget:
     unannotated_identifier_count: int
     fresh_name_count: int
     missing_count: int
+    parameter_label_count: int = 0
 
     @property
     def operation_count(self) -> int:
@@ -48,6 +49,7 @@ class CompiledSourceSyntaxTarget:
             or self.scoped_local_count > 0
             or self.unannotated_identifier_count > 0
             or self.fresh_name_count > 0
+            or self.parameter_label_count > 0
         )
 
     @property
@@ -79,6 +81,7 @@ class _SourceSyntaxCompiler:
         *,
         local_indices: set[int],
         fresh_name_ranges: dict[tuple[int, int], str],
+        allow_parameter_labels: bool = False,
     ) -> None:
         self.local_indices = local_indices
         self.fresh_name_ranges = fresh_name_ranges
@@ -91,6 +94,9 @@ class _SourceSyntaxCompiler:
         self.unannotated_identifier_count = 0
         self.fresh_name_count = 0
         self.missing_count = 0
+        self.allow_parameter_labels = allow_parameter_labels
+        self.parameter_labels: set[int] = set()
+        self.parameter_label_count = 0
 
     def compile(self, root: object) -> None:
         # An explicit stack keeps deeply nested Mathlib syntax from hitting
@@ -141,6 +147,18 @@ class _SourceSyntaxCompiler:
                 "Every syntax node requires a children list.",
                 code="invalid_source_syntax",
             )
+        if self.allow_parameter_labels and kind == "Lean.Parser.Term.namedArgument":
+            if (len(children) != 5
+                    or any(not isinstance(child, dict) for child in children)
+                    or any(children[i].get("tag") != "atom" or children[i].get("source") != token
+                           for i, token in ((0, "("), (2, ":="), (4, ")")))
+                    or children[1].get("tag") != "identifier"
+                    or children[1].get("semanticRole") is not None):
+                raise ActionTargetError("Invalid named-parameter syntax/annotation.", code="invalid_parameter_label")
+            label = _require_str(children[1], "source", context="parameter label")
+            if not label:
+                raise ActionTargetError("Empty named-parameter label.", code="invalid_parameter_label")
+            self.parameter_labels.add(id(children[1]))
         self.node_count += 1
         if kind == NULL_NODE_KIND and not children:
             self.empty_null_node_count += 1
@@ -149,6 +167,10 @@ class _SourceSyntaxCompiler:
 
     def _compile_identifier(self, node: dict[str, Any]) -> None:
         source = _require_str(node, "source", context="identifier")
+        if id(node) in self.parameter_labels:
+            self.parameter_label_count += 1
+            self.operations.append({"op": "PARAMETER_LABEL", "source": source})
+            return
         role = node.get("semanticRole")
         if role is not None and not isinstance(role, str):
             raise ActionTargetError(
@@ -256,7 +278,7 @@ def _fresh_name_ranges(trace: dict[str, Any]) -> dict[tuple[int, int], str]:
     return ranges
 
 
-def compile_source_syntax_trace(trace: dict[str, Any]) -> CompiledSourceSyntaxTarget:
+def compile_source_syntax_trace(trace: dict[str, Any], *, allow_parameter_labels: bool = False) -> CompiledSourceSyntaxTarget:
     """Compile one validated action_trace_v3 payload into prefix operations."""
     source_syntax = trace.get("source_syntax")
     if not isinstance(source_syntax, dict):
@@ -267,6 +289,7 @@ def compile_source_syntax_trace(trace: dict[str, Any]) -> CompiledSourceSyntaxTa
     compiler = _SourceSyntaxCompiler(
         local_indices=_local_context_indices(trace),
         fresh_name_ranges=_fresh_name_ranges(trace),
+        allow_parameter_labels=allow_parameter_labels,
     )
     compiler.compile(source_syntax)
     compiler.operations.append({"op": "STOP"})
@@ -280,4 +303,5 @@ def compile_source_syntax_trace(trace: dict[str, Any]) -> CompiledSourceSyntaxTa
         unannotated_identifier_count=compiler.unannotated_identifier_count,
         fresh_name_count=compiler.fresh_name_count,
         missing_count=compiler.missing_count,
+        parameter_label_count=compiler.parameter_label_count,
     )

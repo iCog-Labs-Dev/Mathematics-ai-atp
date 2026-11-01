@@ -23,6 +23,8 @@ from maths_ai.gnn_inference.atp_lean_gnn.preparation import ModelSExprCache, SEx
 from maths_ai.gnn_inference.atp_lean_gnn.sexpr_extraction import DATASET_MATHLIB_COMMIT, PANTOGRAPH_COMMIT
 from maths_ai.gnn_inference.scripts.setup_sexpr_environment import LEAN_TOOLCHAIN
 from maths_ai.gnn_inference.atp_lean_gnn import tactic_templates
+from maths_ai.gnn_inference.atp_lean_gnn import intro_templates
+from maths_ai.gnn_inference.atp_lean_gnn import application_templates
 
 
 def _git(root, *args):
@@ -95,7 +97,7 @@ def main(argv=None):
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--file-timeout", type=float, default=600)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--renderer", choices=("flat", "template-v1", "template-v2"), default="flat")
+    parser.add_argument("--renderer", choices=("flat", "template-v1", "template-v2", "template-v3"), default="flat")
     args = parser.parse_args(argv)
     if args.num_theorems < 1 or not math.isfinite(args.file_timeout) or args.file_timeout <= 0:
         raise ValueError("theorem count and file timeout must be positive")
@@ -137,7 +139,13 @@ def main(argv=None):
         "renderer": args.renderer,
         "reference_lookup": "validated_source_or_exact_global_identity_v1",
         "template_schema": {"template-v1": tactic_templates.TEMPLATE_SCHEMA,
-                            "template-v2": tactic_templates.APPLICATION_TEMPLATE_SCHEMA}.get(args.renderer),
+                            "template-v2": tactic_templates.APPLICATION_TEMPLATE_SCHEMA,
+                            "template-v3": tactic_templates.NAMED_APPLICATION_TEMPLATE_SCHEMA}.get(args.renderer),
+        "intro_template_schema": intro_templates.INTRO_TEMPLATE_SCHEMA if args.renderer == "template-v3" else None,
+        "application_term_schema": application_templates.APPLICATION_TERM_SCHEMA if args.renderer == "template-v3" else None,
+        "intro_parser_sha256": file_sha256(Path(intro_templates.__file__)),
+        "application_parser_sha256": file_sha256(Path(application_templates.__file__)),
+        "source_syntax_compiler_sha256": file_sha256(Path(tactic_templates.__file__).parent / "action_targets/source_syntax.py"),
         "template_parser_sha256": file_sha256(Path(tactic_templates.__file__)),
         "rows": [{"row_index": p["row_index"], "cache_hashes": p["cache_hashes"]} for p in planned],
     }

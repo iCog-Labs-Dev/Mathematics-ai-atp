@@ -1,4 +1,4 @@
-"""Paired static recovery versus a frozen V1 coverage report, without training."""
+"""Paired V2/V3 static recovery versus frozen V1 coverage, without training."""
 
 from __future__ import annotations
 
@@ -9,6 +9,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from maths_ai.gnn_inference.atp_lean_gnn import tactic_templates
+from maths_ai.gnn_inference.atp_lean_gnn.application_templates import APPLICATION_TERM_SCHEMA
+from maths_ai.gnn_inference.atp_lean_gnn.intro_templates import INTRO_TEMPLATE_SCHEMA, MAX_INTRO_BINDERS
 from maths_ai.gnn_inference.atp_lean_gnn.bundle import file_sha256
 from maths_ai.gnn_inference.scripts.audit_unsupported_actions import _rows, read_snapshot, verify_coverage
 
@@ -23,6 +25,12 @@ def _new_stats():
         "exact_aligned_template_v2_renderable_steps", "exact_aligned_combined_rescues",
         "exact_aligned_combined_losses",
         "exact_aligned_lookup_rescues", "exact_aligned_applied_rule_rescues",
+        "template_v3_renderable_steps", "intro_parsed_steps", "named_rule_parsed_steps",
+        "v3_rescues_vs_v2", "v3_losses_vs_v2", "intro_rescues", "named_rule_rescues", "application_term_rescues", "other_v3_rescues",
+        "application_term_parsed_steps",
+        "rule_list_rescues", "long_rule_list_parsed_steps",
+        "exact_aligned_v3_renderable_steps", "exact_aligned_v3_rescues_vs_v2", "exact_aligned_v3_losses_vs_v2",
+        "overall_v3_rescues_vs_original", "overall_v3_losses_vs_original",
     )})
 
 
@@ -44,12 +52,33 @@ def _add(stats, row):
                   "exact_aligned_combined_losses": exact and before and not final,
                   "exact_aligned_lookup_rescues": exact and lookup and not before,
                   "exact_aligned_applied_rule_rescues": exact and final and not lookup and row["has_applied_rule"]})
+    if row.get("v3_evaluated"):
+        v3 = row["v3_renderable"]
+        rescue = v3 and not final
+        intro = row.get("v3_schema") == "intro_binders_v1"
+        named = bool(row.get("named_argument_count")) and row.get("v3_schema") == "rw_simp_template_v3"
+        term = row.get("v3_schema") == "reference_application_v1"
+        longer_list = row.get("v3_schema") == "rw_simp_template_v3" and row.get("v3_rule_count", 0) > tactic_templates.MAX_RULES
+        stats.update({"template_v3_renderable_steps": v3, "intro_parsed_steps": intro,
+                      "named_rule_parsed_steps": named, "v3_rescues_vs_v2": rescue,
+                      "v3_losses_vs_v2": final and not v3, "intro_rescues": rescue and intro,
+                      "named_rule_rescues": rescue and named, "application_term_rescues": rescue and term,
+                      "application_term_parsed_steps": term,
+                      "rule_list_rescues": rescue and longer_list and not named,
+                      "long_rule_list_parsed_steps": longer_list,
+                      "other_v3_rescues": rescue and not intro and not named and not term and not longer_list,
+                      "exact_aligned_v3_renderable_steps": exact and v3,
+                      "exact_aligned_v3_rescues_vs_v2": exact and rescue,
+                      "exact_aligned_v3_losses_vs_v2": exact and final and not v3,
+                      "overall_v3_rescues_vs_original": v3 and not before,
+                      "overall_v3_losses_vs_original": before and not v3})
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline-coverage-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--renderer", choices=("template-v2", "template-v3"), default="template-v2")
     args = parser.parse_args(argv)
     baseline, output = args.baseline_coverage_dir.resolve(), args.output_dir.resolve()
     source_path, rows_path = baseline / "report.json", baseline / "rows.jsonl"
@@ -65,24 +94,32 @@ def main(argv=None):
     code_root = Path(__file__).parents[1]
     paths = [Path(__file__), code_root / "scripts/audit_unsupported_actions.py",
              *(code_root / "atp_lean_gnn" / name for name in (
-                 "tactic_templates.py", "gold_replay.py", "preparation.py", "labels.py", "argument_relabeling.py")),
+                 "tactic_templates.py", "intro_templates.py", "application_templates.py", "gold_replay.py", "preparation.py", "labels.py", "argument_relabeling.py")),
              *sorted((code_root / "atp_lean_gnn/action_targets").glob("*.py"))]
-    report = {"manifest": {"schema": "template_recovery_v1", "baseline_dir": str(baseline),
+    report = {"manifest": {"schema": "template_recovery_v2" if args.renderer == "template-v3" else "template_recovery_v1",
+                           "renderer": args.renderer, "baseline_dir": str(baseline),
                            "baseline_sha256": hashes, "cache_root": str(cache),
-                           "template_schema": tactic_templates.APPLICATION_TEMPLATE_SCHEMA,
+                           "template_schema": (tactic_templates.NAMED_APPLICATION_TEMPLATE_SCHEMA if args.renderer == "template-v3"
+                                               else tactic_templates.APPLICATION_TEMPLATE_SCHEMA),
                            "max_rule_arguments": tactic_templates.MAX_RULE_ARGUMENTS,
+                           "max_rules": tactic_templates.MAX_V3_RULES if args.renderer == "template-v3" else tactic_templates.MAX_RULES,
+                           "intro_template_schema": INTRO_TEMPLATE_SCHEMA if args.renderer == "template-v3" else None,
+                           "application_term_schema": APPLICATION_TERM_SCHEMA if args.renderer == "template-v3" else None,
+                           "max_intro_binders": MAX_INTRO_BINDERS if args.renderer == "template-v3" else None,
+                           "parameter_label_policy": "named_argument_position_v1" if args.renderer == "template-v3" else None,
                            "reference_lookup": "validated_source_or_exact_global_identity_v1",
                            "code_sha256": {str(path.relative_to(code_root)): file_sha256(path) for path in paths},
                            "native_execution_measured": False, "proof_success_measured": False},
               "complete": False, "splits": {}}
     output.mkdir(parents=True, exist_ok=False)
     totals, families, previous, errors = defaultdict(_new_stats), defaultdict(_new_stats), defaultdict(_new_stats), defaultdict(Counter)
+    v3_errors = defaultdict(Counter)
 
     def checkpoint():
         report["splits"] = {split: {"summary": dict(stats),
             "by_family": {name: dict(value) for (s, name), value in families.items() if s == split},
             "by_previous_error": {name: dict(value) for (s, name), value in previous.items() if s == split},
-            "v2_error_counts": dict(errors[split])} for split, stats in totals.items()}
+            "v2_error_counts": dict(errors[split]), "v3_error_counts": dict(v3_errors[split])} for split, stats in totals.items()}
         temporary = output / "report.tmp"
         temporary.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
         temporary.replace(output / "report.json")
@@ -97,6 +134,8 @@ def main(argv=None):
             row.update(baseline_renderable=original["template_mode_renderable"],
                        quarantined=original["status"] in {"cache_invalid", "source_trace_invalid"},
                        lookup_fixed_v1_renderable=False, v2_renderable=False, v2_parsed=False, has_applied_rule=False)
+            if args.renderer == "template-v3":
+                row.update(v3_evaluated=True, v3_renderable=False, v3_schema=None)
             if not row["quarantined"]:
                 fixed = tactic_templates.prepare_gold_rendering(raw["tactic"], trace, renderer="template-v1")
                 extended = tactic_templates.prepare_gold_rendering(raw["tactic"], trace, renderer="template-v2")
@@ -110,6 +149,21 @@ def main(argv=None):
                     errors[row["split"]][row["v2_error_code"] or row["v2_error"]] += 1
                 if target is not None:
                     row["rule_argument_counts"] = [len(rule["arguments"]) for rule in target["rules"]]
+                if args.renderer == "template-v3":
+                    projected = tactic_templates.prepare_gold_rendering(raw["tactic"], trace, renderer="template-v3")
+                    v3_target = projected["template_target"] or {}
+                    v3_arguments = [argument for rule in v3_target.get("rules", []) for argument in rule.get("arguments", [])]
+                    v3_arguments.extend(v3_target.get("arguments", []))
+                    row.update(v3_renderable=isinstance(projected["rendered_tactic"], str),
+                               v3_schema=v3_target.get("schema"), v3_rendered_tactic=projected["rendered_tactic"],
+                               v3_rule_count=v3_target.get("rule_count", 0),
+                               v3_error=projected["render_error"], v3_error_code=projected["template_error_code"],
+                               named_argument_count=sum(argument.get("parameter") is not None for argument in v3_arguments))
+                    if "binders" in v3_target:
+                        row["intro_binder_count"] = v3_target["explicit_binder_count"]
+                        row["intro_mode"] = v3_target["mode"]
+                    if row["v3_error"]:
+                        v3_errors[row["split"]][row["v3_error_code"] or row["v3_error"]] += 1
             prior_error = "supported" if original["status"] == "renderable" else (
                 original.get("template_error_code") or original.get("render_error") or original.get("error") or "unknown")
             _add(totals[row["split"]], row)
@@ -133,6 +187,7 @@ def main(argv=None):
     print(json.dumps({split: dict(stats) for split, stats in totals.items()}, indent=2), flush=True)
     print(f"Report: {output / 'report.json'}", flush=True)
     return 2 if any(stats["combined_losses"] or stats["lookup_losses"] or stats["v2_grammar_losses"]
+                    or stats["v3_losses_vs_v2"] or stats["overall_v3_losses_vs_original"]
                     for stats in totals.values()) else 0
 
 
