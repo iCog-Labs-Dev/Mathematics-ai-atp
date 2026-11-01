@@ -171,6 +171,34 @@ def test_baseline_then_model_resume_loads_no_model_during_baseline(tmp_path, mon
     with pytest.raises(ValueError, match="Resume changes"):
         dev.main([*replay_args, "--resume", "--max-heartbeats", "2000000"])
 
+    from maths_ai.gnn_inference.scripts import proof_search
+
+    def scripted_search(task, record, generate, validate, save, session_factory, **kwargs):
+        result = generate([{"role": "user", "content": "current native goal"}], 42, 30)
+        record.update(calls=[result], status="passed", proof="generated", lean=validate(task, "generated", 30))
+        save()
+
+    monkeypatch.setattr(proof_search, "search", scripted_search)
+    search_output = tmp_path / "search"
+    search_args = ["--output-dir", str(search_output), "--lean-project", str(project),
+                   "--allow-environment-port", "--proof-engine", "search"]
+    assert dev.main(search_args) == 0
+    searched = json.loads((search_output / "report.json").read_text())
+    assert searched["summary"]["search_solved"] == searched["summary"]["model_calls"] == 1
+    assert searched["summary"]["combined_solved"] == 2
+    assert searched["manifest"]["search_helper_sha256"]
+    assert loads == caches == [1, 1]
+
+    # Search proofs become freshly checked complete candidates in later runs.
+    carried_output = tmp_path / "carried"
+    assert dev.main(["--output-dir", str(carried_output), "--lean-project", str(project),
+                     "--allow-environment-port", "--replay-report", str(search_output / "report.json"),
+                     "--baseline-only"]) == 0
+    carried = json.loads((carried_output / "report.json").read_text())
+    assert carried["summary"]["prior_solves_revalidated"] == 2
+    assert carried["summary"]["cumulative_model_calls"] == 1
+    assert loads == caches == [1, 1]
+
 
 @pytest.mark.parametrize("raw", [
     "### Detailed Proof\nFirst we must prove the statement.\nNo final code yet.",
@@ -252,6 +280,18 @@ def test_second_sample_success_is_not_reported_as_repair_success():
     assert summary["newly_solved_by_repair"] == 0
     attempts[-1]["prompt_mode"] = "repair"
     assert dev._summary(report)["newly_solved_by_repair"] == 1
+
+
+def test_passed_only_replay_skips_old_failures_but_still_checks_old_success():
+    source = {"attempts": [{"raw_text": "old failure", "lean": {"status": "lean_rejected"}},
+                           {"raw_text": "claimed success", "lean": {"status": "passed"}}]}
+    row, checked = {"attempts": []}, []
+    def validate(task, raw):
+        checked.append(raw)
+        return {"status": "lean_rejected"}
+    dev._replay({}, row, source, validate, lambda: None, passed_only=True)
+    assert checked == ["claimed success"]
+    assert not row.get("complete")
 
 
 def test_replay_rejects_changed_environment_cohort_and_binding(tmp_path):

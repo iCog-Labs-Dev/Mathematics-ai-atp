@@ -80,6 +80,76 @@ environment/budget, not evidence of novel mathematics or causal repair gains.
 Code/source/environment/budget changes require a new directory; interrupted
 runs checkpoint and resume. No model training or retriever change.
 
+## Native proof search on remaining problems
+
+The search engine uses Lean's own saved tactic/metavariable states. It keeps
+all sibling goals and local definitions, tries independent alternatives from
+the same snapshot, and reconstructs accepted prefixes natively after restart.
+It never reconstructs proof states from printed goals. A small core-Lean helper
+avoids any Python Pantograph version dependency.
+
+From server repository root in `atp`, seed the next run from the v2 report:
+
+```sh
+git pull --ff-only jajos gnn-issue-fixes
+LD_PRELOAD= python -B -u -m maths_ai.gnn_inference.scripts.run_minif2f_dev \
+  --output-dir maths_ai/gnn_inference/runs/minif2f_valid25_native_search \
+  --lean-project maths_ai/_support_files/sexpr_environment/mathlib4 \
+  --replay-report maths_ai/gnn_inference/runs/minif2f_valid25_solve_v2/report.json \
+  --replay-passed-only --proof-engine search --allow-environment-port \
+  --per-group 5 --seed 42 --device cuda:0 --dtype bfloat16 \
+  --context-tokens 8192 --max-new-tokens 2048 --request-timeout 120 \
+  --max-heartbeats 1000000 --max-rec-depth 2048 --lean-timeout 180 \
+  --search-model-calls 8 --search-seconds 600 --search-tactic-timeout 20
+```
+
+Input/automation checks and fresh verification of prior successful candidates
+precede new inference. `--replay-passed-only` skips known failed source
+candidates; old pass flags select candidates but never replace verification.
+All 25 original tasks stay in denominator. The model loads once for remaining
+tasks; `--baseline-only` stops before search, and the same command plus
+`--resume` continues interrupted work in its new directory.
+
+Per remaining theorem: at most **8 model requests**, **24 tactic trials**,
+**24 native graph nodes**, depth **8**, **3 alternatives** per proposal and
+**600 active seconds**. Native tactics/lookups have a **20 s** wall limit.
+The deterministic frontier prefers less-visited states, fewer open goals, then
+deeper verified prefixes; each node gets at most three model turns. These are
+search bounds, not a learned proof-value function. Initial native loading and
+first model loading count against active theorem time. Generation uses a
+deadline-aware stopping budget, not an OS-level hard GPU cancellation.
+
+Model responses may be short Lean tactic blocks, `{"tactics": ["...", "..."]}`,
+or `{"lookup": "sum choose"}`. Lookup searches public declaration-name
+fragments in the current native environment and returns up to eight actual
+names/types. This is lexical typed lookup, not semantic/GNN retrieval.
+Repeated tactics (including comment-only changes) are rejected per native
+parent state; different states can legitimately use the same tactic. Printed
+goal equality is not used to merge states. Failed blocks restore the parent;
+native wall timeouts restart the helper and replay the accepted prefix.
+
+A closed native state is only a candidate: the complete recorded tactic path
+is compiled separately at the frozen original target and axiom-audited. An
+attempt using the host specification axiom is rejected even if it closes all
+native goals. Graph nodes, rejected alternatives, lookup results, raw model
+calls and full successful proofs are checkpointed. Saved completions resume
+without another model call; native snapshot IDs never survive a process restart.
+
+Read `search_solved`, `search_calls`, `search_duplicate_candidates`,
+`prior_solves_revalidated`, `additional_solved_since_source`, `combined_solved`,
+and `cumulative_model_calls`. Search tool/model requests are included in cost;
+scripted controller tests are not DeepSeek solve results. Schema v3 binds
+controller/helper code and all search budgets; v1/v2 reports remain valid
+candidate sources. Whole-proof mode remains available with `--proof-engine whole`.
+
+Verification: **68 focused tests passed / 1 optional integration skipped**.
+Real Lean **4.10.0-rc1** tests cover rollback, sibling preservation, local lets
+across snapshots, typed lookup, duplicate rejection, full-proof checking and
+backtracking after a forbidden-axiom closure. Fault-injection tests cover
+native timeout restart and saved-completion resume. A separate local full
+Mathlib 4.29 probe exceeded its 60 s startup limit; that probe is not a passing
+integration result. Full server Mathlib/DeepSeek search outcomes are pending.
+
 ## Revised solving run (v2)
 
 Use the existing first-run report as candidate input. The new run rechecks
@@ -133,16 +203,83 @@ excludes replay successes. New retry results distinguish
 
 This is an accumulating development solve run with changed budgets/protocol,
 not a controlled attribution of gains to one change or a standalone fresh
-model score. All 25 original problems remain selected. Larger-context CUDA
-execution and new solve counts require the server run; local checks cover
-protocol behavior and real Lean frozen-target/replay validation.
+model score. All 25 original problems remain selected. Local checks cover
+protocol behavior and real Lean frozen-target/replay validation; the server
+outcome is recorded below.
 
 Verification: **60 focused tests passed, 1 optional full-Mathlib integration
 skipped**. Real Lean 4.10 checks cover rejection of target changes/stub use
 and fresh replay validation under larger budgets. The actual downloaded v1
 report passes source-binding/pinned-selection checks: all five old successful
 candidates remain extractable, and all twelve capped incomplete outputs are
-recognized without compiling discussion. Server execution is pending.
+recognized without compiling discussion.
+
+## V2 server outcome and failure audit
+
+Saved report: `runs/minif2f_valid25_solve_v2/report.json`, SHA-256
+`c099c16951db677867e8d336f0a6b8ebacca9e7355e7d4ea617acbdf80dc43a7`.
+Recomputed summary, manifest/cohort bindings, source-report digest and all
+three implementation hashes agree. Audit reads saved proofs and diagnostics;
+it performs no new inference or Lean compilation.
+
+**12/25 solved**, all eight prior solves revalidated. Three automation proofs,
+six replay proofs, three new model proofs. Replay's new square-root AM-GM
+success uses byte-identical generated text from v1 attempt two and passes its
+axiom audit in **42.161 s** under larger Lean budgets. New successes are
+`imo_1984_p2`, `imo_1964_p1_2`, `induction_seq_mul2pnp1`, all first try.
+All three former input timeouts now pass; sole remaining input failure is
+confirmed ambiguous `π` in `aime_1997_p11`.
+
+New generation: **27 calls / 51,620 output tokens / 23.24 minutes summed
+generation time**. All stop normally; **3 pass, 23 Lean-reject, 1 placeholder
+rejection**. Twelve compatible problems remain unsolved. This is accumulated
+development coverage, not standalone model accuracy or causal ablation.
+
+### Repair now receives feedback but frequently repeats the proof
+
+Of twelve second attempts, **11** are actual repairs with full previous code
+and full diagnostics preserved; **1** AM-GM attempt is an explicitly recorded
+fresh-context fallback because repair history exceeds reserved prompt space.
+There is no output cap or silent history truncation in this run.
+
+Five repairs reproduce the candidate exactly: AIME 1988, AIME 1994, factorial
+inequality, rational denominators, and binomial sum. IMO 2006 only removes one
+comment. Thus **6/11 repairs make no substantive proof edit**, and all twelve
+second attempts fail. The earlier missing-feedback explanation no longer
+accounts for these repair failures. One repaired AIME 1996 response regresses
+to explicit `sorry` placeholders, correctly rejected before compilation.
+
+| Remaining problem | Concrete blocker |
+|---|---|
+| `imo_1973_p3` | False auxiliary equality `b = 2*a - 2` inferred from existence of any quartic root |
+| `imo_2006_p3` | Failing large `nlinarith` certificate; repair removes only a comment |
+| `imo_1990_p3` | Treats `2^n + 1` divisibility as congruence to `1` instead of `-1`, plus missing bounds |
+| `aime_1988_p4` | Case/sign enumeration hits 1,000,000 heartbeats in both identical candidates |
+| `aime_1996_p5` | First proof's simplifier reaches recursion limit; repair returns sorry sketch |
+| `aime_1994_p4` | Unannotated finite intervals infer Real indices (`LocallyFiniteOrder ℝ`); same code repeated |
+| `aime_1990_p2` | Square-root/real-power rewrites and final arithmetic remain unproved |
+| `algebra_amgm_prod1toneq1_sum1tongeqn` | NNReal/Real coercion errors and false claim that every factor is at least one |
+| `induction_ineq_nsqlefactn` | Unclosed arithmetic inductive step; identical repair |
+| `numbertheory_xsqpysqintdenomeq` | False denominator-one subgoals, local-name errors; identical repair |
+| `numbertheory_aneqprodakp4_anmsqrtanp1eq2` | Incorrect shifted induction invariant, still false after repair |
+| `numbertheory_sumkmulnckeqnmul2pownm1` | Misapplies `Finset.sum_range_id_mul_two`, whose rewrite pattern lacks binomial coefficients; identical repair |
+
+Counterexamples identify strategy failures rather than mere tactic syntax:
+quartic parameters `a=1`, `b=-4`, root `x=1` satisfy the hypothesis but not
+`b=2*a-2`. Sequence prefix is `1,5,9,49`; the generated shifted subgoal at
+`k=1` asks for `5-sqrt(49)=2`, which is false. Rational denominators and AM-GM
+repeat the false intermediate claims already identified in the v1 audit.
+Original target theorems are not refuted. No new candidate reports an unknown
+global constant; local-name errors and wrong known-lemma applications occur.
+
+Next intervention: detect repeated candidates and prefer a different branch,
+focus repair on the first substantive error/goal, and supply actual types of
+retrieved lemmas. Finite-sum bounds and binomial identities are useful initial
+cases for typed lookup; typing alone does not repair false strategies. Native
+stateful step checking/backtracking is justified as an experiment, not yet a
+measured improvement. Additional token-budget escalation or generic whole-proof
+repair repetition is not supported by this audit. GNN remains optional later
+guidance, with verified solves/cost deciding its value.
 
 ## Verification
 

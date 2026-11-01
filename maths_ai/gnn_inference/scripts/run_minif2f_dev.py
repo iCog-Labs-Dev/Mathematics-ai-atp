@@ -8,6 +8,7 @@ import json
 import math
 from pathlib import Path
 import re
+import time
 
 from maths_ai.gnn_inference.scripts import compare_prover_backends as control
 from maths_ai.gnn_inference.scripts import run_proof_smoke as smoke
@@ -268,7 +269,7 @@ def _replay_source(path, cohort, toolchain, lake_sha):
     text = path.read_text()
     report = json.loads(text)
     manifest = report["manifest"]
-    if (manifest.get("schema") not in {"minif2f_valid_dev_v1", "minif2f_valid_dev_v2"}
+    if (manifest.get("schema") not in {"minif2f_valid_dev_v1", "minif2f_valid_dev_v2", "minif2f_valid_dev_v3"}
             or control._sha(manifest) != report["binding"]
             or manifest["cohort_sha256"] != control._sha(cohort)
             or control._sha(report["cohort"]) != control._sha(cohort)
@@ -279,8 +280,12 @@ def _replay_source(path, cohort, toolchain, lake_sha):
     return report, control._sha(text)
 
 
-def _replay(task, row, source_row, validate, save):
+def _replay(task, row, source_row, validate, save, *, passed_only=False):
     candidates = source_row.get("replays", []) + source_row["attempts"]
+    if source_row.get("search", {}).get("status") == "passed":
+        candidates = candidates + [{"raw_text": source_row["search"]["proof"], "lean": {"status": "passed"}}]
+    if passed_only:
+        candidates = [candidate for candidate in candidates if candidate.get("lean", {}).get("status") == "passed"]
     for index in range(len(row.setdefault("replays", [])), len(candidates)):
         raw = candidates[index]["raw_text"]
         row["replays"].append({"source_attempt": index + 1, "raw_text": raw, "lean": validate(task, raw)})
@@ -297,8 +302,12 @@ def _summary(report):
     after_first = result["newly_solved_by_repair"]
     replayed = sum(any(a["lean"]["status"] == "passed" for a in row.get("replays", []))
                    for row in report["tasks"])
+    search_solved = sum(row.get("search", {}).get("status") == "passed" for row in report["tasks"])
+    search_calls = [call for row in report["tasks"] for call in row.get("search", {}).get("calls", [])]
+    completed_search_calls = sum("raw_text" in call for call in search_calls)
     solved_ids = {row["id"] for row in report["tasks"]
                   if row.get("automation", {}).get("status") == "passed"
+                  or row.get("search", {}).get("status") == "passed"
                   or any(a.get("lean", {}).get("status") == "passed"
                          for a in row["attempts"] + row.get("replays", []))}
     prior_solved = set(report.get("prior_solved_ids", []))
@@ -311,17 +320,22 @@ def _summary(report):
                                            and row.get("automation", {}).get("status") != "passed"
                                            and not any(a["lean"]["status"] == "passed" for a in row.get("replays", []))
                                            for row in report["tasks"]),
-                  model_attempted_tasks=sum(bool(row["attempts"]) for row in report["tasks"]),
-                  model_solved=model_solved, replayed_solved=replayed,
-                  model_only_solved=result["model_only_solved"] + replayed,
+                  model_attempted_tasks=sum(bool(row["attempts"] or row.get("search", {}).get("calls"))
+                                            for row in report["tasks"]),
+                  model_solved=model_solved + search_solved, replayed_solved=replayed,
+                  search_solved=search_solved, search_calls=completed_search_calls,
+                  search_duplicate_candidates=sum(row.get("search", {}).get("duplicates", 0) for row in report["tasks"]),
+                  model_only_solved=result["model_only_solved"] + replayed + search_solved,
                   newly_solved_after_first=after_first, newly_solved_by_repair=repaired,
                   newly_solved_by_resample=after_first - repaired,
-                  cumulative_model_calls=report.get("prior_model_calls", 0) + result["model_calls"],
+                  model_calls=result["model_calls"] + completed_search_calls,
+                  generation_requests_started=result["generation_requests_started"] + len(search_calls),
+                  cumulative_model_calls=report.get("prior_model_calls", 0) + result["model_calls"] + completed_search_calls,
                   prior_solves_revalidated=len(prior_solved & solved_ids),
                   additional_solved_since_source=len(solved_ids - prior_solved) if "prior_solved_ids" in report else 0,
                   pending_model_tasks=sum(row.get("input_status") == "passed" and not row.get("complete")
                                           for row in report["tasks"]),
-                  combined_solved=result["automation_solved"] + result["model_only_solved"] + replayed,
+                  combined_solved=result["automation_solved"] + result["model_only_solved"] + replayed + search_solved,
                   note="miniF2F-valid development subset; not official test, not pretraining-held-out accuracy.")
     return result
 
@@ -335,6 +349,8 @@ def main(argv=None):
     parser.add_argument("--baseline-only", action="store_true")
     parser.add_argument("--replay-report", type=Path,
                         help="Recheck saved model outputs in a new run before spending inference")
+    parser.add_argument("--replay-passed-only", action="store_true",
+                        help="Revalidate prior successes without rerunning known failed candidates")
     parser.add_argument("--allow-environment-port", action="store_true")
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--dtype", choices=("bfloat16", "float16"), default="bfloat16")
@@ -344,12 +360,27 @@ def main(argv=None):
     parser.add_argument("--max-attempts", type=int, choices=(1, 2), default=2)
     parser.add_argument("--proof-style", choices=("concise", "detailed"), default="concise")
     parser.add_argument("--retry-mode", choices=("auto", "resample"), default="auto")
+    parser.add_argument("--proof-engine", choices=("whole", "search"), default="whole")
+    parser.add_argument("--search-model-calls", type=int, default=8)
+    parser.add_argument("--search-tactic-trials", type=int, default=24)
+    parser.add_argument("--search-nodes", type=int, default=24)
+    parser.add_argument("--search-depth", type=int, default=8)
+    parser.add_argument("--search-branching", type=int, choices=(1, 2, 3, 4), default=3)
+    parser.add_argument("--search-seconds", type=float, default=600)
+    parser.add_argument("--search-tactic-timeout", type=float, default=20)
     parser.add_argument("--max-heartbeats", type=int, default=200000)
     parser.add_argument("--max-rec-depth", type=int, default=1000)
     parser.add_argument("--lean-timeout", type=float, default=120)
     parser.add_argument("--request-timeout", type=float, default=300)
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args(argv)
+    search_budget, native_search = None, None
+    if args.proof_engine == "search":
+        from maths_ai.gnn_inference.scripts import proof_search as native_search
+        search_budget = native_search.SearchBudget(
+            model_calls=args.search_model_calls, tactic_trials=args.search_tactic_trials,
+            nodes=args.search_nodes, depth=args.search_depth, seconds=args.search_seconds,
+            tactic_timeout=args.search_tactic_timeout)
     if (args.per_group < 1 or args.seed < 0 or args.context_tokens <= args.max_new_tokens
             or args.max_new_tokens < 1 or args.max_heartbeats < 1 or args.max_rec_depth < 1
             or not math.isfinite(args.lean_timeout) or args.lean_timeout <= 0
@@ -377,7 +408,7 @@ def main(argv=None):
                           if args.replay_report else (None, None))
     if args.replay_report and args.replay_report.resolve() == (args.output_dir / "report.json").resolve():
         raise ValueError("Replay source must be a separate report")
-    manifest = {"schema": "minif2f_valid_dev_v2", "cohort_sha256": control._sha(cohort),
+    manifest = {"schema": "minif2f_valid_dev_v3", "cohort_sha256": control._sha(cohort),
                 "environment_mode": "upstream_pins" if exact else "explicit_development_port",
                 "toolchain": context[1], "mathlib_revision": mathlib,
                 "lake_manifest_sha256": lake_sha, "seed": args.seed,
@@ -385,8 +416,14 @@ def main(argv=None):
                 "context_tokens": args.context_tokens, "max_new_tokens": args.max_new_tokens,
                 "max_attempts": args.max_attempts, "lean_timeout": args.lean_timeout,
                 "proof_style": args.proof_style, "retry_mode": args.retry_mode,
+                "proof_engine": args.proof_engine,
+                "search_budget": vars(search_budget) if search_budget else None,
+                "search_branching": args.search_branching if search_budget else None,
+                "search_controller_sha256": control._sha(Path(native_search.__file__).read_text()) if native_search else None,
+                "search_helper_sha256": control._sha(native_search.LEAN_HELPER.read_text()) if native_search else None,
                 "max_heartbeats": args.max_heartbeats, "max_rec_depth": args.max_rec_depth,
                 "replay_report_sha256": replay_sha,
+                "replay_passed_only": args.replay_passed_only,
                 "request_timeout": args.request_timeout, "dtype": args.dtype, "device": args.device,
                 "runtime": control._runtime(), "runner_sha256": control._sha(Path(__file__).read_text()),
                 "smoke_sha256": control._sha(Path(smoke.__file__).read_text()),
@@ -397,9 +434,11 @@ def main(argv=None):
                "tasks": [{"id": task["id"], "attempts": []} for task in tasks]}
     if replay:
         report["prior_model_calls"] = replay.get("prior_model_calls", 0) + sum(
-            len(row["attempts"]) for row in replay["tasks"])
+            len(row["attempts"]) + sum("raw_text" in call for call in row.get("search", {}).get("calls", []))
+            for row in replay["tasks"])
         report["prior_solved_ids"] = [row["id"] for row in replay["tasks"]
                                       if row.get("automation", {}).get("status") == "passed"
+                                      or row.get("search", {}).get("status") == "passed"
                                       or any(a.get("lean", {}).get("status") == "passed"
                                              for a in row["attempts"] + row.get("replays", []))]
     if path.exists():
@@ -434,7 +473,7 @@ def main(argv=None):
     if replay:
         for task, row, source_row in zip(tasks, report["tasks"], replay["tasks"]):
             if not row.get("complete"):
-                _replay(task, row, source_row, validate, save)
+                _replay(task, row, source_row, validate, save, passed_only=args.replay_passed_only)
                 print(json.dumps({"task": task["id"], "replayed": len(row["replays"]),
                                   "replayed_solved": row.get("complete", False)}), flush=True)
     report["summary"] = _summary(report)
@@ -449,21 +488,50 @@ def main(argv=None):
         with ExitStack() as stack:
             model = None
 
-            def generate(messages, seed):
+            def generate(messages, seed, remaining_seconds=None):
                 nonlocal model
+                started = time.monotonic()
                 messages, rendered, ids, prompt_mode = _fit_prompt(tokenizer, messages, args)
                 if model is None:
                     model = stack.enter_context(control.ReferenceGenerator(args, tokenizer))
-                result = model.generate(ids, seed)
+                timeout = args.request_timeout
+                if remaining_seconds is not None:
+                    left = remaining_seconds - (time.monotonic() - started)
+                    if left <= 0:
+                        raise TimeoutError("Search time budget exhausted during model initialization")
+                    args.request_timeout = min(timeout, left)
+                try:
+                    result = model.generate(ids, seed)
+                    result["request_time_budget"] = args.request_timeout
+                finally:
+                    args.request_timeout = timeout
                 result.update(messages=messages, prompt_mode=prompt_mode,
                               prompt_sha256=control._sha(rendered), input_ids_sha256=control._sha(ids))
                 return result
 
             try:
-                smoke._run(report, generate, validate, save, args.max_attempts, args.seed, tasks=tasks,
-                           messages_factory=lambda task, previous: _messages(
-                               task, previous, proof_style=args.proof_style, retry_mode=args.retry_mode),
-                           automation_first=True)
+                if native_search:
+                    for index, (task, row) in enumerate(zip(tasks, report["tasks"])):
+                        if row.get("complete"):
+                            continue
+                        native_search.search(
+                            task, row.setdefault("search", {}), generate,
+                            lambda task, raw, left: _validate(task, raw, context, min(args.lean_timeout, left),
+                                                             args.max_heartbeats, args.max_rec_depth),
+                            save, lambda left: native_search.NativeSession(
+                                task, context, heartbeats=args.max_heartbeats, rec_depth=args.max_rec_depth,
+                                timeout=min(args.lean_timeout, left)),
+                            budget=search_budget, branching=args.search_branching, seed=args.seed + index * 100)
+                        row["complete"] = True
+                        report["summary"] = _summary(report)
+                        save()
+                        print(json.dumps({"task": task["id"], "search": row["search"]["status"],
+                                          "calls": len(row["search"]["calls"])}), flush=True)
+                else:
+                    smoke._run(report, generate, validate, save, args.max_attempts, args.seed, tasks=tasks,
+                               messages_factory=lambda task, previous: _messages(
+                                   task, previous, proof_style=args.proof_style, retry_mode=args.retry_mode),
+                               automation_first=True)
             except Exception as error:
                 report["operational_error"] = {"type": type(error).__name__, "message": str(error)}
                 report["summary"] = _summary(report)
