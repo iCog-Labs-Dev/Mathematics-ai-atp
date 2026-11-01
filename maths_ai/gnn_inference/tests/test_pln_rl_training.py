@@ -29,6 +29,12 @@ from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import (
     compute_transition_loss,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.pln_reward import RewardConfig
+from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import (
+    ArgumentReference,
+    CandidatePoolSnapshot,
+    fingerprint,
+)
+from maths_ai.gnn_inference.atp_lean_gnn.retrieval_artifacts import goal_query
 from maths_ai.gnn_inference.atp_lean_gnn.search_harvest import (
     CriticSample,
     TacticImitationSample,
@@ -47,6 +53,16 @@ def _goal(expression: str):
 
 def _fingerprint(goal) -> str:
     return str(dag_fingerprint(model_goal_to_dag(goal)))
+
+
+def _local_pool(goal, featurize) -> CandidatePoolSnapshot:
+    """The goal's local-only candidate pool, as live collection retrieves it."""
+    data = featurize(goal)
+    return CandidatePoolSnapshot(
+        tuple(data.premise_mask.nonzero().flatten().tolist()),
+        graph_fingerprint=str(data.graph_fingerprint),
+        query_fingerprint=fingerprint(goal_query(goal)),
+    )
 
 
 class PLNRLTrainingTests(unittest.TestCase):
@@ -133,9 +149,17 @@ class HTPSStyleStepTests(unittest.TestCase):
         vocab = build_vocab(dags)
         featurize = make_featurizer(vocab)
         model = actor_critic(len(vocab), 3, dropout=0.0)
+        pool_a, pool_b = (_local_pool(_goal(g), featurize) for g in (self.GOAL_A, self.GOAL_B))
         tactic_batch = [
-            TacticImitationSample(goal=_goal(self.GOAL_A), graph_fingerprint=_fingerprint(_goal(self.GOAL_A)), tactic_id=1, arg_indices=(0,)),
-            TacticImitationSample(goal=_goal(self.GOAL_B), graph_fingerprint=_fingerprint(_goal(self.GOAL_B)), tactic_id=2),
+            TacticImitationSample(
+                goal=_goal(self.GOAL_A), graph_fingerprint=_fingerprint(_goal(self.GOAL_A)),
+                tactic_id=1, candidate_pool=pool_a,
+                arguments=(ArgumentReference("local", pool_a.local_ids[0]),),
+            ),
+            TacticImitationSample(
+                goal=_goal(self.GOAL_B), graph_fingerprint=_fingerprint(_goal(self.GOAL_B)),
+                tactic_id=2, candidate_pool=pool_b,
+            ),
         ]
         critic_batch = [
             CriticSample(
@@ -190,21 +214,21 @@ class HTPSStyleStepTests(unittest.TestCase):
         # No imitation rows ⇒ the CE over labels==-1 must be exactly 0.
         self.assertEqual(metrics["tactic_imitation_loss"], 0.0)
 
-    def test_out_of_range_arg_indices_are_masked(self):
+    def test_an_argument_outside_its_pool_is_rejected(self):
         model, featurize, _tactic, _critic = self._setup()
         opt = AdamW(model.parameters(), lr=0.01)
-        # 10_000 exceeds every graph's node count; forced_step must treat it as
-        # invalid (log-prob 0), leaving the loss finite.
+        # 10_000 is no candidate of the goal's pool: the stored action cannot be
+        # scored against the support it claims, so the step refuses it.
         bad_goal = _goal(self.GOAL_A)
         bad = [TacticImitationSample(
             goal=bad_goal,
             graph_fingerprint=_fingerprint(bad_goal),
             tactic_id=1,
-            arg_indices=(10_000, -1),
+            candidate_pool=_local_pool(bad_goal, featurize),
+            arguments=(ArgumentReference("local", 10_000),),
         )]
-        metrics = train_step_htps_style(model, opt, bad, [], featurize)
-        self.assertTrue(torch.isfinite(torch.tensor(metrics["htps_total_loss"])))
-        self.assertEqual(metrics["num_imitation_rows"], 1.0)
+        with self.assertRaisesRegex(ValueError, "outside its collection candidate support"):
+            train_step_htps_style(model, opt, bad, [], featurize)
 
 
 if __name__ == "__main__":

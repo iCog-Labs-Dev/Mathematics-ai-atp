@@ -16,6 +16,7 @@ from torch.utils.data import Dataset
 from torch_geometric.loader import DataLoader
 
 from .batching import GraphBudgetBatchSampler, GraphSize
+from .policy_actions import local_pools
 from .argument_training import (
     evaluate_model_with_args,
     train_one_epoch_with_args,
@@ -43,7 +44,7 @@ DEFAULT_BASELINE_CONFIG_PATH = Path("configs") / "baseline_graphsage_state.json"
 DEFAULT_POINTER_CONFIG_PATH = Path("configs") / "pointer_graphsage_state.json"
 DEFAULT_ACTOR_CRITIC_CONFIG_PATH = Path("configs") / "actor_critic_graphsage_state.json"
 REQUIRED_DATA_FIELDS = ("x", "node_type", "edge_index", "y", "split", "row_index", "tactic_name")
-REQUIRED_POINTER_DATA_FIELDS = REQUIRED_DATA_FIELDS + ("premise_mask", "arg_node_indices")
+REQUIRED_POINTER_DATA_FIELDS = REQUIRED_DATA_FIELDS + ("premise_mask", "arg_node_indices", "arg_lemma_ids", "arg_count", "action_target_supported")
 
 
 def _default_model_spec() -> ModelSpec:
@@ -276,7 +277,6 @@ class ActorCriticConfig:
     seed: int = 42
     device: str = "auto"
     edge_mode: str = "bidirectional"
-    arg_loss_weight: float = 0.5
     critic_weight: float = 0.5
     entropy_weight: float = 0.01
     arg_lr_multiplier: float = 0.1
@@ -289,6 +289,8 @@ class ActorCriticConfig:
         if "prepared_root" not in payload:
             raise ValueError("Training config is missing the required 'prepared_root' field.")
 
+        if "arg_loss_weight" in payload:
+            raise ValueError("Remove arg_loss_weight: source-aware actor training uses the complete action likelihood.")
         model_payload = payload.get("model", {})
         training_payload = payload.get("training", {})
         return cls(
@@ -297,7 +299,6 @@ class ActorCriticConfig:
             seed=int(payload.get("seed", 42)),
             device=str(payload.get("device", "auto")),
             edge_mode=str(payload.get("edge_mode", "bidirectional")),
-            arg_loss_weight=float(payload.get("arg_loss_weight", 0.5)),
             critic_weight=float(payload.get("critic_weight", 0.5)),
             entropy_weight=float(payload.get("entropy_weight", 0.01)),
             arg_lr_multiplier=float(payload.get("arg_lr_multiplier", 0.1)),
@@ -329,8 +330,6 @@ class ActorCriticConfig:
         if device not in {"auto", "cpu", "cuda"}:
             raise ValueError("Training config field 'device' must be one of: auto, cpu, cuda.")
 
-        if self.arg_loss_weight < 0:
-            raise ValueError("Training config field 'arg_loss_weight' cannot be negative.")
         if self.critic_weight < 0:
             raise ValueError("Training config field 'critic_weight' cannot be negative.")
         if self.entropy_weight < 0:
@@ -345,7 +344,6 @@ class ActorCriticConfig:
             seed=self.seed,
             device=device,
             edge_mode=edge_mode,
-            arg_loss_weight=self.arg_loss_weight,
             critic_weight=self.critic_weight,
             entropy_weight=self.entropy_weight,
             arg_lr_multiplier=self.arg_lr_multiplier,
@@ -361,7 +359,6 @@ class ActorCriticConfig:
             "seed": self.seed,
             "device": self.device,
             "edge_mode": self.edge_mode,
-            "arg_loss_weight": self.arg_loss_weight,
             "critic_weight": self.critic_weight,
             "entropy_weight": self.entropy_weight,
             "arg_lr_multiplier": self.arg_lr_multiplier,
@@ -478,7 +475,8 @@ def load_actor_critic_config(
     return ActorCriticConfig.from_dict(payload)
 
 
-def load_prepared_metadata(prepared_root: str | Path) -> PreparedMetadata:
+def load_prepared_metadata(prepared_root: str | Path, *, splits: tuple[str, ...] = CANONICAL_SPLITS) -> PreparedMetadata:
+    """Load model contracts; callers request only the dataset splits they consume."""
     root = Path(prepared_root)
     if not root.exists():
         raise FileNotFoundError(f"Prepared dataset root '{root}' does not exist.")
@@ -513,7 +511,9 @@ def load_prepared_metadata(prepared_root: str | Path) -> PreparedMetadata:
         )
 
     manifests: dict[str, dict[str, object]] = {}
-    for split in CANONICAL_SPLITS:
+    for split in splits:
+        if split not in CANONICAL_SPLITS:
+            raise ValueError(f"Unsupported prepared split: {split}")
         manifest_path = root / "manifests" / f"{split}.json"
         if not manifest_path.exists():
             raise FileNotFoundError(f"Prepared dataset is missing manifest '{manifest_path}'.")
@@ -1315,6 +1315,7 @@ def train_baseline(
 def train_pointer(
     config: PointerConfig,
     *,
+    candidate_provider,
     resume_run_dir: str | Path | None = None,
 ) -> dict[str, object]:
     """Train pointer-based argument selection model."""
@@ -1422,6 +1423,7 @@ def train_pointer(
             grad_clip=config.training.grad_clip,
             unknown_tactic_id=metadata.unknown_tactic_id,
             arg_loss_weight=config.arg_loss_weight,
+            candidate_provider=candidate_provider,
             epoch=epoch,
             total_epochs=config.training.epochs,
             log_every_batches=config.training.log_every_batches,
@@ -1435,6 +1437,7 @@ def train_pointer(
             device=device,
             unknown_tactic_id=metadata.unknown_tactic_id,
             arg_loss_weight=config.arg_loss_weight,
+            candidate_provider=candidate_provider,
             split_name="val",
             log_every_batches=config.training.log_every_batches,
             use_amp=use_amp,
@@ -1505,6 +1508,7 @@ def train_pointer(
             device=device,
             unknown_tactic_id=metadata.unknown_tactic_id,
             arg_loss_weight=config.arg_loss_weight,
+            candidate_provider=candidate_provider,
             split_name="val",
             log_every_batches=config.training.log_every_batches,
             use_amp=use_amp,
@@ -1522,6 +1526,7 @@ def train_pointer(
             device=device,
             unknown_tactic_id=metadata.unknown_tactic_id,
             arg_loss_weight=config.arg_loss_weight,
+            candidate_provider=candidate_provider,
             split_name="test",
             log_every_batches=config.training.log_every_batches,
             use_amp=use_amp,
@@ -1675,7 +1680,6 @@ def train_actor_critic(
             amp_dtype=amp_dtype,
             critic_weight=config.critic_weight,
             entropy_weight=config.entropy_weight,
-            arg_loss_weight=config.arg_loss_weight,
         )
         val_metrics = evaluate_model_actor_critic(
             model,
@@ -1689,7 +1693,6 @@ def train_actor_critic(
             amp_dtype=amp_dtype,
             critic_weight=config.critic_weight,
             entropy_weight=config.entropy_weight,
-            arg_loss_weight=config.arg_loss_weight,
         )
 
         _append_jsonl(metrics_path, {"epoch": epoch, "train": train_metrics, "val": val_metrics})
@@ -1740,7 +1743,6 @@ def train_actor_critic(
         amp_dtype=amp_dtype,
         critic_weight=config.critic_weight,
         entropy_weight=config.entropy_weight,
-        arg_loss_weight=config.arg_loss_weight,
     )
     _write_eval_file(run_dir, split="test", metrics={"split": "test", "epoch": best_epoch, **test_metrics})
     _write_eval_file(run_dir, split="val", metrics={"split": "val", "epoch": best_epoch, **val_metrics})
@@ -1892,7 +1894,7 @@ def train_main(argv: list[str] | None = None) -> int:
             if args.resume_run_dir:
                 resume_config_path = Path(args.resume_run_dir) / "config.json"
                 config = load_pointer_config(resume_config_path, epochs_override=args.epochs)
-                train_pointer(config, resume_run_dir=args.resume_run_dir)
+                train_pointer(config, candidate_provider=local_pools, resume_run_dir=args.resume_run_dir)
             else:
                 config = load_pointer_config(
                     config_path,
@@ -1900,7 +1902,7 @@ def train_main(argv: list[str] | None = None) -> int:
                     run_root_override=args.run_root,
                     epochs_override=args.epochs,
                 )
-                train_pointer(config)
+                train_pointer(config, candidate_provider=local_pools)
         elif model_type == "actor_critic":
             config_path = args.config or DEFAULT_ACTOR_CRITIC_CONFIG_PATH
             if args.resume_run_dir:

@@ -9,6 +9,7 @@ import torch
 
 from pantograph_async import CertificationResult
 
+from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import LocalCandidateProvider
 from maths_ai.gnn_inference.atp_lean_gnn.rl_reasoner import RLHybridReasoner
 from maths_ai.gnn_inference.atp_lean_gnn.search_harvest import (
     compute_backups,
@@ -72,7 +73,7 @@ class _Scripted(HybridReasoner):
     def __init__(self, proposals, **kwargs):
         self.proposals = proposals
         super().__init__(
-            config_path=None, tactic_model_path=None, argument_model_path=None,
+            config_path=None, tactic_model_path=None, retrieval_config_path=None,
             use_pln=False, **kwargs,
         )
 
@@ -260,6 +261,7 @@ class ReplayLearningTests(unittest.TestCase):
             vocab,
             tactics,
             executor=PantographExecutor(client),
+            candidate_provider=LocalCandidateProvider(),
             top_k_tactics=4,
             use_pln=False,
         )

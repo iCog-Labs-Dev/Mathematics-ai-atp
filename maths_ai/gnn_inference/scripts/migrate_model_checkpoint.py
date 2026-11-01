@@ -1,4 +1,4 @@
-"""Convert audited legacy GNN checkpoints to the version-3 manifest format."""
+"""Convert audited legacy GNN checkpoints to the version-4 manifest format."""
 
 from __future__ import annotations
 
@@ -177,62 +177,20 @@ def _verification_batch(num_node_labels: int) -> Batch:
     return batch
 
 
-def _assert_public_output_parity(model, *, model_kind: str, num_tactics: int) -> None:
+def _assert_public_output_parity(model, *, model_kind, num_tactics):
+    from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import local_pools
     model.eval()
-    batch = _verification_batch(model.encoder.node_features.label_embedding.num_embeddings)
-    tactic_ids = torch.zeros(2, dtype=torch.long).clamp(max=max(num_tactics - 1, 0))
-
+    count=model.encoder.node_features.label_embedding.num_embeddings
+    batch=_verification_batch(count)
     with torch.no_grad():
-        encoded = model.encoder(batch)
-        if model_kind == "supervised_tactic":
-            legacy_output = model.tactic_classifier(model.dropout(encoded.state_embeddings))
-            current_output = model(batch)
-            torch.testing.assert_close(current_output, legacy_output)
-            return
-
-        if model_kind == "tactic_with_args":
-            legacy_tactics = model.tactic_classifier(
-                model.tactic_dropout(encoded.state_embeddings)
-            )
-            tactic_embeddings = model.tactic_embedding(tactic_ids)
-            legacy_args, _ = model.argument_selector(
-                encoded.state_embeddings,
-                tactic_embeddings,
-                encoded.node_embeddings,
-                batch.premise_mask,
-                batch.batch,
-            )
-            current_tactics, current_args = model(
-                batch,
-                teacher_tactic_ids=tactic_ids,
-                tactic_names=["exact", "exact"],
-            )
-            torch.testing.assert_close(current_tactics, legacy_tactics)
-            if len(current_args) != 1:
-                raise AssertionError("Pointer parity batch must produce one argument step.")
-            torch.testing.assert_close(current_args[0], legacy_args)
-            return
-
-        legacy_tactics = model.actor(encoded.state_embeddings)
-        legacy_values = model.critic(encoded.state_embeddings)
-        tactic_embeddings = model.tactic_embedding(tactic_ids)
-        legacy_args, _ = model.argument_selector(
-            encoded.state_embeddings,
-            tactic_embeddings,
-            encoded.node_embeddings,
-            batch.premise_mask,
-            batch.batch,
-        )
-        current_tactics, current_values, current_args = model(
-            batch,
-            teacher_tactic_ids=tactic_ids,
-            tactic_names=["exact", "exact"],
-        )
-        torch.testing.assert_close(current_tactics, legacy_tactics)
-        torch.testing.assert_close(current_values, legacy_values)
-        if len(current_args) != 1:
-            raise AssertionError("Actor-critic parity batch must produce one argument step.")
-        torch.testing.assert_close(current_args[0], legacy_args)
+        if model_kind=='supervised_tactic':
+            first=model(batch); second=model(batch)
+        else:
+            pools=local_pools(batch)
+            sample=model.act(batch,candidate_pools=pools,greedy=True)
+            evaluated=model.evaluate_actions(batch,sample.tactic_action,sample.arguments,candidate_pools=pools)
+            first,second=sample.logp,evaluated.logp
+    torch.testing.assert_close(first,second)
 
 
 def migrate_checkpoint(

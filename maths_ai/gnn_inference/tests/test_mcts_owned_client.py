@@ -17,6 +17,7 @@ from types import MethodType
 import pytest
 import torch
 
+from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import LocalCandidateProvider
 from maths_ai.lean_replay import seed_from_text
 from maths_ai.gnn_inference.atp_lean_gnn.graph import model_goal_to_dag
 from maths_ai.gnn_inference.atp_lean_gnn.pyg import build_vocab
@@ -255,6 +256,7 @@ def _reasoner(client, *, top_k=2, seed=0, **search):
         node_vocab,
         TACTIC_VOCAB,
         executor=PantographExecutor(client),
+        candidate_provider=LocalCandidateProvider(),
         top_k_tactics=top_k,
         max_depth=3,
         max_nodes=20,
@@ -463,6 +465,7 @@ class BatchCompositionTests(unittest.TestCase):
             node_vocab,
             TACTIC_VOCAB,
             executor=PantographExecutor(client),
+            candidate_provider=LocalCandidateProvider(),
             top_k_tactics=1,
             max_depth=3,
             max_nodes=20,
@@ -493,7 +496,8 @@ class BatchCompositionTests(unittest.TestCase):
 
     def test_depth_limited_leaves_are_closed_without_execution(self):
         client = _RecordingClient({0: ["A", "B"]})
-        reasoner = _reasoner(client, **_puct(num_simulations=4))
+        # Enough simulations to reach every leaf of every root edge.
+        reasoner = _reasoner(client, **_puct(num_simulations=8))
         reasoner.max_depth = 1
         result = asyncio.run(reasoner.prove(SEED, proposal=SAMPLE))
         leaves = [

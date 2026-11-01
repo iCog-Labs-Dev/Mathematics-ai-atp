@@ -1,4 +1,5 @@
 from __future__ import annotations
+from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import local_pools
 
 import unittest
 
@@ -171,8 +172,8 @@ class ModelCompositionTests(unittest.TestCase):
                 num_tactics=5,
             )
             self.assertEqual(baseline(batch).shape, (2, 5))
-            self.assertEqual(pointer(batch)[0].shape, (2, 5))
-            self.assertEqual(actor_critic(batch)[0].shape, (2, 5))
+            self.assertEqual(pointer(batch,candidate_pools=local_pools(batch)).tactic_logits.shape, (2, 5))
+            self.assertEqual(actor_critic(batch,candidate_pools=local_pools(batch)).tactic_logits.shape, (2, 5))
 
     def test_checkpoint_reconstructs_gatv2_without_external_architecture(self) -> None:
         spec = _spec("gatv2", readout="state_mean_max_attention")

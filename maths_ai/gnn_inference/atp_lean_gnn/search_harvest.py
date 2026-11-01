@@ -40,6 +40,7 @@ from .graph import dag_fingerprint, model_goal_to_dag
 
 if TYPE_CHECKING:
     from .pln_rl_training import EdgeAction, PolicyObservation
+    from .policy_actions import ArgumentReference, CandidatePoolSnapshot
 
 
 @dataclass(frozen=True)
@@ -72,12 +73,14 @@ class CriticSample:
 
 @dataclass(frozen=True)
 class TacticImitationSample:
-    """One policy action on the kernel-certified proof hypertree."""
+    """One complete policy action on the kernel-certified proof hypertree, with
+    the candidate pool its argument references point into."""
 
     goal: Goal
     graph_fingerprint: str
     tactic_id: int
-    arg_indices: tuple[int, ...] = ()
+    candidate_pool: "CandidatePoolSnapshot"
+    arguments: tuple["ArgumentReference", ...] = ()
 
 
 @dataclass
@@ -377,7 +380,8 @@ def extract_minimal_hypertree(
                 goal=node.goal.require_model_state(),
                 graph_fingerprint=action.graph_fingerprint,
                 tactic_id=action.tactic_id,
-                arg_indices=tuple(action.arg_indices),
+                candidate_pool=action.candidate_pool,
+                arguments=tuple(action.arguments),
             )
         )
     return samples

@@ -243,7 +243,7 @@ def _search(env, statement, proposals, **kwargs):
     async def run():
         async with await create_model_sexpr_client(env) as client:
             reasoner = Deterministic(
-                config_path=None, tactic_model_path=None, argument_model_path=None,
+                config_path=None, tactic_model_path=None, retrieval_config_path=None,
                 executor=PantographExecutor(client), use_pln=False, **kwargs,
             )
             graph = await reasoner.prove(seed_from_text(goal=statement))
@@ -363,7 +363,7 @@ def test_a_cancelled_search_retires_its_session_and_a_new_one_starts_clean(live_
     async def run():
         async with await create_model_sexpr_client(live_env) as client:
             reasoner = Slow(
-                config_path=None, tactic_model_path=None, argument_model_path=None,
+                config_path=None, tactic_model_path=None, retrieval_config_path=None,
                 executor=PantographExecutor(client), use_pln=False, max_nodes=10_000, max_depth=10_000,
             )
             task = asyncio.create_task(reasoner.prove(seed_from_text(goal="True ∧ (True ∧ (True ∧ True))")))
@@ -377,7 +377,7 @@ def test_a_cancelled_search_retires_its_session_and_a_new_one_starts_clean(live_
                 assert (await client.stat()).n_goals == 0
         async with await create_model_sexpr_client(live_env) as fresh:
             reasoner = Slow(
-                config_path=None, tactic_model_path=None, argument_model_path=None,
+                config_path=None, tactic_model_path=None, retrieval_config_path=None,
                 executor=PantographExecutor(fresh), use_pln=False,
             )
             reasoner.predict_next_tactics_for_nodes = lambda nodes, draws=None: [

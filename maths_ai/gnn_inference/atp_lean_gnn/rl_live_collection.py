@@ -169,6 +169,7 @@ class LiveReasonerPool:
         self.model_generation = int(model_generation)
         self.log = log
         self._closed = False
+        self.close_callbacks = []
         self._close_task: asyncio.Task | None = None
         self._collecting = False
         self._collection_task: asyncio.Task | None = None
@@ -320,7 +321,11 @@ class LiveReasonerPool:
         if self._collection_task is not None:
             self._collection_task.cancel()
             await asyncio.gather(self._collection_task, return_exceptions=True)
-        await _close_servers([worker.server for worker in self.workers])
+        try:
+            await _close_servers([worker.server for worker in self.workers])
+        finally:
+            for close in reversed(self.close_callbacks):
+                await close()
 
     def assert_generation(self, model_generation: int) -> None:
         """Require every active replica to contain the canonical snapshot."""

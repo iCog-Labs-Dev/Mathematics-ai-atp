@@ -7,7 +7,7 @@ import unittest
 import torch
 from torch_geometric.data import Batch
 
-from maths_ai.gnn_inference.atp_lean_gnn.actor_critic import action_arity
+from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import CandidatePoolSnapshot, local_pools
 from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
 from maths_ai.gnn_inference.atp_lean_gnn.pyg import build_premise_mask, build_vocab, dag_to_pyg
 from maths_ai.gnn_inference.tests.model_helpers import actor_critic
@@ -46,6 +46,15 @@ def _only(*tactic_ids: int) -> torch.Tensor:
 STATES = ("n : Nat\nh : Even n\n⊢ Even n", "m : Nat\nk : Nat\nh : m = k\n⊢ k = m")
 
 
+def _propose(model, batch, counts, **kwargs):
+    with torch.no_grad():
+        return model.propose_actions(batch, counts, candidate_pools=local_pools(batch), **kwargs)
+
+
+def _refs(sample, instance):
+    return [(ref.source, ref.identity) for ref in sample.arguments[instance]]
+
+
 class ProposalModeTests(unittest.TestCase):
     def setUp(self):
         torch.manual_seed(0)
@@ -54,113 +63,84 @@ class ProposalModeTests(unittest.TestCase):
         self.model.eval()
         self.batch = Batch.from_data_list(self.datas)
 
-    def act(self, batch=None, **kwargs):
-        with torch.no_grad():
-            return self.model.act(batch or self.batch, id_to_tactic=ID_TO_TACTIC, **kwargs)
+    def propose(self, counts=(1, 1), **kwargs):
+        return _propose(self.model, self.batch, list(counts), **kwargs)
 
     def test_greedy_chooses_the_tactic_and_every_argument_by_argmax(self):
-        # An argument-bearing tactic: greedy must not sample its pointer step.
+        # Greedy must not sample the argument count, source or identity.
         samples = [
-            self.act(greedy=True, tactic_mask=_only(1, 1), generator=torch.Generator().manual_seed(seed))
+            self.propose(greedy=True, generator=torch.Generator().manual_seed(seed))[0]
             for seed in range(5)
         ]
         for sample in samples[1:]:
             self.assertTrue(torch.equal(sample.tactic_action, samples[0].tactic_action))
-            for step, first in zip(sample.arg_actions, samples[0].arg_actions):
-                self.assertTrue(torch.equal(step, first))
-        self.assertTrue(torch.equal(samples[0].tactic_action, torch.tensor([1, 1])))
-        self.assertEqual(len(samples[0].arg_actions), 2)
+            self.assertEqual(sample.arguments, samples[0].arguments)
 
     def test_greedy_takes_the_argmax_family(self):
         with torch.no_grad():
             _nodes, _state, logits, _values = self.model.encode(self.batch)
-        sample = self.act(greedy=True)
+        sample, _rows = self.propose(greedy=True)
         self.assertTrue(torch.equal(sample.tactic_action, logits.argmax(dim=1)))
 
     def test_sampling_explores_tactic_families_and_arguments(self):
         families, arguments = set(), set()
         generator = torch.Generator().manual_seed(0)
-        for _ in range(64):
-            sample = self.act(generator=generator)
-            families.add(int(sample.tactic_action[0]))
-            forced = self.act(tactic_mask=_only(0, 0), generator=generator)
-            arguments.add(int(forced.arg_actions[0][0]))
+        for _ in range(32):
+            sample, _rows = self.propose((8, 8), generator=generator)
+            families.update(int(t) for t in sample.tactic_action)
+            arguments.update(tuple(_refs(sample, i)) for i in range(len(sample.arguments)))
         self.assertGreater(len(families), 1)
         self.assertGreater(len(arguments), 1)
 
     def test_a_seed_reproduces_its_draws_without_touching_the_global_rng(self):
         before = torch.get_rng_state()
-        first = self.act(generator=torch.Generator().manual_seed(7))
-        second = self.act(generator=torch.Generator().manual_seed(7))
+        first, _ = self.propose((3, 3), generator=torch.Generator().manual_seed(7))
+        second, _ = self.propose((3, 3), generator=torch.Generator().manual_seed(7))
         self.assertTrue(torch.equal(torch.get_rng_state(), before))
         self.assertTrue(torch.equal(first.tactic_action, second.tactic_action))
-        for a, b in zip(first.arg_actions, second.arg_actions):
-            self.assertTrue(torch.equal(a, b))
+        self.assertEqual(first.arguments, second.arguments)
 
 
-class ArityTests(unittest.TestCase):
+class DecoderTests(unittest.TestCase):
+    """The complete action law: tactic, argument count, then source and identity."""
+
     def setUp(self):
         torch.manual_seed(0)
         self.datas, self.vocab = _graphs(*STATES)
         self.model = actor_critic(len(self.vocab), len(ID_TO_TACTIC))
         self.model.eval()
 
-    def act(self, datas, mask, **kwargs):
+    def test_an_empty_pool_proposes_no_arguments(self):
+        batch = Batch.from_data_list(self.datas[:1])
+        empty = (CandidatePoolSnapshot(()),)
         with torch.no_grad():
-            return self.model.act(
-                Batch.from_data_list(datas),
-                id_to_tactic=ID_TO_TACTIC,
-                tactic_mask=mask,
-                greedy=True,
-                **kwargs,
+            sample, _rows = self.model.propose_actions(
+                batch, [16], candidate_pools=empty, generator=torch.Generator().manual_seed(0)
             )
+        self.assertTrue(all(args == () for args in sample.arguments))
+        # The only legal count is zero, so it carries no probability mass away.
+        self.assertTrue(torch.allclose(sample.count_logp, torch.zeros(16), atol=1e-6))
+        self.assertTrue(torch.equal(sample.source_logp, torch.zeros(16)))
 
-    def test_arity_resolution(self):
-        self.assertEqual(action_arity("trivial", 3), (0, True))
-        self.assertEqual(action_arity("exact", 3), (1, True))
-        self.assertEqual(action_arity("have", 3), (2, True))
-        self.assertEqual(action_arity("have", 1), (1, False))
-        self.assertEqual(action_arity("<UNK>", 3), (0, False))
-        self.assertEqual(action_arity(None, 3), (0, False))
-
-    def test_a_shorter_row_sums_only_its_own_steps(self):
-        alone = self.act(self.datas[:1], _only(0))
-        mixed = self.act(self.datas, _only(0, 1))
-        self.assertEqual(mixed.arities.tolist(), [1, 2])
-        self.assertEqual(len(mixed.arg_actions), 2)
-        # A higher-arity row in the batch adds a step the exact row does not own.
-        self.assertAlmostEqual(float(mixed.arg_logp[0]), float(alone.arg_logp[0]), places=5)
-        self.assertAlmostEqual(
-            float(mixed.arg_logp[1]),
-            float(mixed.arg_step_logp[0][1] + mixed.arg_step_logp[1][1]),
-            places=5,
+    def test_every_argument_is_inside_its_own_graph_pool(self):
+        batch = Batch.from_data_list(self.datas)
+        pools = local_pools(batch)
+        sample, rows = _propose(
+            self.model, batch, [16, 16], generator=torch.Generator().manual_seed(2)
         )
+        for instance, row in enumerate(rows.tolist()):
+            pools[row].validate(sample.arguments[instance])
+            self.assertLessEqual(len(sample.arguments[instance]), self.model.max_args)
 
-    def test_a_zero_argument_action_has_no_argument_probability(self):
-        sample = self.act(self.datas, _only(2, 0))
-        self.assertEqual(sample.arities.tolist(), [0, 1])
-        self.assertEqual(float(sample.arg_logp[0]), 0.0)
-        self.assertLess(float(sample.arg_logp[1]), 0.0)
-
-    def test_a_tactic_beyond_max_args_is_incomplete(self):
-        model = actor_critic(len(self.vocab), len(ID_TO_TACTIC), max_args=1)
-        model.eval()
-        with torch.no_grad():
-            sample = model.act(
-                Batch.from_data_list(self.datas[:1]),
-                id_to_tactic=ID_TO_TACTIC,
-                tactic_mask=_only(1),
-                greedy=True,
-            )
-        self.assertEqual(sample.arities.tolist(), [1])
-        self.assertEqual(sample.complete.tolist(), [False])
-
-    def test_a_row_without_a_legal_premise_marks_its_step_invalid(self):
-        datas, _vocab = _graphs(*STATES)
-        datas[0].premise_mask = torch.zeros_like(datas[0].premise_mask)
-        sample = self.act(datas, _only(0, 0))
-        self.assertEqual([bool(v) for v in sample.arg_step_valid[0]], [False, True])
-        self.assertEqual(float(sample.arg_logp[0]), 0.0)
+    def test_the_prior_is_the_complete_action_log_probability(self):
+        batch = Batch.from_data_list(self.datas)
+        sample, _rows = _propose(
+            self.model, batch, [1, 1], generator=torch.Generator().manual_seed(4)
+        )
+        self.assertTrue(torch.allclose(
+            sample.logp,
+            sample.tactic_logp + sample.count_logp + sample.source_logp + sample.identity_logp,
+        ))
 
 
 class EncodeOnceTests(unittest.TestCase):
@@ -174,8 +154,7 @@ class EncodeOnceTests(unittest.TestCase):
         self.batch = Batch.from_data_list(self.datas)
 
     def propose(self, counts, **kwargs):
-        with torch.no_grad():
-            return self.model.propose_actions(self.batch, counts, id_to_tactic=ID_TO_TACTIC, **kwargs)
+        return _propose(self.model, self.batch, counts, **kwargs)
 
     def test_one_encoder_pass_for_a_multi_draw_round(self):
         calls = []
@@ -185,32 +164,30 @@ class EncodeOnceTests(unittest.TestCase):
         self.assertEqual(calls, [3])
         self.assertEqual(rows.tolist(), [0, 0, 0, 0, 1, 1, 2])
         self.assertEqual(sample.tactic_action.shape, (7,))
+        self.assertEqual(len(sample.arguments), 7)
 
     def test_unequal_counts_give_exactly_the_requested_instances(self):
         sample, rows = self.propose([0, 3, 1], generator=torch.Generator().manual_seed(1))
         self.assertEqual(rows.tolist(), [1, 1, 1, 2])
-        self.assertEqual(sample.arities.shape, (4,))
+        self.assertEqual(sample.count_logp.shape, (4,))
         with self.assertRaises(ValueError):
             self.propose([1, 1])
 
-    def test_each_instance_has_its_own_conditional_argument_probability(self):
-        mask = torch.zeros(3, len(ID_TO_TACTIC), dtype=torch.bool)
-        mask[:, [0, 1]] = True  # exact (one argument) or have (two)
-        sample, rows = self.propose([3, 3, 3], generator=torch.Generator().manual_seed(3), tactic_mask=mask)
+    def test_each_instance_prior_equals_its_recomputed_probability(self):
+        sample, rows = self.propose([3, 3, 3], generator=torch.Generator().manual_seed(3))
+        pools = local_pools(self.batch)
         for instance, row in enumerate(rows.tolist()):
-            arity = int(sample.arities[instance])
-            args = torch.tensor([[int(step[instance]) for step in sample.arg_actions[:arity]]])
             with torch.no_grad():
-                tactic_logp, arg_logp, *_ = self.model.evaluate_actions(
+                evaluated = self.model.evaluate_actions(
                     Batch.from_data_list([self.datas[row]]),
                     sample.tactic_action[instance : instance + 1],
-                    args,
-                    tactic_mask=mask[row : row + 1],
+                    [sample.arguments[instance]],
+                    candidate_pools=(pools[row],),
                 )
             # The instance's prior equals the recomputed probability of its own
-            # tactic and arguments on its own state.
-            self.assertAlmostEqual(float(sample.tactic_logp[instance]), float(tactic_logp[0]), places=5)
-            self.assertAlmostEqual(float(sample.arg_logp[instance]), float(arg_logp[0]), places=5)
+            # tactic and arguments on its own state: the on-policy invariant.
+            self.assertAlmostEqual(float(sample.tactic_logp[instance]), float(evaluated.tactic_logp[0]), places=5)
+            self.assertAlmostEqual(float(sample.arg_logp[instance]), float(evaluated.arg_logp[0]), places=5)
 
     def test_a_fixed_seed_repeats_and_leaves_the_global_rng_alone(self):
         before = torch.get_rng_state()
@@ -218,8 +195,7 @@ class EncodeOnceTests(unittest.TestCase):
         second, _ = self.propose([2, 2, 2], generator=torch.Generator().manual_seed(7))
         self.assertTrue(torch.equal(torch.get_rng_state(), before))
         self.assertTrue(torch.equal(first.tactic_action, second.tactic_action))
-        for a, b in zip(first.arg_actions, second.arg_actions):
-            self.assertTrue(torch.equal(a, b))
+        self.assertEqual(first.arguments, second.arguments)
         self.assertTrue(torch.allclose(first.arg_logp, second.arg_logp))
 
 

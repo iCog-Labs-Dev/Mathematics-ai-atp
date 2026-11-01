@@ -43,6 +43,7 @@ if __package__ in {None, ""}:
         sys.path.insert(0, repo_root_str)
 
 
+from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import local_pools
 from maths_ai.gnn_inference.atp_lean_gnn.reporting import console_print
 
 
@@ -357,7 +358,7 @@ def run_pointer(config: dict[str, Any], resume_run_dir: str | None = None) -> di
         },
     })
 
-    summary = train_pointer(cfg, resume_run_dir=resume_run_dir)
+    summary = train_pointer(cfg, candidate_provider=local_pools, resume_run_dir=resume_run_dir)
     best_checkpoint = summary.get("best_checkpoint", "")
 
     # Create best_run symlink
@@ -512,8 +513,8 @@ def run_scorer(config: dict[str, Any]) -> dict[str, Any]:
     scorer = PremiseScorer(hidden_dim=checkpoint_spec.hidden_dim, mode=p_config_obj.scoring_mode).to(device)
 
     trainable_params = (
-        list(model.tactic_embedding.parameters())
-        + list(model.argument_selector.parameters())
+        list(model.decoder.tactic_embedding.parameters())
+        + list(model.decoder.argument_selector.parameters())
         + list(scorer.parameters())
     )
     optimizer = AdamW(trainable_params, lr=p_config.training.learning_rate, weight_decay=p_config.training.weight_decay)
@@ -530,6 +531,7 @@ def run_scorer(config: dict[str, Any]) -> dict[str, Any]:
             device=device, grad_clip=p_config.training.grad_clip,
             unknown_tactic_id=metadata.unknown_tactic_id,
             arg_loss_weight=p_config.arg_loss_weight if hasattr(p_config, "arg_loss_weight") else 0.5,
+            candidate_provider=local_pools,
             premise_loss_weight=p_config_obj.premise_loss_weight,
             k=p_config_obj.k, epoch=epoch, total_epochs=scorer_cfg["epochs"],
             log_every_batches=p_config.training.log_every_batches,
@@ -542,6 +544,7 @@ def run_scorer(config: dict[str, Any]) -> dict[str, Any]:
             lemma_index=lemma_index, device=device,
             unknown_tactic_id=metadata.unknown_tactic_id,
             arg_loss_weight=p_config.arg_loss_weight if hasattr(p_config, "arg_loss_weight") else 0.5,
+            candidate_provider=local_pools,
             premise_loss_weight=p_config_obj.premise_loss_weight,
             k=p_config_obj.k, split_name="val",
             log_every_batches=p_config.training.log_every_batches,

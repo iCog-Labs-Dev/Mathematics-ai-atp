@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -16,6 +17,9 @@ class ModelSpec:
     encoder: Mapping[str, object]
     use_node_type: bool
     max_args: int
+    text_dim: int = 384
+    local_type_bonus_strength: float = 0.0
+    retrieval_binding: str = ""
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> "ModelSpec":
@@ -26,6 +30,9 @@ class ModelSpec:
             "encoder",
             "use_node_type",
             "max_args",
+            "text_dim",
+            "local_type_bonus_strength",
+            "retrieval_binding",
         }
         unknown = sorted(set(payload) - allowed)
         if unknown:
@@ -54,6 +61,14 @@ class ModelSpec:
             raise ValueError(
                 "model.hidden_dim must be divisible by model.encoder.heads for GATv2."
             )
+        text_dim = int(payload.get("text_dim", 384))
+        strength = float(payload.get("local_type_bonus_strength", 0.0))
+        if text_dim < 1 or not math.isfinite(strength) or strength < 0:
+            raise ValueError(
+                "Text dimension must be positive and type bonus finite/nonnegative."
+            )
+        if not isinstance(payload.get("retrieval_binding", ""), str):
+            raise ValueError("model.retrieval_binding must be a string.")
         return cls(
             architecture=architecture,
             hidden_dim=hidden_dim,
@@ -61,6 +76,9 @@ class ModelSpec:
             encoder=encoder,
             use_node_type=use_node_type,
             max_args=max_args,
+            text_dim=text_dim,
+            local_type_bonus_strength=strength,
+            retrieval_binding=str(payload.get("retrieval_binding", "")),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -71,4 +89,7 @@ class ModelSpec:
             "encoder": dict(self.encoder),
             "use_node_type": self.use_node_type,
             "max_args": self.max_args,
+            "text_dim": self.text_dim,
+            "local_type_bonus_strength": self.local_type_bonus_strength,
+            "retrieval_binding": self.retrieval_binding,
         }

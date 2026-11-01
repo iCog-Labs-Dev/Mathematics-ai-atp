@@ -20,6 +20,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import (
     ObservationOutcome,
     PolicyObservation,
 )
+from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import CandidatePoolSnapshot
 from maths_ai.gnn_inference.tests.model_helpers import certify_witness, scored, structured_goal
 from maths_ai.gnn_inference.atp_lean_gnn.search_harvest import (
     HarvestConfig,
@@ -178,7 +179,11 @@ class ValidityHarvestTests(unittest.TestCase):
             PolicyObservation(
                 node_id=graph.root_id,
                 goal=graph.root.goal,
-                action=EdgeAction(tactic_id=1, graph_fingerprint=fingerprint(graph.root.goal)),
+                action=EdgeAction(
+                    tactic_id=1,
+                    candidate_pool=CandidatePoolSnapshot(()),
+                    graph_fingerprint=fingerprint(graph.root.goal),
+                ),
                 outcome=ObservationOutcome.ACCEPTED,
                 first_round=0,
                 edge_id=edge.id,

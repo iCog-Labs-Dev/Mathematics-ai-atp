@@ -47,6 +47,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.actor_critic import (
     ActorCriticWithArgsClassifier,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.model_factory import build_actor_critic_model
+from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import LocalCandidateProvider
 from maths_ai.gnn_inference.atp_lean_gnn.model_spec import ModelSpec
 from maths_ai.gnn_inference.atp_lean_gnn.graph import model_goal_to_dag
 from maths_ai.gnn_inference.atp_lean_gnn.pln_reward import RewardConfig
@@ -132,6 +133,7 @@ async def run_smoke(
             node_vocab,
             TACTIC_VOCAB,
             executor=executor,
+            candidate_provider=LocalCandidateProvider(),
             top_k_tactics=4,
             max_depth=4,
             max_nodes=30,

@@ -120,6 +120,12 @@ _BRACKET_OPEN = {"[", "⟨", "("}
 _BRACKET_CLOSE = {"]", "⟩", ")"}
 _ARG_SPLIT_RE = re.compile(r"[,\s]+")
 _ARG_TOKEN_RE = re.compile(r"[A-Za-z0-9_.']+")
+_UNICODE_ARG_TOKEN_RE = re.compile(r"[\w'′]+(?:\.[\w'′]+)*", re.UNICODE)
+
+
+def clean_tactic_markup(raw: str) -> str:
+    """Remove dataset citation tags while preserving Lean identifier names."""
+    return re.sub(r"</?a>", "", raw)
 
 
 def parse_tactic_arguments(raw: str) -> tuple[str, list[str]]:
@@ -136,7 +142,7 @@ def parse_tactic_arguments(raw: str) -> tuple[str, list[str]]:
     >>> parse_tactic_arguments("simp")
     ('simp', [])
     """
-    text = raw.strip()
+    text = clean_tactic_markup(raw).strip()
     if not text:
         return EMPTY_TACTIC, []
 
@@ -166,11 +172,11 @@ def parse_tactic_arguments(raw: str) -> tuple[str, list[str]]:
             break
 
     if bracket_content is not None:
-        for token_match in _ARG_TOKEN_RE.finditer(bracket_content):
+        for token_match in _UNICODE_ARG_TOKEN_RE.finditer(bracket_content):
             args.append(token_match.group(0))
     elif remainder:
         # No brackets — split the remainder on whitespace and take identifier tokens
-        for token_match in _ARG_TOKEN_RE.finditer(remainder):
+        for token_match in _UNICODE_ARG_TOKEN_RE.finditer(remainder):
             args.append(token_match.group(0))
 
     return tactic_name, args
