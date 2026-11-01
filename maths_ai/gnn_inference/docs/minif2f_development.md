@@ -142,13 +142,34 @@ scripted controller tests are not DeepSeek solve results. Schema v3 binds
 controller/helper code and all search budgets; v1/v2 reports remain valid
 candidate sources. Whole-proof mode remains available with `--proof-engine whole`.
 
-Verification: **68 focused tests passed / 1 optional integration skipped**.
+Verification: **69 focused tests passed / 1 optional integration skipped**.
 Real Lean **4.10.0-rc1** tests cover rollback, sibling preservation, local lets
 across snapshots, typed lookup, duplicate rejection, full-proof checking and
 backtracking after a forbidden-axiom closure. Fault-injection tests cover
 native timeout restart and saved-completion resume. A separate local full
 Mathlib 4.29 probe exceeded its 60 s startup limit; that probe is not a passing
 integration result. Full server Mathlib/DeepSeek search outcomes are pending.
+
+### Startup notation fix and recovery
+
+First server search attempt revalidated the prior twelve solves, then stopped
+before generation: `expected ';' or line break`, followed by an unimplemented
+search-tactic error. Cause: `open Nat` activates Mathlib's postfix factorial
+`!`, which consumes the helper's line-leading Boolean `!` after a `let`.
+The second error is a consequence of failed helper elaboration.
+
+Helper predicates now use explicit `Bool.not`; original benchmark scope and
+statement remain intact. A real Lean 4.10 regression first reproduces the
+same error with scoped postfix notation, then verifies startup, typed lookup,
+hidden-stub filtering and proof completion after the fix.
+
+The helper hash changes, so the failed directory cannot resume in place. Run
+the search command above with a fresh
+`--output-dir maths_ai/gnn_inference/runs/minif2f_valid25_native_search_fix1`
+and use the failed report as its source:
+`--replay-report maths_ai/gnn_inference/runs/minif2f_valid25_native_search/report.json`.
+Keep `--replay-passed-only` and the remaining budgets/options. This preserves
+the failed run as evidence and freshly verifies its twelve prior successes.
 
 ## Revised solving run (v2)
 

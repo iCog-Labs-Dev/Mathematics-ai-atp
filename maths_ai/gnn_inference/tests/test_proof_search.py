@@ -148,3 +148,21 @@ def test_duplicate_repair_does_not_execute_again_in_native_lean(tmp_path):
                   lambda: None, _factory(task, context), budget=search.SearchBudget(model_calls=3), branching=3, seed=42)
     assert record["status"] == "passed"
     assert record["duplicates"] == 1 and len(record["trials"]) == 2
+
+
+def test_native_startup_with_open_nat_postfix_factorial_notation(tmp_path):
+    context = _context(tmp_path)
+    # Mathlib's open Nat activates postfix !; a line-leading Boolean ! can
+    # then be parsed as postfix notation on the preceding let expression.
+    task = {"id": "scoped_lookup", "ingest_status": "parsed",
+            "prefix": ('import Lean\nnamespace Nat\n'
+                       'scoped notation:10000 n "!" => Nat.succ n\nend Nat\nopen Nat\n'),
+            "header": "theorem scoped_lookup (n : Nat) : n ! = Nat.succ n"}
+    with _factory(task, context)(30) as session:
+        assert session.root["goals"]
+        assert session.request("lookup", 0, 10, query="Nat.add_comm")["lemmas"]
+        assert session.request("lookup", 0, 10, query="Expected_scoped_lookup")["lemmas"] == []
+        closed = session.request("step", 0, 10, tactic="rfl")
+        assert not closed["goals"]
+        assert session.request("finish", closed["state"], 10)["status"] == "ok"
+        assert session.proc.wait(timeout=10) == 0

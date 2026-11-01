@@ -21,9 +21,10 @@ def lookup (query : String) : TacticM Json := do
     throwError "Lookup needs one to eight name fragments (maximum 128 characters)"
   let entries := (← getEnv).constants.toList.filter fun (name, _) =>
     let text := name.toString
-    !text.startsWith "_" && !text.startsWith "AtpNativeSearch" &&
-    !text.startsWith "Expected_" && !text.startsWith "Spec_" &&
-    !text.startsWith "SearchRoot_" &&
+    -- Avoid line-leading !: open Nat enables Mathlib's postfix factorial.
+    Bool.not (text.startsWith "_") && Bool.not (text.startsWith "AtpNativeSearch") &&
+    Bool.not (text.startsWith "Expected_") && Bool.not (text.startsWith "Spec_") &&
+    Bool.not (text.startsWith "SearchRoot_") &&
     terms.all (fun term => (text.toLower.splitOn term).length > 1)
   let sorted := entries.toArray.qsort fun a b =>
     let x := a.1.toString
