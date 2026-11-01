@@ -408,14 +408,29 @@ class OnPolicyLossTests(unittest.TestCase):
 
         optimizer = AdamW(model.parameters(), lr=0.01)
         before = [p.detach().clone() for p in model.parameters()]
-        metrics = train_step_onpolicy(
-            model,
-            optimizer,
-            [result],
-            reasoner.dag_featurize_data,
-            reward_cfg=RewardConfig(step_penalty=0.0),
-            bc_weight=0.1,
+        model.train()
+        forward_modes = []
+        handle = model.encoder.register_forward_pre_hook(
+            lambda module, args: forward_modes.append(
+                (module.training, torch.is_grad_enabled())
+            )
         )
+        try:
+            with torch.no_grad():
+                metrics = train_step_onpolicy(
+                    model,
+                    optimizer,
+                    [result],
+                    reasoner.dag_featurize_data,
+                    reward_cfg=RewardConfig(step_penalty=0.0),
+                    bc_weight=0.1,
+                )
+                self.assertFalse(torch.is_grad_enabled())
+        finally:
+            handle.remove()
+        self.assertTrue(forward_modes)
+        self.assertTrue(all(mode == (False, True) for mode in forward_modes))
+        self.assertTrue(all(not module.training for module in model.modules()))
         self.assertGreater(metrics["num_transitions"], 0.0)
         self.assertTrue(all(torch.isfinite(torch.tensor(v)) for v in metrics.values()))
         after = list(model.parameters())
@@ -429,16 +444,20 @@ class OnPolicyLossTests(unittest.TestCase):
         result = asyncio.run(reasoner.prove(seed_from_text(goal=GOAL_EXPR, hypotheses=HYPS)))
         self.assertGreater(len(result.failure_actions), 0)
 
-        loss_result = compute_onpolicy_loss(
-            model,
-            [],
-            [],
-            {},
-            result.failure_actions,
-            reasoner.dag_featurize_data,
-        )
+        model.train()
+        with torch.no_grad():
+            loss_result = compute_onpolicy_loss(
+                model,
+                [],
+                [],
+                {},
+                result.failure_actions,
+                reasoner.dag_featurize_data,
+            )
         self.assertIsNotNone(loss_result)
         loss, metrics = loss_result
+        self.assertTrue(loss.requires_grad)
+        self.assertTrue(all(not module.training for module in model.modules()))
         self.assertTrue(torch.isfinite(loss))
         self.assertEqual(
             metrics["critic_loss"], 0.0

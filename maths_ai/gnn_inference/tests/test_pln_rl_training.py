@@ -88,10 +88,24 @@ class PLNRLTrainingTests(unittest.TestCase):
         g, featurize, model, tactic_to_id = self._setup()
         optimizer = AdamW(model.parameters(), lr=0.01)
         before = [p.detach().clone() for p in model.parameters()]
-        metrics = train_step(
-            model, optimizer, [g], featurize, tactic_to_id,
-            reward_cfg=RewardConfig(step_penalty=0.0), bc_weight=0.1,
+        forward_modes = []
+        handle = model.encoder.register_forward_pre_hook(
+            lambda module, args: forward_modes.append(
+                (module.training, torch.is_grad_enabled())
+            )
         )
+        try:
+            with torch.no_grad():
+                metrics = train_step(
+                    model, optimizer, [g], featurize, tactic_to_id,
+                    reward_cfg=RewardConfig(step_penalty=0.0), bc_weight=0.1,
+                )
+                self.assertFalse(torch.is_grad_enabled())
+        finally:
+            handle.remove()
+        self.assertTrue(forward_modes)
+        self.assertTrue(all(mode == (False, True) for mode in forward_modes))
+        self.assertTrue(all(not module.training for module in model.modules()))
         self.assertEqual(metrics["num_transitions"], 3.0)
         after = list(model.parameters())
         changed = any(not torch.equal(b, a) for b, a in zip(before, after))
@@ -101,9 +115,12 @@ class PLNRLTrainingTests(unittest.TestCase):
         g, featurize, model, tactic_to_id = self._setup()
         transitions = extract_actor_transitions(g, RewardConfig(step_penalty=0.0))
         critic_samples = extract_critic_samples(g)
-        result = compute_transition_loss(model, transitions, critic_samples, featurize, {})
+        with torch.no_grad():
+            result = compute_transition_loss(model, transitions, critic_samples, featurize, {})
         self.assertIsNotNone(result)
         loss, metrics = result
+        self.assertTrue(loss.requires_grad)
+        self.assertTrue(all(not module.training for module in model.modules()))
         self.assertTrue(torch.isfinite(loss))
         self.assertEqual(metrics["num_transitions"], 0.0)
         self.assertEqual(metrics["num_critic_samples"], 3.0)
