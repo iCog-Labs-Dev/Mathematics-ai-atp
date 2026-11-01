@@ -11,8 +11,10 @@ class GNNPredictor:
         )
 
     async def prepare_goal(self, goal):
-        await self.pipeline.prepare_goal(goal)
+        return await self.pipeline.prepare_goal(goal)
 
     @torch.no_grad()
-    def predict_tactics_with_arguments(self, goal, top_k=3):
-        return self.pipeline.predict_from_goal(goal, top_k=top_k).top_tactic_predictions
+    def predict_tactics_with_arguments(self, prepared, top_k=3):
+        return self.pipeline.predict_from_goal(
+            prepared, top_k=top_k
+        ).top_tactic_predictions

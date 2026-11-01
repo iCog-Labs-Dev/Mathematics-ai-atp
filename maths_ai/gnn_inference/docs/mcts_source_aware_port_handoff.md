@@ -54,7 +54,11 @@ search prepares every node of a batch (`prepare_node`) before the synchronous
 batched forward. A goal the model cannot observe fails its preparation or the
 forward and is closed as unsupported, without failing the rest of the batch.
 The generic engine follows the same order (`prepare_goal`, then `propose`), and
-its prior is the greedy complete action's exact log-probability.
+its prior is the greedy complete action's exact log-probability. Preparation
+returns an explicit `PreparedObservation`; the predictor, engine and direct CLI
+pass that record to synchronous scoring. The reasoner owns records only for its
+active proposal batch and clears them before Lean execution, including after
+errors or cancellation. There is no pipeline-owned prepared-pool cache.
 
 **Updates.** The on-policy loss evaluates each observation's stored action
 against its stored pool (`evaluate_actions`), with multiplicity-weighted
@@ -78,11 +82,11 @@ the driver still refuses a library-bound model without retrieval artifacts.
 ## Fixed in the application source
 
 `InferencePipeline.predict_from_goal` passed `top_tactic_predictions`
-positionally to a keyword-only parameter, so every live prediction through the
-generic engine raised `TypeError`. It is passed by keyword here; AC-branch still
-has the bug.
+positionally to a keyword-only parameter in the pinned AC source, so every live
+prediction through the generic engine raised `TypeError`. It is passed by
+keyword here. This statement describes the source pin, not later AC revisions.
 
-## Results
+## Original port results
 
 | Check | Result |
 | --- | --- |
@@ -107,3 +111,73 @@ round trip with its pools.
 - No checkpoint, GPU or retrieval artifact was available here. Library lemmas
   were exercised offline, with an in-memory library, through the model tests
   and one search whose pool holds a lemma; the live runs are local-only.
+
+
+## Shared validation and inference lifecycle follow-up (2026-11-01)
+
+The follow-up starts from PR #70 head `8260a43`. Its architecture was explicitly
+verified in `dev_plans/mcts_source_aware_validation_and_inference_lifecycle.md`.
+
+Both on-policy and HTPS actions pass the shared `_check_action` validator:
+recorded graph identity, pool graph and exact query identity, model/library
+binding, selected-reference membership and argument-count budget. HTPS now
+receives all four update limits from the driver and checks graph/candidate sizes
+before device batching or library adaptation. Critic-only batches enforce graph
+limits. Metrics record the admitted sizes. HTPS remains supervised replay with
+its own optimizer; complete-action on-policy weighting is unchanged.
+
+Generic inference uses explicitly owned prepared records instead of an
+unbounded lookup dictionary. `GNNPredictor.prepare_goal` returns the record;
+`predict_tactics_with_arguments` consumes that record synchronously. Preparation
+and prediction can still surround a batch, but the reasoner releases its record
+references on success, error and cancellation. Records are bound to the preparing
+pipeline and checked for observation drift. RL pools remain theorem-local and
+unchanged across widening rounds.
+
+Each prediction records an `ActionRendering` outcome and optional command.
+An unsupported highest-ranked action no longer aborts the candidate list. The
+generic reasoner settles it individually, preserving later candidates and their
+original probabilities. The direct CLI reports unsupported output explicitly.
+No selected argument is dropped or replaced to make an action executable.
+
+The controlled live test now adopts the admitted root into `SnapshotRegistry`,
+applies commands to `ExecutionOccurrence`, checks selected completion and kernel
+certification, releases leases and asserts zero remaining allocations. Additional
+production-search cases certify library-only and mixed local/library actions
+through replay.
+
+The next source-lineage record is
+`tests/fixtures/pantograph/source_aware_lifecycle/source_manifest.json`.
+Historical manifests and their recorded results remain intact. No checkpoint
+weight layout, client pin, REPL protocol or user configuration changed.
+
+Validation used an isolated install of client `955a492` and a freshly built REPL
+at `9ecaaea` in `/tmp`, the existing local Mathlib source root, and CPU execution.
+The selected trained-artifact, GPU/JupyterHub and throughput gates remain
+pending. The workspace's installed client was not upgraded; verification used
+`PYTHONPATH=/tmp/pr70-fixes-client`.
+
+Final verification:
+
+| Check | Result |
+| --- | --- |
+| Complete application suite, including source lineage | 642 passed, 37 skipped, 35 subtests passed |
+| Native local/library/mixed execution and production replay | 3 passed |
+| Replay, recovery, widening and bounded HTPS update selection | 33 passed: 24 native cases and 9 offline cases |
+| Native cases across the two sequential selections | 27 passed |
+| Whitespace check | `git diff --check` passed |
+
+The new offline regressions cover shared optimizer rejection of graph/query/
+artifact drift, all four HTPS limits before forward execution, restored pool
+validation, exact candidate-byte admission, critic-only limits, invalid-first
+and entirely unsupported candidate lists, prepared-input ownership/mutation,
+cleanup on preparation failure, scoring failure and cancellation, repeated
+searches, and one retrieval/pool across RL widening rounds. Driver tests assert
+that HTPS receives the actual configured limits.
+
+The four reviewed findings are addressed locally. PR #70 was still at `8260a43`
+when checked and GitHub reported `MERGEABLE`/`CLEAN` with no automated checks.
+Recommendation: merge into MCTS-AC-branch after committing and pushing these
+fixes and confirming the published head. No commit, push or merge was performed
+by this implementation. The inherited imported-content environment identity and
+hole-classification limitations remain separate work.

@@ -381,20 +381,43 @@ def compute_transition_loss(
     return total, metrics
 
 
-def _check_action(goal: Goal, data: Data, action: EdgeAction, owner: str) -> None:
+def _check_action(
+    model: ActorCriticWithArgsClassifier,
+    goal: Goal,
+    data: Data,
+    action: EdgeAction | TacticImitationSample,
+    owner: str,
+) -> None:
+    """Validate one stored complete action before either optimizer allocates inputs."""
     _require_graph_fingerprint(data, action.graph_fingerprint, owner)
     if action.candidate_pool is None:
         raise ValueError(f"{owner} needs its immutable candidate pool.")
     if action.candidate_pool.graph_fingerprint != data.graph_fingerprint:
         raise ValueError(f"{owner}: the candidate pool's graph changed.")
     if action.candidate_pool.query_fingerprint != fingerprint(goal_query(goal)):
-        raise ValueError(f"{owner}: the query text changed between collection and update.")
+        raise ValueError(
+            f"{owner}: the query text changed between collection and update."
+        )
+    model.validate_candidate_pool(action.candidate_pool, num_nodes=data.num_nodes)
+    action.candidate_pool.validate(action.arguments)
+    if len(action.arguments) > model.max_args:
+        raise ValueError(f"{owner}: argument count exceeds the policy budget.")
 
 
-def _candidate_budget(model, pools, *, max_candidates: int, max_bytes: int) -> tuple[int, int]:
+def _candidate_budget(
+    model, pools, *, max_candidates: int, max_bytes: int
+) -> tuple[int, int]:
+    if any(
+        type(limit) is not int or limit < 1 for limit in (max_candidates, max_bytes)
+    ):
+        raise ValueError("Candidate count and byte limits must be positive integers.")
     count = sum(len(p.local_ids) + len(p.lemma_ids) for p in pools)
     size = sum(
-        (len(p.local_ids) * model.hidden_dim + len(p.lemma_ids) * model.decoder.text_dim) * 4
+        (
+            len(p.local_ids) * model.hidden_dim
+            + len(p.lemma_ids) * model.decoder.text_dim
+        )
+        * 4
         for p in pools
     )
     if count > max_candidates or size > max_bytes:
@@ -463,7 +486,7 @@ def compute_onpolicy_loss(
             goal, return_, success = observation.goal, failure_return, False
             failures += 1
         data = featurize(goal)
-        _check_action(goal, data, action, f"{observation.outcome.value.capitalize()} action")
+        _check_action(model, goal, data, action, f"{observation.outcome.value.capitalize()} action")
         actor_datas.append(data)
         tactic_ids.append(action.tactic_id)
         argument_rows.append(action.arguments)
@@ -784,6 +807,10 @@ def train_step_htps_style(
     arg_loss_weight: float = 0.5,
     grad_clip: float = 1.0,
     device: torch.device | None = None,
+    max_update_nodes: int = 0,
+    max_update_edges: int = 0,
+    max_update_candidates: int = 100000,
+    max_update_candidate_bytes: int = 268435456,
 ) -> dict[str, float]:
     """One decoupled supervised step: tactic imitation + soft critic regression.
 
@@ -812,9 +839,18 @@ def train_step_htps_style(
     """
     device = device or torch.device("cpu")
     if not tactic_batch and not critic_batch:
-        return {"tactic_imitation_loss": 0.0, "critic_soft_loss": 0.0, "htps_total_loss": 0.0,
-                "num_imitation_rows": 0.0, "num_critic_rows": 0.0,
-                "htps_optimizer_step": 0.0}
+        return {
+            "tactic_imitation_loss": 0.0,
+            "critic_soft_loss": 0.0,
+            "htps_total_loss": 0.0,
+            "num_imitation_rows": 0.0,
+            "num_critic_rows": 0.0,
+            "htps_optimizer_step": 0.0,
+            "update_nodes": 0.0,
+            "update_edges": 0.0,
+            "update_candidate_count": 0.0,
+            "update_candidate_bytes": 0.0,
+        }
 
     imitation_datas: list[Data] = []
     tactic_labels: list[int] = []
@@ -822,7 +858,7 @@ def train_step_htps_style(
     pools: list[CandidatePoolSnapshot] = []
     for s in tactic_batch:
         data = featurize(s.goal)
-        _require_graph_fingerprint(data, s.graph_fingerprint, "Tactic imitation sample")
+        _check_action(model, s.goal, data, s, "Tactic imitation sample")
         imitation_datas.append(data)
         tactic_labels.append(s.tactic_id)
         argument_rows.append(s.arguments)
@@ -830,9 +866,22 @@ def train_step_htps_style(
     critic_datas = []
     for sample in critic_batch:
         data = featurize(sample.goal)
-        _require_graph_fingerprint(data, sample.graph_fingerprint, "Critic replay sample")
+        _require_graph_fingerprint(
+            data, sample.graph_fingerprint, "Critic replay sample"
+        )
         critic_datas.append(data)
 
+    node_count, edge_count = _validate_update_size(
+        [*imitation_datas, *critic_datas],
+        max_update_nodes=max_update_nodes,
+        max_update_edges=max_update_edges,
+    )
+    candidate_count, candidate_bytes = _candidate_budget(
+        model,
+        pools,
+        max_candidates=max_update_candidates,
+        max_bytes=max_update_candidate_bytes,
+    )
     n_imitation = len(tactic_batch)
     model.train()
     optimizer_htps.zero_grad(set_to_none=True)
@@ -877,5 +926,9 @@ def train_step_htps_style(
         "num_imitation_rows": float(n_imitation),
         "num_critic_rows": float(len(critic_batch)),
         "htps_optimizer_step": 1.0,
+        "update_nodes": float(node_count),
+        "update_edges": float(edge_count),
+        "update_candidate_count": float(candidate_count),
+        "update_candidate_bytes": float(candidate_bytes),
         **_oov_metrics([*imitation_datas, *critic_datas]),
     }

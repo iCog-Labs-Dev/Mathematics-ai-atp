@@ -15,7 +15,10 @@ from maths_ai.gnn_inference.atp_lean_gnn.retrieval_artifacts import (
     LiveLemmaProvider,
     RetrievalConfig,
 )
-from maths_ai.gnn_inference.atp_lean_gnn.inference import InferencePipeline
+from maths_ai.gnn_inference.atp_lean_gnn.inference import (
+    InferencePipeline,
+    ActionRendering,
+)
 from maths_ai.hybrid_reasoner.pantograph_model_sexpr import (
     create_model_sexpr_client,
     materialize_seed,
@@ -59,10 +62,14 @@ async def run(args):
                 _, goal, _ = await materialize_seed(
                     scope, seed_from_text(goal=args.state)
                 )
-                await pipeline.prepare_goal(goal)
-                print(
-                    pipeline.predict_from_goal(goal, top_k=args.top_k).predicted_tactic
-                )
+                prepared = await pipeline.prepare_goal(goal)
+                result = pipeline.predict_from_goal(prepared, top_k=args.top_k)
+                if result.rendering_status is ActionRendering.UNSUPPORTED:
+                    print(
+                        f"Unsupported action: {result.tactic_name} {result.selected_arguments}"
+                    )
+                else:
+                    print(result.predicted_tactic)
     finally:
         await provider.aclose()
 

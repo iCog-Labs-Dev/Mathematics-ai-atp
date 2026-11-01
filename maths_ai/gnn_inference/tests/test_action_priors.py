@@ -141,9 +141,9 @@ class GenericProviderLawTests(unittest.TestCase):
             model, LocalCandidateProvider(), vocab, reasoner.tactic_vocab, torch.device("cpu")
         )
         goal = structured_goal(GOAL_EXPR, HYPS)
-        asyncio.run(pipeline.prepare_goal(goal))
+        prepared = asyncio.run(pipeline.prepare_goal(goal))
         model.eval()
-        result = pipeline.predict_from_goal(goal, top_k=3)
+        result = pipeline.predict_from_goal(prepared, top_k=3)
         for prediction in result.top_tactic_predictions:
             self.assertAlmostEqual(
                 prediction["probability"], math.exp(prediction["action_log_prior"]), places=6

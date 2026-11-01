@@ -1495,6 +1495,11 @@ class LivePoolDriverTests(unittest.TestCase):
             return metrics
 
         def htps(*args, **kwargs):
+            for name in (
+                "max_update_nodes", "max_update_edges", "max_update_candidates",
+                "max_update_candidate_bytes",
+            ):
+                self.assertEqual(kwargs[name], getattr(cfg, name))
             metrics = original_htps(*args, **kwargs)
             events.append(("htps", metrics["htps_optimizer_step"]))
             return metrics

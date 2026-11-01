@@ -51,10 +51,11 @@ def test_prediction_is_synchronous_canonical_and_gradient_free_in_active_loop():
     goal = structured_goal("True")
     parameter = torch.nn.Parameter(torch.tensor(2.0))
     seen = []
+    prepared = SimpleNamespace(goal=goal)
     pipeline = object.__new__(InferencePipeline)
 
     def predict(observation, *, top_k):
-        assert observation is goal
+        assert observation is prepared
         dag = model_goal_to_dag(goal)
         seen.append(
             (torch.is_grad_enabled(), (parameter * 2).requires_grad, dag.state_root_id)
@@ -66,7 +67,7 @@ def test_prediction_is_synchronous_canonical_and_gradient_free_in_active_loop():
     predictor.pipeline = pipeline
 
     async def run():
-        predictions = predictor.predict_tactics_with_arguments(goal)
+        predictions = predictor.predict_tactics_with_arguments(prepared)
         assert predictions == [{"tactic_name": "trivial"}]
 
     asyncio.run(run())
@@ -255,6 +256,15 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
         "96f8bcae7d999fb124ef1b3499f15f4e364f68f5"
     )
     for entry in source_aware["sources"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        expected[entry["path"]] = entry["sha256"]
+    # Shared admission and explicit inference ownership extend the source-aware port.
+    lifecycle = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "source_aware_lifecycle/source_manifest.json").read_text()
+    )
+    assert lifecycle["target_base_commit"] == "8260a43b0fea4718c22e9157a17afc0902d1d4cd"
+    for entry in lifecycle["sources"]:
         if entry["path"] in expected:
             assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
         expected[entry["path"]] = entry["sha256"]

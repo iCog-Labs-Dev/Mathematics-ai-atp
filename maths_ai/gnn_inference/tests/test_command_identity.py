@@ -37,7 +37,7 @@ def test_generic_aliases_share_the_rendered_command(policy):
     actions = [proposal("exact", [arg], (i,)) for i, arg in enumerate(["p", "p:"])]
 
     async def prepare_goal(self, goal):
-        return None
+        return goal
 
     engine = type("Engine", (), {
         "propose": lambda self, goal, top_k: actions[:top_k], "prepare_goal": prepare_goal,
@@ -62,7 +62,7 @@ def test_cache_reuses_rendered_aliases_across_rounds(accepted):
         requests = 0
 
         async def prepare_goal(self, goal):
-            return None
+            return goal
 
         def propose(self, goal, top_k):
             if goal.expression != GOAL_EXPR:

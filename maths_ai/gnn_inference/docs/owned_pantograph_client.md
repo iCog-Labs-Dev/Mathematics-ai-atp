@@ -152,7 +152,8 @@ async with await create_model_sexpr_client(env) as client:
         seed = seed_from_text(goal='a = a', hypotheses=['α : Type u_1', 'a : α'])
         state, goal, validation = await materialize_seed(scope, seed)
         # predictor is an already-loaded GNNPredictor; no subprocess or new loop.
-        predictions = predictor.predict_tactics_with_arguments(goal)
+        prepared = await predictor.prepare_goal(goal)
+        predictions = predictor.predict_tactics_with_arguments(prepared)
 ```
 
 Seeds and replay rules are described in [dataset_goal_replay.md](dataset_goal_replay.md).

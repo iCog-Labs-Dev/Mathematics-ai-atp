@@ -6,16 +6,20 @@ from .actor_critic_types import ActionSample
 
 
 class GraphActionPolicy(nn.Module):
+    def validate_candidate_pool(self, pool, *, num_nodes):
+        """Check graph-local support and the model's immutable library binding."""
+        if pool.artifact_fingerprint != self.retrieval_binding:
+            raise ValueError("Action support and model retrieval artifact differ.")
+        if pool.local_ids and max(pool.local_ids) >= int(num_nodes):
+            raise ValueError("Local candidate is outside its graph.")
+
     def _validate_pools(self, data, pools):
         if len(pools) != len(data.ptr) - 1:
             raise ValueError("One pool is required per graph.")
         for row, pool in enumerate(pools):
-            if pool.artifact_fingerprint != self.retrieval_binding:
-                raise ValueError("Action support and model retrieval artifact differ.")
-            if pool.local_ids and max(pool.local_ids) >= int(
-                data.ptr[row + 1] - data.ptr[row]
-            ):
-                raise ValueError("Local candidate is outside its graph.")
+            self.validate_candidate_pool(
+                pool, num_nodes=data.ptr[row + 1] - data.ptr[row]
+            )
 
     def act(self, data, *, candidate_pools, tactic_mask=None, greedy=False):
         self._validate_pools(data, candidate_pools)

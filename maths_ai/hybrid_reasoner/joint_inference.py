@@ -223,6 +223,7 @@ class HybridReasoner:
         self._graph: ProofHypergraph | None = None
         # Nodes whose round is being executed; pruning never releases them.
         self._expanding: Set[int] = set()
+        self._proposal_inputs: dict[int, object] = {}
         # Per-search state, reset by each prove().
         self._root_occurrence: ExecutionOccurrence | None = None
         self._continuations: dict = {}
@@ -315,32 +316,15 @@ class HybridReasoner:
             retrieval_config_path=retrieval_config_path,
         )
 
-    def predict_next_tactic(self, sub_goal: Goal) -> List[ProposedAction]:
-        """
-            Args:
-                sub_goal: the sanitized target sub_goal (expression plus its
-                    local hypotheses) for which tactics are predicted. The
-                    base engine and the RL subclass consume the full canonical
-                    goal, so sampled arguments resolve against the same DAG
-                    the encoder saw.
-            Returns:
-                up to `top_k_tactics` ProposedAction records, each a
-                TacticCandidate(tactic_name, arguments, probability) ranked by
-                tactic probability, descending, with the complete action's
-                log-prior under the engine's documented argument law.
+    def predict_next_tactic(self, prepared) -> List[ProposedAction]:
+        """Score one explicitly prepared generic observation."""
+        return self._propose_for_goal(prepared, self.top_k_tactics)
 
-                An empty list means the GNN found no viable tactic for this
-                goal (see GNNModelEngine.inference's "degenerate prediction"
-                edge case) — callers must treat that as a dead branch, which
-                `_expand` below does via `graph.mark_node_exhausted`.
-        """
-        return self._propose_for_goal(sub_goal, self.top_k_tactics)
-
-    def _propose_for_goal(self, sub_goal: Goal, count: int) -> List[ProposedAction]:
-        """Up to ``count`` ranked proposals from the generic engine (none for 0)."""
+    def _propose_for_goal(self, prepared, count: int) -> List[ProposedAction]:
+        """Up to ``count`` ranked proposals from the generic engine."""
         if count <= 0:
             return []
-        return self.gnn_engine.propose(sub_goal, top_k=count)
+        return self.gnn_engine.propose(prepared, top_k=count)
 
     # PLN side
     def _make_dts_key(self, parent_goal: str, tactic: TacticCandidate, subgoal: Goal) -> str:
@@ -966,14 +950,12 @@ class HybridReasoner:
         """
         return True
 
-    def predict_next_tactics_batch(self, sub_goals: List[Goal]) -> List[List[ProposedAction]]:
-        """Propose tactic candidates for several goals at once.
+    def predict_next_tactics_batch(self, prepared) -> List[List[ProposedAction]]:
+        """Score the generic batch's explicitly prepared observations.
 
-        Default implementation loops ``predict_next_tactic`` so the base
-        class and non-RL callers are unaffected; ``RLHybridReasoner``
-        overrides it with one multi-graph policy forward across the batch.
+        RL overrides this seam with graph observations and theorem-local pools.
         """
-        return [self.predict_next_tactic(sub_goal) for sub_goal in sub_goals]
+        return [self.predict_next_tactic(observation) for observation in prepared]
 
     def predict_next_tactics_for_nodes(
         self, nodes: List[ProofNode], draws: Optional[List[int]] = None
@@ -986,12 +968,12 @@ class HybridReasoner:
         method so sampled actions can be owned by the exact graph node even when
         two nodes contain identical goal text.
         """
-        goals = [node.goal.require_model_state() for node in nodes]
+        prepared = [self._proposal_inputs[node.id] for node in nodes]
         if draws is None:
-            return self.predict_next_tactics_batch(goals)
+            return self.predict_next_tactics_batch(prepared)
         if len(draws) != len(nodes):
             raise ValueError("draws must give one count per node")
-        return [self._propose_for_goal(goal, count) for goal, count in zip(goals, draws)]
+        return [self._propose_for_goal(goal, count) for goal, count in zip(prepared, draws)]
 
     async def _expand_leaves(self, graph: ProofHypergraph, leaf_ids: List[int]) -> None:
         """Propose once for a batch of proposal requests, then execute
@@ -1074,30 +1056,33 @@ class HybridReasoner:
         so the batch is then retried node by node and only the goals the model
         cannot read are closed, as unsupported rather than failed.
         """
-        observable: List[ProofNode] = []
-        for node in nodes:
-            try:
-                await self.prepare_node(node)
-            except UnsupportedObservation as exc:
-                self._close_unsupported(graph, node, exc)
-                continue
-            observable.append(node)
-        counts = {node.id: count for node, count in zip(nodes, draws)}
-        by_node: Dict[int, List[ProposedAction]] = {}
         try:
-            batch = self.predict_next_tactics_for_nodes(
-                observable, [counts[node.id] for node in observable]
-            ) if observable else []
-            by_node = {node.id: actions for node, actions in zip(observable, batch)}
-        except UnsupportedObservation:
-            for node in observable:
+            observable: List[ProofNode] = []
+            for node in nodes:
                 try:
-                    by_node[node.id] = self.predict_next_tactics_for_nodes(
-                        [node], [counts[node.id]]
-                    )[0]
+                    await self.prepare_node(node)
                 except UnsupportedObservation as exc:
                     self._close_unsupported(graph, node, exc)
-        return [by_node.get(node.id) for node in nodes]
+                    continue
+                observable.append(node)
+            counts = {node.id: count for node, count in zip(nodes, draws)}
+            by_node: Dict[int, List[ProposedAction]] = {}
+            try:
+                batch = self.predict_next_tactics_for_nodes(
+                    observable, [counts[node.id] for node in observable]
+                ) if observable else []
+                by_node = {node.id: actions for node, actions in zip(observable, batch)}
+            except UnsupportedObservation:
+                for node in observable:
+                    try:
+                        by_node[node.id] = self.predict_next_tactics_for_nodes(
+                            [node], [counts[node.id]]
+                        )[0]
+                    except UnsupportedObservation as exc:
+                        self._close_unsupported(graph, node, exc)
+            return [by_node.get(node.id) for node in nodes]
+        finally:
+            self._proposal_inputs.clear()
 
     def _close_unsupported(
         self, graph: ProofHypergraph, node: ProofNode, exc: UnsupportedObservation
@@ -1361,11 +1346,9 @@ class HybridReasoner:
         if not self._is_retained(graph, node):
             return
         print(f"  [GNN Input] goal={node.goal.expression}  hyps={node.goal.hypotheses}")
-        try:
-            await self.prepare_node(node)
-            candidates = self.predict_next_tactics_for_nodes([node])[0]
-        except UnsupportedObservation as exc:
-            self._close_unsupported(graph, node, exc)
+        proposals = await self._propose_observable(graph, [node], [self.top_k_tactics])
+        candidates = proposals[0]
+        if candidates is None:
             await self._release_closed_sources(graph)
             return
         self._expanding = {node.id}
@@ -1375,14 +1358,16 @@ class HybridReasoner:
             self._expanding = set()
             await self._release_closed_sources(graph)
 
-    async def prepare_goal(self, goal: Goal) -> None:
+    async def prepare_goal(self, goal: Goal):
         """Prepare state-dependent proposal inputs before synchronous model scoring."""
         if self.gnn_engine is not None:
-            await self.gnn_engine.prepare_goal(goal)
+            return await self.gnn_engine.prepare_goal(goal)
 
     async def prepare_node(self, node: ProofNode) -> None:
         """Prepare ``node``'s proposal inputs; the RL subclass keeps one pool per node."""
-        await self.prepare_goal(node.goal.require_model_state())
+        self._proposal_inputs[node.id] = await self.prepare_goal(
+            node.goal.require_model_state()
+        )
 
     async def _drop_snapshot(self, node: ProofNode) -> None:
         """Release only this graph occurrence's proposal ownership."""

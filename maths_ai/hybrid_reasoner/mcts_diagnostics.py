@@ -511,6 +511,10 @@ async def verify_learning_round(client: PantographClient) -> dict:
                 imitation_samples,
                 critic_samples,
                 reasoner.dag_featurize_data,
+                max_update_nodes=50000,
+                max_update_edges=250000,
+                max_update_candidates=100000,
+                max_update_candidate_bytes=268435456,
             )
             metrics = {**metrics, **htps}
             htps_steps = int(htps["htps_optimizer_step"])

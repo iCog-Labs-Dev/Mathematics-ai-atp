@@ -131,7 +131,7 @@ class _StubEngine:
     """The generic engine's ``prepare_goal``/``propose`` contract: ranked proposals per goal."""
 
     async def prepare_goal(self, goal):
-        return None
+        return goal
 
     def __init__(self, ranked: dict[str, list[str]]):
         self.ranked = ranked
@@ -158,9 +158,13 @@ class GenericProviderTests(unittest.TestCase):
         engine = _StubEngine({"A": ["a1", "a2", "a3"], "B": ["b1", "b2"]})
         reasoner = _GenericReasoner(_ScriptedExecutor({}), engine)
         nodes = [
-            type("Node", (), {"goal": structured_goal(expression, HYPS)})()
-            for expression in ("A", "B")
+            type("Node", (), {"id": index, "goal": structured_goal(expression, HYPS)})()
+            for index, expression in enumerate(("A", "B"))
         ]
+        async def prepare():
+            for node in nodes:
+                await reasoner.prepare_node(node)
+        asyncio.run(prepare())
         proposals = reasoner.predict_next_tactics_for_nodes(nodes, [3, 1])
         self.assertEqual([[p.candidate.tactic_name for p in row] for row in proposals], [["a1", "a2", "a3"], ["b1"]])
         self.assertEqual(engine.requests, [("A", 3), ("B", 1)])

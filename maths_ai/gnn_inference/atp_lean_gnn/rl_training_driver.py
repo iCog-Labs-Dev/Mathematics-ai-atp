@@ -1404,6 +1404,10 @@ async def _run_rl_training_impl(
                 arg_loss_weight=cfg.arg_loss_weight,
                 grad_clip=cfg.grad_clip,
                 device=device,
+                max_update_nodes=cfg.max_update_nodes,
+                max_update_edges=cfg.max_update_edges,
+                max_update_candidates=cfg.max_update_candidates,
+                max_update_candidate_bytes=cfg.max_update_candidate_bytes,
             )
             htps_optimizer_steps += int(
                 htps_metrics.get("htps_optimizer_step", 0.0)
@@ -1416,6 +1420,10 @@ async def _run_rl_training_impl(
                 "num_critic_rows",
             ):
                 metrics[key] = htps_metrics[key]
+            for key in (
+                "update_nodes", "update_edges", "update_candidate_count", "update_candidate_bytes",
+            ):
+                metrics[f"htps_{key}"] = htps_metrics[key]
             for key in (
                 "unknown_label_count",
                 "structural_unknown_label_count",

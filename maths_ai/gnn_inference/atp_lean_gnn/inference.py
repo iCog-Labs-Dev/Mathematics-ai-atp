@@ -1,20 +1,24 @@
 """Inference pipeline for end-to-end tactic prediction.
 
-This module provides the ``InferencePipeline`` which integrates graph conversion,
-tactic prediction, premise retrieval, and candidate scoring to produce a final
-tactic string.
+The pipeline prepares explicitly owned observations asynchronously, then decodes
+complete ranked actions synchronously. Unsupported rendering is recorded per
+action so a valid alternative can still reach the reasoner.
 """
 
 from __future__ import annotations
 
-import re
 import math
+import re
+from dataclasses import dataclass
+from enum import Enum
 
 import torch
-from torch_geometric.data import Batch
+from torch_geometric.data import Batch, Data
+from maths_ai.data_models.proof_components import Goal
 
 from .argument_selector import TacticWithArgsClassifier
 from .actor_critic import ActorCriticWithArgsClassifier
+from .policy_actions import CandidatePoolSnapshot, fingerprint
 from .graph import DAGBuilder, GraphNode, model_goal_to_dag, proof_state_to_dag
 from .labels import get_tactic_arity
 from .lemma_corpus import LemmaRecord
@@ -179,12 +183,30 @@ class ArgumentPrediction:
         return f"ArgumentPrediction(source={self.source!r}, candidate_id={self.candidate_id}, label={self.label!r}, score={self.score:.4f})"
 
 
+class ActionRendering(str, Enum):
+    RENDERED = "rendered"
+    UNSUPPORTED = "unsupported"
+
+
+@dataclass(frozen=True, eq=False)
+class PreparedObservation:
+    """Explicitly owned model input, bound to one preparing pipeline."""
+
+    owner: object
+    goal: Goal
+    dag: DAGBuilder
+    data: Data
+    graph_fingerprint: str
+    query: str
+    pool: CandidatePoolSnapshot
+
+
 class InferenceResult:
     """Structured inference result for tactic and argument prediction."""
 
     def __init__(
         self,
-        predicted_tactic: str,
+        predicted_tactic: str | None,
         tactic_name: str,
         tactic_id: int,
         tactic_probabilities: list[tuple[str, float]],
@@ -193,6 +215,11 @@ class InferenceResult:
         *,
         top_tactic_predictions: list[dict[str, object]] | None = None,
     ) -> None:
+        self.rendering_status = (
+            ActionRendering.RENDERED
+            if predicted_tactic is not None
+            else ActionRendering.UNSUPPORTED
+        )
         self.predicted_tactic = predicted_tactic
         self.tactic_name = tactic_name
         self.tactic_id = tactic_id
@@ -213,9 +240,7 @@ class InferencePipeline:
             device,
         )
         self.id_to_tactic = {v: k for k, v in tactic_vocab.items()}
-        # Prepared pools by (graph identity, query), so several observations
-        # can be prepared before any of them is predicted.
-        self._prepared = {}
+        self._preparation_owner = object()
 
     def _graph(self, goal):
         from .graph import dag_fingerprint
@@ -240,20 +265,32 @@ class InferencePipeline:
             from .policy_actions import with_type_signals
 
             pool = with_type_signals(pool, goal, dag, self.tactic_vocab)
-        self._prepared[(identity, goal_query(goal))] = pool
+        return PreparedObservation(
+            self._preparation_owner, goal, dag, data, identity, goal_query(goal), pool
+        )
 
     @torch.no_grad()
-    def predict_from_goal(self, goal, *, top_k=1):
+    def predict_from_goal(self, prepared: PreparedObservation, *, top_k=1):
         from .retrieval_artifacts import goal_query
         from maths_ai.data_models.proof_components import TacticCandidate
         from maths_ai.data_models.tactic_commands import render_tactic_command
 
+        if (
+            not isinstance(prepared, PreparedObservation)
+            or prepared.owner is not self._preparation_owner
+        ):
+            raise ValueError("Prepared observation belongs to a different pipeline.")
+        if type(top_k) is not int or top_k < 1:
+            raise ValueError("top_k must be a positive integer.")
+        goal = prepared.goal
         dag, data, identity = self._graph(goal)
-        pool = self._prepared.get((identity, goal_query(goal)))
-        if pool is None:
-            raise ValueError(
-                "Call await prepare_goal for this exact observation before prediction."
-            )
+        if identity != prepared.graph_fingerprint or goal_query(goal) != prepared.query:
+            raise ValueError("Prepared observation changed before prediction.")
+        pool = prepared.pool
+        if pool.graph_fingerprint != identity:
+            raise ValueError("Prepared candidate pool belongs to a different graph.")
+        if pool.query_fingerprint != fingerprint(prepared.query):
+            raise ValueError("Prepared candidate pool belongs to a different query.")
         batch = Batch.from_data_list([data]).to(self.device)
         self.model._validate_pools(batch, (pool,))
         nodes, states, logits, _ = self.model.encode(batch)
@@ -285,8 +322,21 @@ class InferencePipeline:
             # The complete action's exact log-probability under the policy:
             # the tactic, then the greedy argument count, sources and identities.
             log_prior = float(logits.log_softmax(-1)[0, tid] + decoded.logp)
+            command = render_tactic_command(
+                TacticCandidate(
+                    tactic_name=candidate["tactic_name"],
+                    arguments=args,
+                    probability=float(math.exp(log_prior)),
+                )
+            )
             predictions.append(
                 dict(
+                    command=command,
+                    rendering_status=(
+                        ActionRendering.RENDERED
+                        if command is not None
+                        else ActionRendering.UNSUPPORTED
+                    ),
                     tactic_id=int(tid),
                     tactic_name=candidate["tactic_name"],
                     probability=float(math.exp(log_prior)),
@@ -302,15 +352,7 @@ class InferencePipeline:
             )
         predictions.sort(key=lambda item: -item["probability"])
         first = predictions[0]
-        command = render_tactic_command(
-            TacticCandidate(
-                tactic_name=first["tactic_name"],
-                arguments=first["selected_arguments"],
-                probability=first["probability"],
-            )
-        )
-        if command is None:
-            raise ValueError("Policy selected an unsupported flat action.")
+        command = first["command"]
         return InferenceResult(
             command,
             first["tactic_name"],

@@ -48,19 +48,19 @@ class GNNModelEngine:
         )
 
     async def prepare_goal(self, goal):
-        await self.gnn_inference.prepare_goal(goal)
+        return await self.gnn_inference.prepare_goal(goal)
 
-    def inference(self, goal, top_k=3):
+    def inference(self, prepared, top_k=3):
         return [
             TacticCandidate(
                 tactic_name=x["tactic_name"],
                 arguments=x["selected_arguments"],
                 probability=x["probability"],
             )
-            for x in self.gnn_inference.predict_tactics_with_arguments(goal, top_k)
+            for x in self.gnn_inference.predict_tactics_with_arguments(prepared, top_k)
         ]
 
-    def propose(self, goal, top_k=3):
+    def propose(self, prepared, top_k=3):
         """Ranked complete actions as search proposals, each with its exact prior.
 
         Each of the top tactics is completed greedily by the source-aware
@@ -68,7 +68,7 @@ class GNNModelEngine:
         source is finite: a prepared goal gives the same actions every time.
         """
         proposals = []
-        for x in self.gnn_inference.predict_tactics_with_arguments(goal, top_k):
+        for x in self.gnn_inference.predict_tactics_with_arguments(prepared, top_k):
             refs = x.get("argument_refs")
             proposals.append(
                 ProposedAction(
