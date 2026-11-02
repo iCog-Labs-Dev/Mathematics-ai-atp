@@ -4,8 +4,8 @@ V3 targets three remaining gaps from the unsupported-action census:
 simple introduction declarations, named-argument labels, and bounded
 applications in `exact`/`apply`/`refine`. Select `--renderer template-v3`.
 V3 also raises the rewrite/simp rule-list cap from three to sixteen.
-This is gold representation/rendering work; full-cohort recovery still needs
-measurement and these targets have not trained a prediction head.
+This is gold representation/rendering work; these targets have not trained a
+prediction head. Completed recovery results and broader validation follow.
 
 ## Introduction declarations
 
@@ -158,7 +158,32 @@ Three valid originals with nested
 arguments or proof holes remain unsupported. Unit/paired checks preserve old
 compiler policy, immutable caches, scope/parameter distinctions, exact versus
 source-only alignment, loss accounting and renderer manifests. Full server
-V3 recovery and native cohort results remain pending.
+V3 recovery and native cohort results are recorded below.
+
+## Completed V3 server result
+
+V3 renders **93,113 train / 1,823 val** rows (**42.57% / 43.85%**), versus
+V2 **78,324 / 1,531**. New V3 rescues **14,828 / 292**, with **39 / 0**
+losses; net gains **14,789 / 292**. Rescues split into introductions
+**6,630 / 139**, longer lists **7,684 / 142**, named rules **111 / 2**, and
+ordinary reference terms **403 / 9**.
+
+Exact-aligned support rises to **86,244 / 1,818**, with **14,047 / 292**
+rescues and **zero exact-aligned losses**. The 39 train losses are outside
+that exact-aligned cohort and still need individual error inspection.
+Compared with the original V1 baseline, gross rescues are **26,239 / 501**
+and losses **30 / 0** (nine V3 losses were earlier V2 rescues). Remaining
+unsupported/invalid population: **125,614 train / 2,334 val**.
+
+Same 86-step native cohort passes **86/86** input/original-source matches,
+**85/85** exact-aligned original transitions and **34/34** exact-aligned
+rendered transitions; **52** unsupported, no replay failures. Four intro,
+five ordinary application and 21 rule targets parse. This does not establish
+native validity for the whole static population.
+
+Next: [complete extracted-form inventory and source-native validation plans](template_inventory_validation.md),
+covering all exact-aligned validation actions and representatives of each
+exact-eligible training form before further coverage expansion/export.
 
 The remaining coverage program includes recursive terms/constructors/holes,
 scoped proof blocks and extraction defects. Their original bucket counts are

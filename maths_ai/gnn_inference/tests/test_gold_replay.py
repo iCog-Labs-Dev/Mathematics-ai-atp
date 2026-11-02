@@ -423,6 +423,58 @@ def test_replay_runner_retains_failures_and_resume_binding(tmp_path, monkeypatch
     assert v3["summary"]["template_v2_parsed_steps"] == 0
     assert v3["summary"]["rendered_transition_match"] == 2
 
+    # Inventory plans validate every preselected instance, not a new theorem sample.
+    from maths_ai.gnn_inference.atp_lean_gnn import template_catalog
+    from maths_ai.gnn_inference.atp_lean_gnn.bundle import file_sha256
+
+    inventory = tmp_path / "inventory"
+    inventory.mkdir()
+    plan_rows, forms = [], {}
+    for row in rows:
+        payload = runner._prepare_row(row, cache_root, raw_cache, model_cache, trace_cache, renderer="template-v3")
+        key = payload["template_form_id"]
+        forms[key] = {"exact_counts": {"train": 0, "val": 1}}
+        plan_rows.append({"row_index": row.row_index, "form_id": key, "theorem": row.theorem,
+                          "file_path": row.file_path, "dataset": row.dataset_name,
+                          "cache_hashes": payload["cache_hashes"],
+                          "rendered_sha256": runner.hashlib.sha256(payload["rendered_tactic"].encode()).hexdigest()})
+    catalog_path = inventory / "catalog.json"
+    catalog_path.write_text(json.dumps({"complete": True, "forms": forms,
+        "splits": {"val": {"exact_aligned_renderable_steps": 2}}}))
+    plan = {"complete": True, "rows": plan_rows, "selected_forms": list(forms), "manifest": {
+        "schema": "template_validation_plan_v1", "split": "val", "renderer": "template-v3",
+        "selection_policy": "val_all_exact", "selected_steps": 2, "cache_root": str(cache_root),
+        "renderer_sha256": template_catalog.renderer_fingerprints(), "catalog_sha256": file_sha256(catalog_path),
+        "form_policy_sha256": file_sha256(Path(template_catalog.__file__)),
+    }}
+    plan_path = inventory / "plan.json"
+    plan_path.write_text(json.dumps(plan))
+    plan_output = tmp_path / "plan_replay"
+    plan_argv = [*argv, "--output-dir", str(plan_output), "--renderer", "template-v3", "--validation-plan", str(plan_path)]
+    assert runner.main(plan_argv) == 0
+    checked = json.loads((plan_output / "report.json").read_text())
+    assert checked["template_validation"]["checked_steps"] == 2
+    assert checked["template_validation"]["forms_all_selected_instances_matched"] == 2
+    assert checked["manifest"]["requested_theorems"] is None
+    assert runner.main([*plan_argv, "--resume"]) == 0
+
+    def fail_one_candidate(*args, **kwargs):
+        response = replay(*args, **kwargs)
+        response["rows"][0]["rendered"] = {"status": "lean_error", "message": "bad argument"}
+        return response
+
+    monkeypatch.setattr(runner, "run_native_file", fail_one_candidate)
+    failed_plan = tmp_path / "failed_plan"
+    assert runner.main([*plan_argv, "--output-dir", str(failed_plan)]) == 2
+    validity = json.loads((failed_plan / "report.json").read_text())["template_validation"]
+    assert validity["forms_with_failures"] == 1 and validity["checked_steps"] == 2
+    monkeypatch.setattr(runner, "run_native_file", replay)
+
+    plan["rows"][0]["rendered_sha256"] = "changed"
+    plan_path.write_text(json.dumps(plan))
+    with pytest.raises(ValueError, match="validation row changed"):
+        runner.main([*plan_argv, "--output-dir", str(tmp_path / "stale_plan")])
+
     def fail_native(*args, **kwargs):
         raise RuntimeError("backend failed")
 

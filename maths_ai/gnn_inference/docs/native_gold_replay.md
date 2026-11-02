@@ -207,3 +207,9 @@ input/original matches, **85/85** exact-aligned originals and **30/30**
 exact-aligned rendered transitions, with **56** unsupported and no failures.
 Two applied-rule targets are among the **21** V2 parsed targets. See
 [completed V2 recovery and native results](tactic_templates_v2.md).
+
+V3 subsequently matched **34/34** exact-aligned rendered transitions on the
+same 86-step cohort, with 52 unsupported and no current replay failures.
+Use [inventory validation plans](template_inventory_validation.md) for all
+exact-aligned validation actions and extracted train-form coverage rather
+than extrapolating validity from this smoke sample.

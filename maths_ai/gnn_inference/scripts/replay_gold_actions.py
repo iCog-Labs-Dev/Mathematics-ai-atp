@@ -7,6 +7,7 @@ traces and pinned backend are read only; resumable reports go to output-dir.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import subprocess
@@ -25,6 +26,9 @@ from maths_ai.gnn_inference.scripts.setup_sexpr_environment import LEAN_TOOLCHAI
 from maths_ai.gnn_inference.atp_lean_gnn import tactic_templates
 from maths_ai.gnn_inference.atp_lean_gnn import intro_templates
 from maths_ai.gnn_inference.atp_lean_gnn import application_templates
+from maths_ai.gnn_inference.atp_lean_gnn.template_catalog import (
+    canonical_form, form_id, load_validation_plan, validation_summary,
+)
 
 
 def _git(root, *args):
@@ -76,6 +80,9 @@ def _prepare_row(row, cache_root, raw_cache, model_cache, trace_cache, *, render
         if any(type(i) is not int or i < 0 for i in (unit, invocation)):
             raise ValueError("invalid source invocation coordinates")
         payload.update(tactic_templates.prepare_gold_rendering(row.tactic, trace, renderer=renderer))
+        if payload["rendered_tactic"] is not None:
+            shape = canonical_form(payload["template_target"], payload["rendered_tactic"], trace["local_context"])
+            payload["template_form_id"] = form_id(shape)
         payload["model_record"] = model
         payload["request"] = {
             "rowIndex": row.row_index, "sourceStart": start, "sourceEnd": end,
@@ -98,6 +105,8 @@ def main(argv=None):
     parser.add_argument("--file-timeout", type=float, default=600)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--renderer", choices=("flat", "template-v1", "template-v2", "template-v3"), default="flat")
+    parser.add_argument("--validation-plan", type=Path,
+                        help="Use an inventory's fixed exact-aligned selection instead of theorem sampling")
     args = parser.parse_args(argv)
     if args.num_theorems < 1 or not math.isfinite(args.file_timeout) or args.file_timeout <= 0:
         raise ValueError("theorem count and file timeout must be positive")
@@ -108,13 +117,37 @@ def main(argv=None):
     for directory in ("sexpr", "model_sexpr_v2", "action_trace_v3"):
         if not (cache_root / args.split / directory).is_dir():
             raise ValueError(f"cache directory absent: {cache_root / args.split / directory}")
-    rows = list(iter_dataset_rows(dataset_name=args.dataset_name, split=args.split))
-    selected = select_theorems(rows, count=args.num_theorems, seed=args.seed)
+    validation_plan = None
+    if args.validation_plan:
+        validation_plan = load_validation_plan(args.validation_plan.resolve(), split=args.split, renderer=args.renderer)
+        if validation_plan["manifest"]["cache_root"] != str(cache_root):
+            raise ValueError("validation plan cache root differs")
+        expected_rows = {row["row_index"]: row for row in validation_plan["rows"]}
+        if {row["dataset"] for row in expected_rows.values()} != {args.dataset_name}:
+            raise ValueError("validation plan dataset differs")
+        selected = [row for row in iter_dataset_rows(dataset_name=args.dataset_name, split=args.split)
+                    if row.row_index in expected_rows]
+        if len(selected) != len(expected_rows) or {row.row_index for row in selected} != set(expected_rows):
+            raise ValueError("validation selection is missing/duplicated in the dataset")
+    else:
+        rows = list(iter_dataset_rows(dataset_name=args.dataset_name, split=args.split))
+        selected = select_theorems(rows, count=args.num_theorems, seed=args.seed)
     if not selected:
         raise ValueError("empty theorem selection")
     caches = (SExprCache(cache_root, project_path=str(source_root)), ModelSExprCache(cache_root),
               SourceSyntaxTraceCache(cache_root))
     planned = [_prepare_row(row, cache_root, *caches, renderer=args.renderer) for row in selected]
+    if validation_plan is not None:
+        for payload in planned:
+            expected = expected_rows[payload["row_index"]]
+            if ("failure" in payload or payload["alignment_kind"] != "exact"
+                    or payload["dataset_target_matches_source"] is not True
+                    or payload["theorem"] != expected["theorem"] or payload["file_path"] != expected["file_path"]
+                    or payload["cache_hashes"] != expected["cache_hashes"]
+                    or payload.get("template_form_id") != expected["form_id"]
+                    or payload["rendered_tactic"] is None
+                    or hashlib.sha256(payload["rendered_tactic"].encode()).hexdigest() != expected["rendered_sha256"]):
+                raise ValueError(f"validation row changed since inventory: {payload['row_index']}")
     groups = defaultdict(list)
     for payload in planned:
         groups[payload["file_path"]].append(payload)
@@ -126,7 +159,8 @@ def main(argv=None):
     manifest = {
         "schema": "native_gold_step_replay_v2", "original_replay_mode": ORIGINAL_REPLAY_MODE,
         "dataset": args.dataset_name, "split": args.split,
-        "seed": args.seed, "requested_theorems": args.num_theorems,
+        "seed": args.seed if validation_plan is None else None,
+        "requested_theorems": args.num_theorems if validation_plan is None else None,
         "selected_theorems": [{"file_path": file, "theorem": theorem}
                               for file, theorem in sorted({(p["file_path"], p["theorem"]) for p in planned})],
         "source_root": str(source_root), "pantograph_root": str(pantograph_root),
@@ -148,6 +182,8 @@ def main(argv=None):
         "source_syntax_compiler_sha256": file_sha256(Path(tactic_templates.__file__).parent / "action_targets/source_syntax.py"),
         "template_parser_sha256": file_sha256(Path(tactic_templates.__file__)),
         "rows": [{"row_index": p["row_index"], "cache_hashes": p["cache_hashes"]} for p in planned],
+        "validation_plan_sha256": file_sha256(args.validation_plan.resolve()) if validation_plan is not None else None,
+        "validation_selection_policy": validation_plan["manifest"]["selection_policy"] if validation_plan is not None else None,
     }
     root = args.output_dir
     if root.exists() and not args.resume:
@@ -194,7 +230,7 @@ def main(argv=None):
         for payload in payloads:
             result = {key: payload[key] for key in ("row_index", "theorem", "file_path", "tactic", "rendered_tactic")}
             for key in ("render_path", "flat_renderable", "flat_render_error", "template_target", "template_error_code",
-                        "alignment_kind", "dataset_target_matches_source"):
+                        "alignment_kind", "dataset_target_matches_source", "template_form_id"):
                 if key in payload:
                     result[key] = payload[key]
             if "failure" in payload:
@@ -210,12 +246,18 @@ def main(argv=None):
         report["files"][file_path] = {"rows": results, "frontend_messages": frontend_messages}
         all_results = [r for file in report["files"].values() for r in file["rows"]]
         report["summary"] = summarize_replays(all_results)
+        if validation_plan is not None:
+            report["template_validation"] = validation_summary(all_results, validation_plan["rows"])
         report["complete"] = len(report["files"]) == len(groups)
         _write_report(path, report)
         print(f"replayed {len(report['files'])}/{len(groups)} files: {json.dumps(report['summary'])}", flush=True)
     print(json.dumps(report["summary"], indent=2), flush=True)
+    if validation_plan is not None:
+        print(json.dumps({"template_validation": {key: value for key, value in report["template_validation"].items()
+                                                  if key != "by_form"}}, indent=2), flush=True)
     print(f"Report: {path}", flush=True)
-    return 0 if all(r["status"] in {"rendered_transition_match", "render_unsupported"}
+    accepted = {"rendered_transition_match"} if validation_plan is not None else {"rendered_transition_match", "render_unsupported"}
+    return 0 if all(r["status"] in accepted
                     for file in report["files"].values() for r in file["rows"]) else 2
 
 

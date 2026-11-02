@@ -38,7 +38,7 @@ def _cache_row(cache, split, index, root=None, tactic="rw [← h0]", *, alignmen
     raw = {"schema_version": SExprCache.SCHEMA_VERSION, "extractor_version": SExprCache.EXTRACTOR_VERSION,
            "dataset": "fixture", "split": split, "row_index": index, "theorem": data.theorem,
            "tactic": tactic, "repo_commit": DATASET_MATHLIB_COMMIT, "alignment_kind": alignment,
-           "target_state_matches_invocation": target}
+           "target_state_matches_invocation": target, "file_path": "Fixture.lean"}
     raw_digest = ModelSExprCache.raw_record_sha256(raw)
     trace = {**raw, "schema_version": SourceSyntaxTraceCache.SCHEMA_VERSION,
              "extractor_version": SourceSyntaxTraceCache.EXTRACTOR_VERSION,
