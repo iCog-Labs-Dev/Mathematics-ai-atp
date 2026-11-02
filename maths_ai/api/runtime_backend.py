@@ -15,6 +15,7 @@ from typing import Any
 from maths_ai.gnn_inference.atp_lean_gnn.evaluation_runtime import (
     EvaluationSettings,
     chunk_stats,
+    proposal_seeds_sha256,
     search_counters,
     subset_identity,
 )
@@ -163,9 +164,14 @@ class LiveBackend:
                 seed=job.seed,
             )
             job.items = pool.eval_items
+            settings = EvaluationSettings(**payload["evaluation"])
             progress.update(
                 eval_items=len(job.items),
                 eval_subset_sha256=subset_identity(job.items) if job.items else None,
+                proposal_seeds_sha256=[
+                    proposal_seeds_sha256(settings.proposals(job.items, repeat))
+                    for repeat in range(settings.repeats)
+                ],
                 admission=plain(job.report.as_dict()),
             )
         return progress

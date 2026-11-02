@@ -295,16 +295,25 @@ def merge_stats(total: dict[str, float], stats: dict[str, float]) -> dict[str, f
     return total
 
 
+def proposal_seeds_sha256(proposals: list[ProposalSpec]) -> str:
+    seeds = json.dumps([proposal.seed for proposal in proposals])
+    return hashlib.sha256(seeds.encode("utf-8")).hexdigest()
+
+
 def repeat_row(
     repeat: int, proposals: list[ProposalSpec], stats: dict[str, float]
 ) -> dict[str, Any]:
     """One repeat's report row: its proof rate over searched seeds and its seeds."""
-    seeds = json.dumps([proposal.seed for proposal in proposals])
+    return repeat_row_for_seeds(repeat, proposal_seeds_sha256(proposals), stats)
+
+
+def repeat_row_for_seeds(repeat: int, seeds_sha256: str, stats: dict[str, float]) -> dict[str, Any]:
+    """``repeat_row`` for a caller that holds only the digest of the repeat's seeds."""
     return {
         "repeat": repeat,
         "proof_rate": stats["solved"] / (_searched(stats) or 1.0),
         "searched": _searched(stats),
-        "proposal_seeds_sha256": hashlib.sha256(seeds.encode("utf-8")).hexdigest(),
+        "proposal_seeds_sha256": seeds_sha256,
         **stats,
     }
 
@@ -320,6 +329,16 @@ def summarize_evaluation(
     separately. Both the whole-round evaluation and the service's chunked jobs
     report through this one function, so their results mean the same thing.
     """
+    return summarize_rows(settings, len(eval_items), subset_identity(eval_items), repeats)
+
+
+def summarize_rows(
+    settings: EvaluationSettings,
+    subset_size: int,
+    subset_sha256: str,
+    repeats: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """``summarize_evaluation`` for a caller that holds the subset's identity, not its items."""
 
     def total(key: str) -> float:
         return sum(float(row.get(key, 0.0)) for row in repeats)
@@ -336,8 +355,8 @@ def summarize_evaluation(
         "seeds_inadmissible": total("seeds_inadmissible"),
         **{key: total(key) for key in search_counters([])},
         "evaluation": settings.contract(),
-        "eval_subset_size": len(eval_items),
-        "eval_subset_sha256": subset_identity(eval_items),
+        "eval_subset_size": subset_size,
+        "eval_subset_sha256": subset_sha256,
         "repeats": repeats,
     }
 

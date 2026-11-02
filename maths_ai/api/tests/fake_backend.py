@@ -47,6 +47,8 @@ class FakeBackend:
             return {"spawned": child.pid}
         elif goal == "fail":
             raise BackendError("input:malformed-text", "scripted input failure")
+        elif goal == "inadmissible":
+            return {"outcome": "inadmissible", "exception_category": "lean-rejected"}
         return {
             "outcome": "solved" if goal == "proved" else "unsolved",
             "certified": goal == "proved",
@@ -58,11 +60,21 @@ class FakeBackend:
         }
 
     async def admit(self, payload):
-        return {"rows_seen": 2, "admitted": 2, "newly_admitted": 2, "done": True,
-                "eval_items": 2, "eval_subset_sha256": "fake", "admission": {}}
+        self.admit_steps = getattr(self, "admit_steps", 0) + 1
+        done = self.admit_steps >= 2
+        repeats = payload["evaluation"]["repeats"]
+        progress = {"rows_seen": 2 * self.admit_steps, "admitted": 2 * self.admit_steps,
+                    "newly_admitted": 2, "done": done}
+        if done:
+            progress.update(eval_items=2, eval_subset_sha256="fake-subset",
+                            proposal_seeds_sha256=[f"seeds-{r}" for r in range(repeats)],
+                            admission={"admitted": 4})
+        return progress
 
     async def evaluate(self, payload):
         self.evaluated += 1
+        if payload["repeats"] == 3:  # a slow job, to cancel mid-run
+            await asyncio.sleep(1.0)
         start, count = payload["start"], payload["count"]
         attempts = [
             {"index": start + i, "repeat": payload["repeat"], "outcome": "solved",
