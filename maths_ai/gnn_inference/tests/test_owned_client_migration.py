@@ -268,5 +268,17 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
         if entry["path"] in expected:
             assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
         expected[entry["path"]] = entry["sha256"]
+    # The proving service shares the live runtime with training and adds its own
+    # runtime modules, which enter the chain as new sources.
+    service = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "mcts_api_service/source_manifest.json").read_text()
+    )
+    assert service["target_base_commit"] == "2c8bff8ecf447a9829a3c2246add8229beb66859"
+    for entry in service["sources"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        else:
+            assert entry["target_base_sha256"] is None, entry["path"]
+        expected[entry["path"]] = entry["sha256"]
     for path, digest in expected.items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path

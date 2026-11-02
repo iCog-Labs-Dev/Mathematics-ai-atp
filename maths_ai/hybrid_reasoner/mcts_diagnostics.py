@@ -78,6 +78,12 @@ SEARCH_SOURCES = (
     "maths_ai/lean_replay/text.py",
     "maths_ai/lean_replay/universe.py",
     "maths_ai/lean_replay/validation.py",
+    "maths_ai/gnn_inference/atp_lean_gnn/live_runtime.py",
+    "maths_ai/gnn_inference/atp_lean_gnn/evaluation_runtime.py",
+    "maths_ai/api/runtime_backend.py",
+    "maths_ai/api/runtime_worker.py",
+    "maths_ai/api/runtime_supervisor.py",
+    "maths_ai/api/service.py",
 )
 # Each leaf tries an elaboration failure and an admission before the tactic
 # that closes it, so every leaf runs several alternatives on one state.
