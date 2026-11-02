@@ -17,7 +17,6 @@ record gets the same classification in both.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import time
@@ -294,6 +293,146 @@ class ValidationCache:
         temporary.replace(self.path)
 
 
+class AdmissionSession:
+    """Lean admission of candidate seeds, advanced a bounded step at a time.
+
+    The session owns one client at a time. A replay that closes the client
+    (request timeout, or unsolicited REPL output) is skipped (it says nothing
+    about the row's correctness) and a fresh, re-probed client continues.
+    Replays longer than ``max_replay_chars`` are skipped before sending.
+    Other failures end the session. The deadline is absolute: time spent
+    paused between steps counts against it. ``step`` returns only after the
+    current Lean request and its scope have settled, so a caller may run other
+    work between steps.
+    """
+
+    def __init__(
+        self,
+        candidates: Iterable[TheoremItem],
+        client_factory: Callable[[], Awaitable[PantographClient]],
+        *,
+        max_admitted: int,
+        time_budget_s: float,
+        report: AdmissionReport,
+        cache: ValidationCache | None = None,
+        max_replay_chars: int | None = None,
+    ) -> None:
+        self._candidates = iter(candidates)
+        self._client_factory = client_factory
+        self.max_admitted = max_admitted
+        self.report = report
+        self.cache = cache
+        self.max_replay_chars = max_replay_chars
+        self.admitted: list[TheoremItem] = []
+        self.rows_seen = 0
+        self.done = False
+        self._client: PantographClient | None = None
+        self._started = time.monotonic()
+        self._deadline = self._started + time_budget_s
+
+    async def step(self, max_rows: int) -> list[TheoremItem]:
+        """Admit from at most ``max_rows`` more candidates; return the newly admitted."""
+        if self.done:
+            return []
+        newly: list[TheoremItem] = []
+        if self._client is None:
+            self._client = await self._client_factory()
+        try:
+            for _ in range(max_rows):
+                item = self._next_candidate()
+                if item is None:
+                    break
+                admitted = await self._admit(item)
+                if admitted:
+                    newly.append(item)
+        except BaseException:
+            await self.close()
+            raise
+        if self.done:
+            await self.close()
+        return newly
+
+    def _next_candidate(self) -> TheoremItem | None:
+        if len(self.admitted) >= self.max_admitted:
+            self.report.stopped_by = "pool-full"
+            self.done = True
+            return None
+        if time.monotonic() >= self._deadline:
+            self.report.stopped_by = "time-budget"
+            self.done = True
+            return None
+        item = next(self._candidates, None)
+        if item is None:
+            self.done = True
+        else:
+            self.rows_seen += 1
+        return item
+
+    async def _admit(self, item: TheoremItem) -> bool:
+        report, cache = self.report, self.cache
+        replay = render_replay(item.seed)
+        if self.max_replay_chars is not None and len(replay.expression) > self.max_replay_chars:
+            report.skipped["over-size-replay"] += 1
+            report.cover(item.seed.source_dict, item.size, "skipped")
+            return False
+        fingerprint = replay.fingerprint
+        if cache is not None and fingerprint in cache:
+            report.cache_hits += 1
+        else:
+            client = self._client
+            try:
+                async with client.state_scope() as scope:
+                    _, _, validation = await materialize_seed(scope, item.seed)
+            except ReplayInputError as exc:
+                report.quarantine(item.seed.source_dict, exc, item.size, replay=replay.as_dict())
+                return False
+            except (PantographRequestTimeout, PantographProtocolError) as exc:
+                if client.is_usable:
+                    raise
+                kind = (
+                    "replay-timeout"
+                    if isinstance(exc, PantographRequestTimeout)
+                    else "replay-repl-failure"
+                )
+                report.skipped[kind] += 1
+                report.cover(item.seed.source_dict, item.size, "skipped")
+                bucket = report.examples.setdefault(kind, [])
+                if len(bucket) < EXAMPLES_PER_REASON:
+                    bucket.append(
+                        {
+                            "source": item.seed.source_dict,
+                            "replay_chars": len(replay.expression),
+                            "error": str(exc)[:300],
+                        }
+                    )
+                await client.aclose()
+                self._client = await self._client_factory()
+                return False
+            if validation.name_drift:
+                report.name_drift += 1
+            if validation.source_indices != validation.replay_indices:
+                report.context_index_shift += 1
+            if cache is not None:
+                cache.add(fingerprint)
+        report.admitted += 1
+        report.cover(item.seed.source_dict, item.size, "admitted")
+        self.admitted.append(item)
+        return True
+
+    async def close(self) -> None:
+        """Close the client and record the time spent; safe to call twice."""
+        client, self._client = self._client, None
+        try:
+            if client is not None:
+                await client.aclose()
+        finally:
+            if self._started is not None:
+                self.report.preflight_s += time.monotonic() - self._started
+                self._started = None
+                if self.cache is not None:
+                    self.cache.save()
+
+
 async def preflight(
     candidates: Iterable[TheoremItem],
     client_factory: Callable[[], Awaitable[PantographClient]],
@@ -306,78 +445,21 @@ async def preflight(
 ) -> list[TheoremItem]:
     """Replay candidates in their own scopes until the pool or budget is full.
 
-    The preflight owns one client at a time. A replay that closes the client
-    (request timeout, or unsolicited REPL output) is skipped (it says nothing
-    about the row's correctness) and a fresh, re-probed client continues.
-    Replays longer than ``max_replay_chars`` are skipped before sending.
-    Other failures end the preflight.
+    Drains an ``AdmissionSession`` in one go; see it for the client, skip and
+    deadline rules.
     """
-    admitted: list[TheoremItem] = []
-    started = time.monotonic()
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + time_budget_s
-    client = await client_factory()
+    session = AdmissionSession(
+        candidates,
+        client_factory,
+        max_admitted=max_admitted,
+        time_budget_s=time_budget_s,
+        report=report,
+        cache=cache,
+        max_replay_chars=max_replay_chars,
+    )
     try:
-        for item in candidates:
-            if len(admitted) >= max_admitted:
-                report.stopped_by = "pool-full"
-                break
-            if loop.time() >= deadline:
-                report.stopped_by = "time-budget"
-                break
-            replay = render_replay(item.seed)
-            if max_replay_chars is not None and len(replay.expression) > max_replay_chars:
-                report.skipped["over-size-replay"] += 1
-                report.cover(item.seed.source_dict, item.size, "skipped")
-                continue
-            fingerprint = replay.fingerprint
-            if cache is not None and fingerprint in cache:
-                report.cache_hits += 1
-            else:
-                try:
-                    async with client.state_scope() as scope:
-                        _, _, validation = await materialize_seed(scope, item.seed)
-                except ReplayInputError as exc:
-                    report.quarantine(
-                        item.seed.source_dict, exc, item.size, replay=replay.as_dict()
-                    )
-                    continue
-                except (PantographRequestTimeout, PantographProtocolError) as exc:
-                    if client.is_usable:
-                        raise
-                    kind = (
-                        "replay-timeout"
-                        if isinstance(exc, PantographRequestTimeout)
-                        else "replay-repl-failure"
-                    )
-                    report.skipped[kind] += 1
-                    report.cover(item.seed.source_dict, item.size, "skipped")
-                    bucket = report.examples.setdefault(kind, [])
-                    if len(bucket) < EXAMPLES_PER_REASON:
-                        bucket.append(
-                            {
-                                "source": item.seed.source_dict,
-                                "replay_chars": len(replay.expression),
-                                "error": str(exc)[:300],
-                            }
-                        )
-                    await client.aclose()
-                    client = await client_factory()
-                    continue
-                if validation.name_drift:
-                    report.name_drift += 1
-                if validation.source_indices != validation.replay_indices:
-                    report.context_index_shift += 1
-                if cache is not None:
-                    cache.add(fingerprint)
-            report.admitted += 1
-            report.cover(item.seed.source_dict, item.size, "admitted")
-            admitted.append(item)
+        while not session.done:
+            await session.step(64)
     finally:
-        try:
-            await client.aclose()
-        finally:
-            report.preflight_s += time.monotonic() - started
-            if cache is not None:
-                cache.save()
-    return admitted
+        await session.close()
+    return session.admitted
