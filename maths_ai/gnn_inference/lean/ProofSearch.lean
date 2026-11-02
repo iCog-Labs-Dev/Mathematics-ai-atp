@@ -35,6 +35,16 @@ def lookup (query : String) : TacticM Json := do
       ("type", toJson (← Meta.ppExpr info.type).pretty)]
   return Json.mkObj [("status", toJson "ok"), ("query", toJson query), ("lemmas", toJson hits)]
 
+def firstTactic (seq : Syntax) : Option Syntax := do
+  let body := if seq.getKind == ``Parser.Tactic.tacticSeq then seq[0] else seq
+  let elements ← if body.getKind == ``Parser.Tactic.tacticSeqBracketed then some body[1]
+    else if body.getKind == ``Parser.Tactic.tacticSeq1Indented then some body[0] else none
+  elements.getArgs.find? (·.getKind != nullKind)
+
+partial def firstNestedTactic (stx : Syntax) : Option Syntax := do
+  if stx.getKind == ``Parser.Term.byTactic then firstTactic stx[1]
+  else stx.getArgs.findSome? firstNestedTactic
+
 partial def serve (states : Array Tactic.SavedState) : TacticM Unit := do
   let input ← IO.getStdin
   let line ← input.getLine
@@ -60,7 +70,7 @@ partial def serve (states : Array Tactic.SavedState) : TacticM Unit := do
       else if command == "finish" then
         unless (← getUnsolvedGoals).isEmpty do throwError "Unsolved sibling goals remain"
         return (states, true, ← describe stateId)
-      else if command == "step" then
+      else if command == "step" || command == "split" then
         let text ← match request.getObjValAs? String "tactic" with
           | .ok value => pure value
           | .error error => throwError error
@@ -69,6 +79,12 @@ partial def serve (states : Array Tactic.SavedState) : TacticM Unit := do
         let stx ← match Parser.runParserCategory (← getEnv) `tactic wrapped with
           | .ok stx => pure stx
           | .error error => throwError error
+        if command == "split" then
+          let some first := firstTactic stx[1] | throwError "No top-level tactic in proposal"
+          let some text := first.reprint | throwError "Cannot recover original tactic text"
+          let inner := (firstNestedTactic first).bind Syntax.reprint |>.map String.trim
+          return (states, false, Json.mkObj [("status", toJson "ok"), ("first_tactic", toJson text.trim),
+            ("inner_tactic", toJson inner)])
         Term.withoutErrToSorry <| withoutRecover <| evalTactic stx
         Term.synthesizeSyntheticMVarsNoPostponing
         let errors ← (← Core.getMessageLog).toList.filter (·.severity == .error) |>.mapM (·.toString)

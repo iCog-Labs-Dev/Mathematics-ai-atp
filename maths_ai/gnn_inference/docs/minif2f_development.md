@@ -114,7 +114,9 @@ Per remaining theorem: at most **8 model requests**, **24 tactic trials**,
 **24 native graph nodes**, depth **8**, **3 alternatives** per proposal and
 **600 active seconds**. Native tactics/lookups have a **20 s** wall limit.
 The deterministic frontier prefers less-visited states, fewer open goals, then
-deeper verified prefixes; each node gets at most three model turns. These are
+deeper verified prefixes; each node gets at most three valid tactic-proposal
+format-accepted expansions by default (`--search-visits`). Malformed responses and lookups
+consume global calls but do not exhaust that expansion allowance. These are
 search bounds, not a learned proof-value function. Initial native loading and
 first model loading count against active theorem time. Generation uses a
 deadline-aware stopping budget, not an OS-level hard GPU cancellation.
@@ -142,7 +144,7 @@ scripted controller tests are not DeepSeek solve results. Schema v3 binds
 controller/helper code and all search budgets; v1/v2 reports remain valid
 candidate sources. Whole-proof mode remains available with `--proof-engine whole`.
 
-Verification: **69 focused tests passed / 1 optional integration skipped**.
+Verification: **74 focused tests passed / 1 optional integration skipped**.
 Real Lean **4.10.0-rc1** tests cover rollback, sibling preservation, local lets
 across snapshots, typed lookup, duplicate rejection, full-proof checking and
 backtracking after a forbidden-axiom closure. Fault-injection tests cover
@@ -170,6 +172,65 @@ and use the failed report as its source:
 `--replay-report maths_ai/gnn_inference/runs/minif2f_valid25_native_search/report.json`.
 Keep `--replay-passed-only` and the remaining budgets/options. This preserves
 the failed run as evidence and freshly verifies its twelve prior successes.
+
+### Actual first-search failure and model-output adapter
+
+Audit of `minif2f_valid25_native_search_fix1/report.json` (SHA-256
+`8c99646620fab9d40798fddede6739573ccb79e6949b9ad9419232edfd1235d8`)
+confirms **36 model calls, zero Lean tactic trials, one root node per task**.
+All twelve roots consumed three turns on response parsing failures. The run
+never tested proof-search transitions; unused global eight-call allowances
+and 600 s budgets were not the stopping cause. Original-code digests and
+manifest/cohort bindings match the saved run.
+
+Rejection counts: **10** theorem declarations, **3** annotated Lean fence
+labels (`lean4 tactic` / `lean4 tactic block 1`), **12** unclosed fences,
+**10** unfenced essays and **1** sorry sketch. **22/36** generations hit the
+2,048-token output limit. Therefore the earlier v2 observation that truncation
+was absent does not transfer to this shorter-output search protocol.
+
+Adapter now extracts a generated theorem's tactic body without installing its
+header/assumptions, accepts observed annotated Lean fence labels, and uses
+Lean's parser to extract a complete leading tactic from multi-tactic responses.
+A leading nested `by`-proof tactic is also an alternative, useful when the
+model wraps its proof in a repeated `have h_main`. Each fragment is checked
+at the actual current goal; discarded headers never introduce assumptions.
+Leading/nested tactics and the full block can be tried from the same parent. This
+retains valid progress when a later tactic fails, without splitting code by
+lines or accepting unverified prefixes. Original frozen-target/axiom check
+remains mandatory. On the actual saved responses, **13** candidate bodies are
+now accepted instead of zero; this is parser acceptance, not new theorem solves.
+
+Prompts put an explicit code-first example before current goals and omit the
+full original declaration that anchored whole-theorem responses. Stop reasons
+now distinguish model-call, tactic-trial, wall-time and frontier exhaustion;
+console/report metrics expose tactic trials and proposal errors. Model visits
+are still recorded, but only valid tactic proposals count toward per-state
+expansion limits.
+
+Use a two-problem development pilot before expanding search cost across all
+remaining tasks. Both names come from the original fixed cohort; all other
+unsolved tasks remain explicitly pending, not failed or replaced:
+
+```sh
+git pull --ff-only jajos gnn-issue-fixes
+LD_PRELOAD= python -B -u -m maths_ai.gnn_inference.scripts.run_minif2f_dev \
+  --output-dir maths_ai/gnn_inference/runs/minif2f_native_adapter_pilot \
+  --lean-project maths_ai/_support_files/sexpr_environment/mathlib4 \
+  --replay-report maths_ai/gnn_inference/runs/minif2f_valid25_native_search_fix1/report.json \
+  --replay-passed-only --proof-engine search --allow-environment-port \
+  --per-group 5 --seed 42 --device cuda:0 --dtype bfloat16 \
+  --context-tokens 12288 --max-new-tokens 4096 --request-timeout 120 \
+  --max-heartbeats 1000000 --max-rec-depth 2048 --lean-timeout 180 \
+  --search-task aime_1988_p4 --search-task numbertheory_sumkmulnckeqnmul2pownm1 \
+  --search-model-calls 32 --search-tactic-trials 96 --search-nodes 64 \
+  --search-depth 16 --search-visits 6 --search-seconds 1200 --search-tactic-timeout 20
+```
+
+Real Lean regression verifies theorem-response adaptation, preservation of a
+valid prefix before a failing later tactic, refusal of generated extra
+assumptions, and continued search after three formatting failures. No new
+DeepSeek/native-search solve result is claimed before the server pilot.
 
 ## Revised solving run (v2)
 

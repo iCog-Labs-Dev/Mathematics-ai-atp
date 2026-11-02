@@ -198,6 +198,13 @@ def test_baseline_then_model_resume_loads_no_model_during_baseline(tmp_path, mon
     assert carried["summary"]["prior_solves_revalidated"] == 2
     assert carried["summary"]["cumulative_model_calls"] == 1
     assert loads == caches == [1, 1]
+    pilot_output = tmp_path / "pilot"
+    assert dev.main(["--output-dir", str(pilot_output), "--lean-project", str(project),
+                     "--allow-environment-port", "--proof-engine", "search", "--search-task", "one"]) == 0
+    pilot = json.loads((pilot_output / "report.json").read_text())
+    assert pilot["summary"]["selected_tasks"] == 2
+    assert pilot["summary"]["pending_model_tasks"] == 1  # Excluded tasks aren't called failures/completed.
+    assert loads == caches == [1, 1]
 
 
 @pytest.mark.parametrize("raw", [

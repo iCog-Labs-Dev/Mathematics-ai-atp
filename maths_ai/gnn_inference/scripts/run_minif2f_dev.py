@@ -324,6 +324,8 @@ def _summary(report):
                                             for row in report["tasks"]),
                   model_solved=model_solved + search_solved, replayed_solved=replayed,
                   search_solved=search_solved, search_calls=completed_search_calls,
+                  search_tactic_trials=sum(len(row.get("search", {}).get("trials", [])) for row in report["tasks"]),
+                  search_proposal_errors=sum("proposal_error" in call for call in search_calls),
                   search_duplicate_candidates=sum(row.get("search", {}).get("duplicates", 0) for row in report["tasks"]),
                   model_only_solved=result["model_only_solved"] + replayed + search_solved,
                   newly_solved_after_first=after_first, newly_solved_by_repair=repaired,
@@ -365,6 +367,10 @@ def main(argv=None):
     parser.add_argument("--search-tactic-trials", type=int, default=24)
     parser.add_argument("--search-nodes", type=int, default=24)
     parser.add_argument("--search-depth", type=int, default=8)
+    parser.add_argument("--search-visits", type=int, default=3,
+                        help="Maximum valid tactic-proposal expansions per native state")
+    parser.add_argument("--search-task", action="append",
+                        help="Search only this selected task; others stay pending in the fixed cohort")
     parser.add_argument("--search-branching", type=int, choices=(1, 2, 3, 4), default=3)
     parser.add_argument("--search-seconds", type=float, default=600)
     parser.add_argument("--search-tactic-timeout", type=float, default=20)
@@ -379,7 +385,7 @@ def main(argv=None):
         from maths_ai.gnn_inference.scripts import proof_search as native_search
         search_budget = native_search.SearchBudget(
             model_calls=args.search_model_calls, tactic_trials=args.search_tactic_trials,
-            nodes=args.search_nodes, depth=args.search_depth, seconds=args.search_seconds,
+            nodes=args.search_nodes, depth=args.search_depth, visits=args.search_visits, seconds=args.search_seconds,
             tactic_timeout=args.search_tactic_timeout)
     if (args.per_group < 1 or args.seed < 0 or args.context_tokens <= args.max_new_tokens
             or args.max_new_tokens < 1 or args.max_heartbeats < 1 or args.max_rec_depth < 1
@@ -403,6 +409,8 @@ def main(argv=None):
     if not exact and not args.allow_environment_port:
         raise ValueError("Benchmark pins differ; use exact environment or explicitly --allow-environment-port")
     tasks = cohort["tasks"]
+    if args.search_task and (args.proof_engine != "search" or not set(args.search_task) <= {task["id"] for task in tasks}):
+        raise ValueError("Search-task pilot must name tasks in the fixed selected cohort")
     lake_sha = control._sha(lake)
     replay, replay_sha = (_replay_source(args.replay_report, cohort, context[1], lake_sha)
                           if args.replay_report else (None, None))
@@ -419,6 +427,7 @@ def main(argv=None):
                 "proof_engine": args.proof_engine,
                 "search_budget": vars(search_budget) if search_budget else None,
                 "search_branching": args.search_branching if search_budget else None,
+                "search_tasks": sorted(set(args.search_task)) if args.search_task else None,
                 "search_controller_sha256": control._sha(Path(native_search.__file__).read_text()) if native_search else None,
                 "search_helper_sha256": control._sha(native_search.LEAN_HELPER.read_text()) if native_search else None,
                 "max_heartbeats": args.max_heartbeats, "max_rec_depth": args.max_rec_depth,
@@ -478,7 +487,9 @@ def main(argv=None):
                                   "replayed_solved": row.get("complete", False)}), flush=True)
     report["summary"] = _summary(report)
     save()
-    if not args.baseline_only and any(not row.get("complete") for row in report["tasks"]):
+    if not args.baseline_only and any(
+            not row.get("complete") and (not args.search_task or row["id"] in args.search_task)
+            for row in report["tasks"]):
         args.backend, args.min_free_disk_gib, args.local_files_only = "transformers", 1, True
         report["cached_weights"] = smoke._cached_weights(args.hf_cache)
         report["preflight"] = control._preflight(args)
@@ -512,7 +523,7 @@ def main(argv=None):
             try:
                 if native_search:
                     for index, (task, row) in enumerate(zip(tasks, report["tasks"])):
-                        if row.get("complete"):
+                        if row.get("complete") or (args.search_task and task["id"] not in args.search_task):
                             continue
                         native_search.search(
                             task, row.setdefault("search", {}), generate,
@@ -526,7 +537,11 @@ def main(argv=None):
                         report["summary"] = _summary(report)
                         save()
                         print(json.dumps({"task": task["id"], "search": row["search"]["status"],
-                                          "calls": len(row["search"]["calls"])}), flush=True)
+                                          "stop_reason": row["search"].get("stop_reason"),
+                                          "calls": len(row["search"]["calls"]),
+                                          "trials": len(row["search"].get("trials", [])),
+                                          "proposal_errors": sum("proposal_error" in call for call in row["search"]["calls"]),
+                                          "nodes": len(row["search"].get("nodes", []))}), flush=True)
                 else:
                     smoke._run(report, generate, validate, save, args.max_attempts, args.seed, tasks=tasks,
                                messages_factory=lambda task, previous: _messages(

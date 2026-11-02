@@ -18,7 +18,8 @@ def test_proposal_formats_reject_placeholders_and_new_declarations():
     assert search.parse_proposal('```json\n{"lookup":"sum choose"}\n```', 3) == {"lookup": "sum choose"}
     assert search.parse_proposal('{"tactics":["constructor","exact h","rfl"]}', 2) == {"tactics": ["constructor", "exact h"]}
     assert search.parse_proposal("```lean4\n{ exact h }\n```", 3) == {"tactics": ["{ exact h }"]}
-    for raw in ('```lean4\nexact (by sorry)\n```', '```lean4\ntheorem changed : True := by trivial\n```',
+    assert search.parse_proposal('```lean4 tactic block 1\ntheorem changed : True := by\n  trivial\n```', 3) == {"tactics": ["trivial"]}
+    for raw in ('```lean4\nexact (by sorry)\n```', '{"tactics":["axiom bad : False"]}',
                 '```lean4\nexact h', '{"lookup":""}', '{"tactics":[]}'):
         with pytest.raises(ValueError):
             search.parse_proposal(raw, 3)
@@ -166,3 +167,73 @@ def test_native_startup_with_open_nat_postfix_factorial_notation(tmp_path):
         assert not closed["goals"]
         assert session.request("finish", closed["state"], 10)["status"] == "ok"
         assert session.proc.wait(timeout=10) == 0
+
+
+def test_native_split_recovers_whole_tactics_not_lines_and_retains_progress(tmp_path):
+    context = _context(tmp_path)
+    task = {"id": "adapter_target", "prefix": "import Lean\n", "ingest_status": "parsed",
+            "header": "theorem adapter_target (P : Prop) : P → P"}
+    raw = ('```lean4 tactic\ntheorem adapter_target (P : Prop) : P → P := by\n'
+           '  intro h\n  exact missing\n```')
+    proposals = iter([raw, '```lean4\nexact h\n```'])
+    record = {}
+    search.search(task, record, lambda *a: {"raw_text": next(proposals)},
+                  lambda task, raw, left: dev._validate(task, raw, context, min(left, 30)),
+                  lambda: None, _factory(task, context), budget=search.SearchBudget(model_calls=2), branching=3, seed=42)
+    assert record["status"] == "passed", record
+    assert record["nodes"][1]["steps"] == ["intro h"]
+    assert record["trials"][1]["status"] == "lean_error"
+    assert record["calls"][0]["splits"][0]["first_tactic"] == "intro h"
+
+
+def test_format_errors_do_not_exhaust_three_expansion_allowance(tmp_path):
+    context = _context(tmp_path)
+    task = {"id": "format_target", "prefix": "import Lean\n", "ingest_status": "parsed",
+            "header": "theorem format_target (P : Prop) (h : P) : P"}
+    proposals = iter(["Reasoning without code"] * 3 + ['```lean4\nexact h\n```'])
+    record = {}
+    search.search(task, record, lambda *a: {"raw_text": next(proposals)},
+                  lambda task, raw, left: dev._validate(task, raw, context, min(left, 30)),
+                  lambda: None, _factory(task, context), budget=search.SearchBudget(model_calls=4), branching=3, seed=42)
+    assert record["status"] == "passed"
+    assert record["nodes"][0]["visits"] == 4 and record["nodes"][0]["expansions"] == 1
+    assert len(record["trials"]) == 1
+
+
+def test_nested_have_wrapper_yields_a_checked_next_step(tmp_path):
+    context = _context(tmp_path)
+    task = {"id": "wrapper_target", "prefix": "import Lean\n", "ingest_status": "parsed",
+            "header": "theorem wrapper_target (P : Prop) : P → P"}
+    proposals = iter(['```lean4\ntheorem wrapper_target (P : Prop) : P → P := by\n'
+                      '  have h_main : P → P := by\n    intro h\n    exact missing\n  exact h_main\n```',
+                      '```lean4\nexact h\n```'])
+    record = {}
+    search.search(task, record, lambda *a: {"raw_text": next(proposals)},
+                  lambda task, raw, left: dev._validate(task, raw, context, min(left, 30)),
+                  lambda: None, _factory(task, context), budget=search.SearchBudget(model_calls=2), branching=3, seed=42)
+    assert record["status"] == "passed", record
+    assert record["nodes"][1]["steps"] == ["intro h"]
+
+
+def test_stop_reason_distinguishes_formatting_global_limit_from_frontier(tmp_path):
+    context = _context(tmp_path)
+    task = {"id": "limit_target", "prefix": "import Lean\n", "ingest_status": "parsed",
+            "header": "theorem limit_target : True"}
+    record = {}
+    search.search(task, record, lambda *a: {"raw_text": "No code"}, lambda *a: pytest.fail("no candidate"),
+                  lambda: None, _factory(task, context), budget=search.SearchBudget(model_calls=4), branching=3, seed=42)
+    assert len(record["calls"]) == 4 and not record["trials"]
+    assert record["stop_reason"] == "model_call_limit"
+
+
+def test_theorem_adapter_cannot_add_generated_assumptions(tmp_path):
+    context = _context(tmp_path)
+    task = {"id": "fixed_target", "prefix": "import Lean\n", "ingest_status": "parsed",
+            "header": "theorem fixed_target : False"}
+    record = {}
+    generated = '```lean4\ntheorem forged (h : False) : False := by\n  exact h\n```'
+    search.search(task, record, lambda *a: {"raw_text": generated}, lambda *a: pytest.fail("not a proof"),
+                  lambda: None, _factory(task, context), budget=search.SearchBudget(model_calls=1), branching=3, seed=42)
+    assert record["status"] != "passed"
+    assert record["trials"][0]["status"] == "lean_error"
+    assert "unknown identifier" in record["trials"][0]["error"]

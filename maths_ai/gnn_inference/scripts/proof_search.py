@@ -90,7 +90,19 @@ def parse_proposal(raw, branching):
             raise ValueError("Expected lookup or tactics JSON")
         tactics = payload["tactics"][:branching]
     else:
-        tactics = [dev._proof_code(raw)]
+        # Prover checkpoints often keep emitting a complete theorem despite a
+        # next-step prompt. Its header is NEVER installed in the native state.
+        if blocks and re.fullmatch(r"lean4?(?:\s+tactic(?:\s+block(?:\s+\d+)?)?)?",
+                                   blocks[-1][0].strip(), re.IGNORECASE):
+            text = blocks[-1][1].strip()
+            code = dev._proof_code("```lean4\n" + text + "\n```")
+        else:
+            code = dev._proof_code(raw)
+        if re.match(r"\s*(?:theorem|lemma|example)\b", code):
+            code = dev.control._extract_body(code)
+        elif code.startswith("by\n") or code.startswith("by "):
+            code = dev.control._extract_body(code)
+        tactics = [code]
     if not tactics or not all(isinstance(tactic, str) and tactic.strip() for tactic in tactics):
         raise ValueError("Expected nonempty tactic blocks")
     for tactic in tactics:
@@ -194,16 +206,17 @@ class NativeSession:
 def messages(task, node, branching):
     feedback = node["feedback"][-3:]
     content = (
-        "Complete this Lean 4 proof interactively using the actual current native goals. "
-        "Propose short tactics for the FIRST goal; sibling goals are preserved. "
-        "Intermediate steps may leave goals. Keep reasoning to at most two sentences. "
+        "Return the next Lean tactic for the FIRST current goal. "
+        "Start with the Lean code block; omit the mathematical essay and theorem declaration. "
+        "Intermediate steps may leave goals; sibling goals are preserved. "
         "Do not use sorry/admit, add assumptions, or repeat previously rejected candidates.\n"
-        "Return either one ```lean4 tactic block, JSON {\"tactics\": [\"block1\", \"block2\"]} "
+        "Example response format:\n```lean4\nintro h\n```\n"
+        "Return one such Lean block, JSON {\"tactics\": [\"block1\", \"block2\"]} "
         f"with at most {branching} independent alternatives, or JSON "
         "{\"lookup\": \"sum choose\"} to obtain real declaration names AND types. "
         "Lookup matches space-separated name fragments in the current imported environment; "
         "use it instead of guessing an unfamiliar lemma's signature.\n\n"
-        "Original declaration (statement stays fixed):\n" + task["prefix"] + task["header"]
+        "Original import/open context:\n" + task["prefix"]
         + "\n\nVerified tactic prefix:\n" + (proof_body(node["steps"]) or "(none)")
         + "\n\nALL current goals:\n" + "\n\n".join(node["goals"])
         + "\n\nTyped lookup results:\n" + json.dumps(node["lookups"], ensure_ascii=False)
@@ -222,6 +235,8 @@ def search(task, record, generate, validate, save, session_factory, *, budget, b
     record.setdefault("nodes", [])
     record.setdefault("trials", [])
     record.setdefault("duplicates", 0)
+    for node in record["nodes"]:
+        node.setdefault("expansions", 0)
     record["budget"] = asdict(budget)
     for call in record["calls"]:
         if "raw_text" not in call:
@@ -261,12 +276,12 @@ def search(task, record, generate, validate, save, session_factory, *, budget, b
 
     try:
         if remaining() <= 0:
-            record["status"] = "budget_exhausted"
+            record.update(status="budget_exhausted", stop_reason="wall_time")
             return record
         if not record["nodes"]:
             session = session_factory(remaining())
             native_ids[0] = session.root["state"]
-            record["nodes"].append({"steps": [], "goals": session.root["goals"], "visits": 0,
+            record["nodes"].append({"steps": [], "goals": session.root["goals"], "visits": 0, "expansions": 0,
                                     "tried": [], "lookups": [], "feedback": []})
             checkpoint()
         while remaining() > 0:
@@ -276,13 +291,15 @@ def search(task, record, generate, validate, save, session_factory, *, budget, b
                 index, node = call["node"], record["nodes"][call["node"]]
             else:
                 if len(record["calls"]) >= budget.model_calls or len(record["trials"]) >= budget.tactic_trials:
+                    record["stop_reason"] = "model_call_limit" if len(record["calls"]) >= budget.model_calls else "tactic_trial_limit"
                     break
                 eligible = [(i, node) for i, node in enumerate(record["nodes"])
-                            if node["visits"] < budget.visits and len(node["steps"]) < budget.depth
+                            if node["expansions"] < budget.visits and len(node["steps"]) < budget.depth
                             and not node.get("blocked")]
                 if not eligible:
+                    record["stop_reason"] = "frontier_exhausted"
                     break
-                index, node = min(eligible, key=lambda item: (item[1]["visits"], len(item[1]["goals"]),
+                index, node = min(eligible, key=lambda item: (item[1]["expansions"], len(item[1]["goals"]),
                                                              -len(item[1]["steps"]), item[0]))
                 call = {"node": index, "seed": seed + len(record["calls"]), "status": "started"}
                 record["calls"].append(call)
@@ -311,7 +328,27 @@ def search(task, record, generate, validate, save, session_factory, *, budget, b
                 call["processed"] = True
                 checkpoint()
                 continue
-            for alternative, tactic in enumerate(proposal["tactics"]):
+            if not call.get("expanded"):
+                node["expansions"] += 1
+                call["expanded"] = True
+            # Use Lean syntax boundaries, never line splitting, to expose a
+            # useful prefix when a complete proposed block fails later.
+            if not call.get("prepared_tactics"):
+                candidates = []
+                for tactic in proposal["tactics"]:
+                    if "\n" in tactic and len(candidates) < branching:
+                        split = session.request("split", state, min(budget.tactic_timeout, remaining()), tactic=tactic)
+                        call.setdefault("splits", []).append(split)
+                        inner = split.get("inner_tactic") if split.get("status") == "ok" else None
+                        if inner and all(candidate_key(inner) != candidate_key(old) for old in candidates):
+                            candidates.append(inner)
+                        first = split.get("first_tactic") if split.get("status") == "ok" else None
+                        if first and candidate_key(first) != candidate_key(tactic):
+                            candidates.append(first)
+                    candidates.append(tactic)
+                call["prepared_tactics"] = candidates[:branching]
+                checkpoint()
+            for alternative, tactic in enumerate(call["prepared_tactics"]):
                 if alternative in call.get("done_tactics", []):
                     continue
                 trial = next((trial for trial in record["trials"]
@@ -355,13 +392,14 @@ def search(task, record, generate, validate, save, session_factory, *, budget, b
                     elif len(record["nodes"]) < budget.nodes:
                         child = len(record["nodes"])
                         native_ids[child] = result["state"]
-                        record["nodes"].append({"steps": steps, "goals": result["goals"], "visits": 0,
+                        record["nodes"].append({"steps": steps, "goals": result["goals"], "visits": 0, "expansions": 0,
                                                 "tried": [], "lookups": [], "feedback": []})
                 call.setdefault("done_tactics", []).append(alternative)
                 checkpoint()
             call["processed"] = True
             checkpoint()
         record["status"] = "budget_exhausted"
+        record.setdefault("stop_reason", "wall_time")
         checkpoint()
         return record
     finally:
