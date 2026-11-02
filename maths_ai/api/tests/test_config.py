@@ -1,0 +1,54 @@
+"""Server-owned configuration: profiles, overrides and limits."""
+
+from __future__ import annotations
+
+import pytest
+
+from maths_ai.api.config import DatasetProfile, SearchProfile, ServiceConfig, ServiceLimits
+from maths_ai.api.tests.helpers import write_config
+
+PUCT = SearchProfile("puct", 4, 8, 64, num_simulations=64, sim_batch_size=4, puct_c=1.0)
+BEST_FIRST = SearchProfile("legacy", 4, 8, 64)
+
+
+def test_profiles_resolve_through_the_search_validators():
+    assert PUCT.search_kwargs()["num_simulations"] == 64
+    assert BEST_FIRST.search_kwargs()["num_simulations"] is None
+    assert PUCT.search_kwargs()["use_pln"] is False
+    with pytest.raises(ValueError, match="simulation budget"):
+        SearchProfile("legacy", 4, 8, 64, num_simulations=8)
+    with pytest.raises(ValueError, match="widen"):
+        SearchProfile("legacy", 4, 8, 64, widening_max_draws=8)
+    with pytest.raises(ValueError, match="num_simulations"):
+        SearchProfile("puct", 4, 8, 64)
+
+
+def test_overrides_only_lower_applicable_budgets():
+    assert PUCT.with_overrides({"num_simulations": 16, "max_depth": 4}).max_depth == 4
+    with pytest.raises(ValueError, match="exceeds"):
+        PUCT.with_overrides({"max_nodes": 65})
+    with pytest.raises(ValueError, match="PUCT profile"):
+        BEST_FIRST.with_overrides({"num_simulations": 4})
+    with pytest.raises(ValueError, match="positive integer"):
+        PUCT.with_overrides({"max_depth": True})
+    with pytest.raises(ValueError, match="cannot be overridden"):
+        PUCT.with_overrides({"puct_c": 2.0})
+
+
+def test_dataset_profiles_must_be_pinned():
+    with pytest.raises(ValueError, match="pins"):
+        DatasetProfile("dataset", 4, 8, dataset_name="x")
+    with pytest.raises(ValueError, match="theorem_file"):
+        DatasetProfile("file", 4, 8)
+
+
+def test_config_resolves_paths_against_its_file_and_rejects_unknown_fields(tmp_path):
+    config = ServiceConfig.from_json(write_config(tmp_path))
+    assert config.rl_config == tmp_path / "rl.json"
+    assert set(config.search_profiles) == {"puct", "best_first"}
+    with pytest.raises(ValueError, match="Unknown"):
+        ServiceConfig.from_json(write_config(tmp_path, checkpoint_upload="x"))
+    with pytest.raises(ValueError, match="default_search_profile"):
+        ServiceConfig.from_json(write_config(tmp_path, default_search_profile="none"))
+    with pytest.raises(ValueError):
+        ServiceLimits(default_timeout_s=100.0, max_timeout_s=10.0)
