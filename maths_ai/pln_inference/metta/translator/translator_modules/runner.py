@@ -47,6 +47,7 @@ def write_runner_script(
     lines = [
         "#!/usr/bin/env bash",
         "set -u",
+        'petta_bin="${PETTA_BIN:-petta}"',
         "",
         "echo 'Running generated PeTTaChainer subgoal files...'",
         "",
@@ -61,16 +62,20 @@ def write_runner_script(
         test_name = item["test_name"]
         goal_index = item["goal_index"]
 
-        lines.append(f"echo '============================================================'")
+        lines.append(
+            f"echo '============================================================'"
+        )
         lines.append(f"echo 'Running {test_name} goal {goal_index}'")
         lines.append(f"echo 'Metta: {metta_path}'")
         lines.append(f"echo 'Log:   {log_path}'")
 
         if stop_on_error:
-            lines.append(f"petta {shell_quote(metta_path)} > {shell_quote(log_path)} 2>&1")
+            lines.append(
+                f'"$petta_bin" {shell_quote(metta_path)} > {shell_quote(log_path)} 2>&1'
+            )
         else:
             lines.append(
-                f"petta {shell_quote(metta_path)} > {shell_quote(log_path)} 2>&1 "
+                f'"$petta_bin" {shell_quote(metta_path)} > {shell_quote(log_path)} 2>&1 '
                 f"|| echo 'Command failed for {test_name} goal {goal_index}; see log.'"
             )
         lines.append("")
@@ -98,7 +103,6 @@ def extract_stv_scores(log_text: str) -> list[tuple[float, float]]:
             proof_scores.append((float(strength), float(confidence)))
 
     return proof_scores
-
 
 
 def score_from_stv(strength: float, confidence: float) -> float:
@@ -148,14 +152,16 @@ class DynamicThompsonSampler:
     Per-subgoal Dynamic Thompson sampling state based on Gupta et al. / Kwon.
 
     Each subgoal maintains a Beta(alpha, beta) posterior. On first
-    encounter, the prior is Beta(1.0, 1.0) (uniform). 
-    
-    To handle non-stationary environments, the parameter `C` bounds the 
-    maximum sum of alpha + beta. If an update pushes the sum above C, 
+    encounter, the prior is Beta(1.0, 1.0) (uniform).
+
+    To handle non-stationary environments, the parameter `C` bounds the
+    maximum sum of alpha + beta. If an update pushes the sum above C,
     both parameters are scaled down, effectively discounting past observations.
     """
 
-    def __init__(self, state: dict[str, dict[str, float]] | None = None, C: float = 100.0):
+    def __init__(
+        self, state: dict[str, dict[str, float]] | None = None, C: float = 100.0
+    ):
         self._state: dict[str, dict[str, float]] = state or {}
         self.C = C
 
@@ -281,7 +287,6 @@ def parse_and_rank_logs(
     generated_items = manifest.get("generated_items", [])
     ranked: list[dict[str, Any]] = []
 
- 
     # Always track state if a sampler is provided or requested
     ts: DynamicThompsonSampler | None = thompson_sampler
     if ts is None and (fallback_strategy == "thompson" or thompson_state_output):
@@ -345,7 +350,7 @@ def parse_and_rank_logs(
                 entry["status"] = "log_error_no_stv"
             else:
                 entry["status"] = "no_stv_found"
-                
+
             # CHANGE 2: Record the failure so the sampler learns
             if ts is not None:
                 key = ThompsonSampler.subgoal_key(entry)

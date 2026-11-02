@@ -268,5 +268,14 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
         if entry["path"] in expected:
             assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
         expected[entry["path"]] = entry["sha256"]
+    # Shared local PLN imports extend the recorded batch-translator lineage.
+    pln_imports = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "pln_local_imports/source_manifest.json").read_text()
+    )
+    assert pln_imports["target_base_commit"] == "2c8bff8ecf447a9829a3c2246add8229beb66859"
+    for entry in pln_imports["sources"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        expected[entry["path"]] = entry["sha256"]
     for path, digest in expected.items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path

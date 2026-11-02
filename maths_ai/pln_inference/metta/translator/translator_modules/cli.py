@@ -26,6 +26,8 @@ import os
 import shutil
 from typing import Any
 
+from maths_ai.pln_inference.dependencies import PLNDependencies
+
 from .extractor import essentialize_subgoal, proof_state_after_tactics
 from .parser import to_plain
 from .runner import (
@@ -67,9 +69,11 @@ async def run_demo(
     stop_on_error: bool = False,
     env: PantographEnv,
     normalize_variables: bool = False,
-    axioms_path: str,
+    chainer_root: Path | None = None,
+    axioms_path: str | None = None,
 ) -> dict[str, Any]:
     env.verify()
+    imports = PLNDependencies.resolve(chainer_root, axioms_path).imports()
     input_data = load_input_json(input_path)
     if os.path.isdir(output_dir) and os.listdir(output_dir):
         raise FileExistsError(
@@ -77,8 +81,6 @@ async def run_demo(
         )
     async with await create_model_sexpr_client(env) as server:
         os.makedirs(output_dir, exist_ok=True)
-        with open(os.path.join(output_dir, "use-module!.metta"), "w", encoding="utf-8"):
-            pass
         generated_items: list[dict[str, Any]] = []
         test_summaries: list[dict[str, Any]] = []
 
@@ -137,10 +139,7 @@ async def run_demo(
                     f.write(
                         "\n\n".join(
                             [
-                                "!(import! &self (library lib_import))",
-                                '!(git-import! "https://github.com/rTreutlein/PeTTaChainer.git") ',
-                                '!(import! &self (library PeTTaChainer "pettachainer/metta/petta_chainer"))',
-                                f"!(import! &self {axioms_path})",
+                                imports,
                                 "; No subgoals remain. Proof complete!",
                             ]
                         )
@@ -188,10 +187,7 @@ async def run_demo(
                 )
 
                 subgoal_script = [
-                    "!(import! &self (library lib_import))",
-                    '!(git-import! "https://github.com/rTreutlein/PeTTaChainer.git") ',
-                    '!(import! &self (library PeTTaChainer "pettachainer/metta/petta_chainer"))',
-                    f"!(import! &self {axioms_path})",
+                    imports,
                     f"; === Test: {test_name} ===",
                     f"; === Goal index: {i} ===",
                     f"; === Target formula: {query_formula} ===",
@@ -290,7 +286,7 @@ def parse_args() -> argparse.Namespace:
         "--axioms-path",
         type=str,
         default=None,
-        help="Absolute path to the metamath_axioms file to import.",
+        help="Optional axiom file override; defaults to the configured fork collection.",
     )
 
     parser.add_argument(
@@ -412,6 +408,11 @@ def parse_args() -> argparse.Namespace:
         ),
     )
 
+    parser.add_argument(
+        "--chainer-root",
+        type=Path,
+        help="Local PeTTaChainer checkout; defaults to PETTACHAINER_ROOT.",
+    )
     parser.add_argument("--source-root", type=Path)
     parser.add_argument("--pantograph-repl", type=Path)
     return parser.parse_args()
@@ -449,10 +450,6 @@ def main() -> None:
             raise SystemExit(
                 "Error: --output is required unless --rank-manifest is used."
             )
-        if not args.axioms_path:
-            raise SystemExit(
-                "Error: --axioms-path is required unless --rank-manifest is used."
-            )
 
         if args.source_root is None or args.pantograph_repl is None:
             raise SystemExit(
@@ -472,6 +469,7 @@ def main() -> None:
                 stop_on_error=args.stop_on_error,
                 env=env,
                 normalize_variables=args.normalize_variables,
+                chainer_root=args.chainer_root,
                 axioms_path=args.axioms_path,
             )
         )

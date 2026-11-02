@@ -13,7 +13,6 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import os
 import random
-import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -21,6 +20,8 @@ from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
 from maths_ai.data_models.proof_components import STV
+
+from .dependencies import PLNDependencies, resolve_petta
 
 from .metta.translator.translator_modules.normalizer import VariableNormalizer
 from .metta.translator.translator_modules.parser import parse_simple_pp
@@ -30,10 +31,6 @@ from .metta.translator.translator_modules.runner import (
     sample_fallback_score,
     score_from_stv,
 )
-
-_AXIOMS_DIR = Path(__file__).parent / "metta" / "axioms"
-_DEFAULT_IMPORT_HEADER = _AXIOMS_DIR / "import-pettachainer.metta"
-_DEFAULT_AXIOMS_FILE = _AXIOMS_DIR / "metamath_axioms.metta"
 
 _ERROR_MARKERS = ("error", "exception", "failed")
 
@@ -45,7 +42,7 @@ class PLNResult:
     ``status`` mirrors the vocabulary the MeTTa translator's ranking mode
     already established (``ok``, ``no_stv_found``, ``log_error_no_stv``,
     ``missing_log``) plus a few that only arise on the single-query path
-    (``petta_unavailable``, ``timeout``, ``render_error``). ``is_fallback``
+    (``petta_unavailable``, ``timeout``, ``render_error``, ``engine_error``). ``is_fallback``
     tells the caller whether ``stv`` is a real PLN result or a random
     exploration score — see the "Important limitation" note in the
     translator readme: a fallback score is *not* evidence of provability.
@@ -59,7 +56,7 @@ class PLNResult:
 
 class PLNInference:
     """
-        Evaluate a Lean subgoal's provability via PeTTaChainer (MeTTa/petta).
+    Evaluate a Lean subgoal's provability via PeTTaChainer (MeTTa/petta).
     """
 
     def __init__(
@@ -67,7 +64,7 @@ class PLNInference:
         *,
         petta_bin: Optional[str] = None,
         axioms_path: Optional[Path] = None,
-        import_header_path: Optional[Path] = None,
+        chainer_root: Optional[Path] = None,
         depth: int = 10,
         timeout: float = 60.0,
         fallback_low: float = 0.0,
@@ -76,11 +73,9 @@ class PLNInference:
         normalize_variables: bool = False,
         max_concurrency: int = 8,
     ) -> None:
-        self.petta_bin = petta_bin or os.environ.get("PETTA_BIN") or shutil.which("petta")
-        self.axioms_path = Path(axioms_path) if axioms_path else _DEFAULT_AXIOMS_FILE
-        self.import_header_path = (
-            Path(import_header_path) if import_header_path else _DEFAULT_IMPORT_HEADER
-        )
+        self.petta_bin = petta_bin
+        self.chainer_root = chainer_root
+        self.axioms_path = axioms_path
         self.depth = depth
         self.timeout = timeout
         self.fallback_low = fallback_low
@@ -112,7 +107,9 @@ class PLNInference:
         """
         running_loop = asyncio.get_running_loop()
         if loop is not None and loop is not running_loop:
-            raise ValueError("evaluate_async received an event loop that is not running here.")
+            raise ValueError(
+                "evaluate_async received an event loop that is not running here."
+            )
         if self._executor is None:
             self._executor = ThreadPoolExecutor(max_workers=self._max_concurrency)
         hyps = list(hypotheses) if hypotheses is not None else None
@@ -133,7 +130,9 @@ class PLNInference:
                 self._executor.shutdown(wait=True, cancel_futures=True)
                 self._executor = None
 
-    def evaluate(self, expression: str, hypotheses: Optional[Sequence[str]] = None) -> PLNResult:
+    def evaluate(
+        self, expression: str, hypotheses: Optional[Sequence[str]] = None
+    ) -> PLNResult:
         """Score ``expression``'s provability given ``hypotheses``.
 
         ``expression`` is the Lean target formula (the text after ``⊢``);
@@ -146,13 +145,10 @@ class PLNInference:
         except Exception as exc:  # malformed/unparseable expression string
             return self._fallback(status="render_error", raw_output=repr(exc))
 
-        if self.petta_bin is None:
-            return self._fallback(status="petta_unavailable")
-
         source = self._render_query_source(formula, hypotheses or [])
         log_text, launch_status = self._run_petta(source)
         if launch_status is not None:
-            return self._fallback(status=launch_status)
+            return self._fallback(status=launch_status, raw_output=log_text)
 
         stvs = extract_stv_scores(log_text)
         if stvs:
@@ -172,16 +168,11 @@ class PLNInference:
         )
         return self._fallback(status=status, raw_output=log_text)
 
-     
     # Internals
-     
-    def _render_query_source(self, formula: object, hypotheses: Sequence[str]) -> str:
-        lines: List[str] = []
 
-        if self.import_header_path.exists():
-            lines.append(self.import_header_path.read_text(encoding="utf-8").strip())
-        if self.axioms_path.exists():
-            lines.append(f"!(import! &self {self.axioms_path})")
+    def _render_query_source(self, formula: object, hypotheses: Sequence[str]) -> str:
+        dependencies = PLNDependencies.resolve(self.chainer_root, self.axioms_path)
+        lines: List[str] = [dependencies.imports()]
 
         for index, raw_hypothesis in enumerate(hypotheses):
             try:
@@ -199,10 +190,11 @@ class PLNInference:
         """Run ``petta`` on rendered MeTTa ``source``.
 
         Returns ``(captured_output, launch_status)``; ``launch_status`` is
-        ``None`` on a successful run (regardless of whether a proof was
-        found) or one of ``timeout`` / ``petta_unavailable`` if the process
-        itself could not be completed.
+        ``None`` on a zero exit (regardless of whether a proof was found).
+        Failed launches and nonzero exits retain diagnostics. Configuration
+        errors raise before starting a subprocess.
         """
+        executable = resolve_petta(self.petta_bin)
         handle = tempfile.NamedTemporaryFile(
             mode="w", suffix=".metta", delete=False, encoding="utf-8"
         )
@@ -212,17 +204,31 @@ class PLNInference:
 
             try:
                 completed = subprocess.run(
-                    [self.petta_bin, handle.name],
+                    [executable, handle.name],
                     capture_output=True,
                     text=True,
                     timeout=self.timeout,
                 )
-            except subprocess.TimeoutExpired:
-                return "", "timeout"
-            except OSError:
-                return "", "petta_unavailable"
+            except subprocess.TimeoutExpired as exc:
 
-            return completed.stdout + completed.stderr, None
+                def decode(value):
+                    return (
+                        value.decode(errors="replace")
+                        if isinstance(value, bytes)
+                        else (value or "")
+                    )
+
+                return decode(exc.stdout) + decode(exc.stderr), "timeout"
+            except OSError as exc:
+                return str(exc), "petta_unavailable"
+
+            output = completed.stdout + completed.stderr
+            if completed.returncode:
+                return (
+                    f"PeTTa exited with code {completed.returncode}.\n{output}",
+                    "engine_error",
+                )
+            return output, None
         finally:
             try:
                 os.unlink(handle.name)
@@ -230,7 +236,9 @@ class PLNInference:
                 pass
 
     def _fallback(self, *, status: str, raw_output: str = "") -> PLNResult:
-        score = sample_fallback_score(self._rng, low=self.fallback_low, high=self.fallback_high)
+        score = sample_fallback_score(
+            self._rng, low=self.fallback_low, high=self.fallback_high
+        )
         return PLNResult(
             stv=STV(strength=score, confidence=1.0),
             status=status,

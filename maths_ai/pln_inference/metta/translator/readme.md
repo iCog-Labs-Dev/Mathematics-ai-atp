@@ -1,3 +1,11 @@
+# Current runtime setup
+
+Live and batch execution share validated local imports. Configure
+`PETTACHAINER_ROOT` and `PETTA_BIN` using [the PLN guide](../../README.md).
+Regenerate archived query files before executing them. The guide documents
+known printed-Lean parser defects and the distinction between import verification
+and sound translation of arbitrary Lean states.
+
 # Lean/Pantograph to PeTTaChainer Translator
 
 Current generation uses the repository-owned async client. All generation
@@ -1297,15 +1305,10 @@ The current translator supports the first by default and still allows the second
 2. Complex Mathlib expressions may require more robust AST handling.
 3. The STV parser assumes logs contain explicit `(STV strength confidence)` text.
 4. Preserved Lean names may still collide across branches unless your cache key also includes branch/tactic-path information.
-5. While the `metamath_axioms` import is now dynamically provided via the `--axioms-path` flag, the `PeTTaChainer` library imports are currently hardcoded in the generated files as:
-
-```metta
-!(import! &self (library lib_import))
-!(git-import! "https://github.com/rTreutlein/PeTTaChainer.git")
-!(import! &self (library PeTTaChainer "pettachainer/metta/petta_chainer"))
-```
-
-If the upstream library name or structure changes, these fixed imports in the translator will need to be updated.
+5. Imports now resolve through the shared local-dependency builder. Set
+   `PETTACHAINER_ROOT` or pass `--chainer-root`. The fork's axiom collection is
+   the default; `--axioms-path` is an optional override. No network import is
+   emitted. See [the PLN guide](../../README.md) for native verification.
 
 ---
 
