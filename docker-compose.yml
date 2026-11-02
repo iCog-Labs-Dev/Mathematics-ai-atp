@@ -1,0 +1,55 @@
+# MCTS actor-critic proving service.
+#
+#   docker compose up --build mcts-api                    # CPU
+#   docker compose --profile gpu up --build mcts-api-gpu  # one NVIDIA GPU
+#
+# Mount the trained checkpoint and prepared root at ./artifacts (or set
+# MATHS_AI_ARTIFACTS) and the service config at ./docker/config (or set
+# MATHS_AI_CONFIG). The port is bound to loopback only: the service has no
+# authentication. Job state and results live in the mcts-state volume.
+
+x-mcts-api: &mcts-api
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    target: runtime
+  image: maths-ai-mcts-api
+  init: false  # tini is the image's entrypoint
+  ports:
+    - "127.0.0.1:${MATHS_AI_API_PORT:-8000}:8000"
+  volumes:
+    - mcts-state:/state
+    - ${MATHS_AI_CONFIG:-./docker/config}:/config:ro
+    - ${MATHS_AI_ARTIFACTS:-./artifacts}:/artifacts:ro
+  environment:
+    - HF_TOKEN=${HF_TOKEN:-}
+  healthcheck:
+    # Readiness, not liveness: a failed or recovering runtime is unhealthy.
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=5)"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 900s
+  stop_grace_period: 90s
+  restart: unless-stopped
+
+services:
+  mcts-api:
+    <<: *mcts-api
+    container_name: maths-ai-mcts-api
+
+  mcts-api-gpu:
+    <<: *mcts-api
+    container_name: maths-ai-mcts-api-gpu
+    profiles: ["gpu"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  mcts-state:
+    name: maths-ai-mcts-state
