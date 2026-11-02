@@ -21,7 +21,7 @@ import random
 import time
 from collections import deque
 from contextlib import AsyncExitStack
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -29,32 +29,12 @@ import torch
 from torch.optim import AdamW
 
 from maths_ai.data_models.proof_components import Goal
-from maths_ai.hybrid_reasoner.execution_limits import (
-    ResidentMemoryMonitor,
-    RetentionLimits,
-)
+from maths_ai.hybrid_reasoner.execution_limits import RetentionLimits
 from maths_ai.hybrid_reasoner.joint_inference import SEARCH_EVIDENCE_VERSION
 from maths_ai.hybrid_reasoner.pantograph_model_sexpr import create_model_sexpr_client
-from maths_ai.lean_replay import ReplayInputError
-from pantograph_async import (
-    PantographEnv,
-    PantographRequestTimeout,
-    PantographTransportError,
-)
-from maths_ai.hybrid_reasoner.hypergraph import (
-    PRIOR_ALIAS_POLICY,
-    PRIOR_NORMALIZATION,
-    PRIOR_SEMANTICS,
-    BackupSource,
-    SearchEndReason,
-)
-from maths_ai.hybrid_reasoner.proposal import (
-    PROPOSAL_MODES,
-    SEED_DERIVATION_VERSION,
-    ProposalSpec,
-    input_identity,
-    proposal_specs,
-)
+from pantograph_async import PantographEnv
+from maths_ai.hybrid_reasoner.hypergraph import BackupSource
+from maths_ai.hybrid_reasoner.proposal import PROPOSAL_MODES, ProposalSpec, proposal_specs
 from maths_ai.hybrid_reasoner.selection_policy import (
     WIDENING_FIELDS,
     WideningPolicy,
@@ -64,23 +44,22 @@ from maths_ai.hybrid_reasoner.selection_policy import (
 
 from .actor_critic import ActorCriticWithArgsClassifier
 from .checkpointing import build_model_from_checkpoint, checkpoint_payload
-from .graph_contract import GraphRepresentationSpec, require_graph_representation
+from .graph_contract import GraphRepresentationSpec
 from .graph import dag_fingerprint, model_goal_to_dag
 from .dataset import DATASET_NAME, DATASET_REVISION
 from .pln_reward import RewardConfig
-from .pln_rl_training import make_dag_featurizer, train_step_htps_style, train_step_onpolicy
+from .pln_rl_training import train_step_htps_style, train_step_onpolicy
 from .reporting import console_print
-from .rl_live_collection import FATAL_SESSION_ERRORS, LiveReasonerPool
+from .rl_live_collection import LiveReasonerPool
 from .rl_resources import ResourcePlan, plan_resources
-from .rl_reasoner import ACTOR_PRIOR, RLHybridReasoner, RLSearchResult
 from .search_harvest import (
     CriticSample,
     TacticImitationSample,
     extract_critic_samples,
     extract_minimal_hypertree,
 )
-from .policy_actions import ArgumentReference, CandidatePoolSnapshot, LocalCandidateProvider
-from .retrieval_artifacts import RetrievalConfig, LiveLemmaProvider
+from .policy_actions import ArgumentReference, CandidatePoolSnapshot
+from .retrieval_artifacts import RetrievalConfig
 from dataclasses import asdict
 from .seed_admission import (
     AdmissionReport,
@@ -93,6 +72,20 @@ from .seed_admission import (
     write_report,
 )
 from .training import load_prepared_metadata
+from .evaluation_runtime import (
+    EvaluationSettings,
+    _searched,
+    collect_round,
+    evaluate_proof_rate,
+    evaluation_report,
+    search_settings,
+    write_evaluation_report,
+)
+from .live_runtime import (
+    create_live_reasoner_pool as _create_live_reasoner_pool,
+    load_policy,
+    open_live_runtime,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -360,90 +353,6 @@ def pantograph_env(cfg: RLTrainingConfig) -> PantographEnv:
     )
 
 
-def search_settings(cfg: RLTrainingConfig) -> dict[str, object]:
-    """Search semantics that must remain fixed across an exact RL resume."""
-
-    return {
-        "top_k_tactics": cfg.top_k_tactics,
-        "max_depth": cfg.max_depth,
-        "max_nodes": cfg.max_nodes,
-        "selection_policy": cfg.selection_policy,
-        "num_simulations": cfg.num_simulations,
-        "sim_batch_size": cfg.sim_batch_size,
-        "puct_c": cfg.puct_c,
-        "use_pln": cfg.use_pln,
-        "visit_threshold": cfg.visit_threshold,
-        "widening": None if cfg.widening() is None else cfg.widening().as_dict(),
-        "proposal": {
-            "training_mode": "sample",
-            "seed": cfg.seed,
-            "seed_derivation": SEED_DERIVATION_VERSION,
-            "greedy": "stepwise-argmax-v1",
-            # One encoding per round, then each state's requested draws in
-            # row-major order. A seed from another schedule does not reproduce
-            # the same actions.
-            "sampling_schedule": "encode-once-row-major-v1",
-        },
-        "prior": {
-            "semantics": PRIOR_SEMANTICS,
-            "normalization": PRIOR_NORMALIZATION,
-            "alias_policy": PRIOR_ALIAS_POLICY,
-            "provider": ACTOR_PRIOR,
-        },
-        "observations": "per-node-raw-action-ledger-v1",
-        "command_identity": "rendered-lean-command-v1",
-    }
-
-
-# ---------------------------------------------------------------------------
-# Evaluation settings
-# ---------------------------------------------------------------------------
-
-
-# The proof rate is solved / searched seeds over every repeat. Version 2 is the
-# first with selectable sampled or step-wise greedy proposals and per-search
-# seeds; version-1 scores (tactic-only greedy) are not comparable with it.
-EVAL_METRIC_VERSION = "searched-proof-rate-v2"
-
-
-@dataclass(frozen=True)
-class EvaluationSettings:
-    """How evaluation searches the held-out pool; shared by every entry point."""
-
-    mode: str = "sample"
-    seed: int = 42
-    repeats: int = 1
-
-    def __post_init__(self) -> None:
-        if self.mode not in PROPOSAL_MODES:
-            raise ValueError(
-                f"eval_proposal_mode must be one of {list(PROPOSAL_MODES)}, got {self.mode!r}"
-            )
-        if isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0:
-            raise ValueError(f"eval_seed must be a non-negative integer, got {self.seed!r}")
-        if isinstance(self.repeats, bool) or not isinstance(self.repeats, int) or self.repeats < 1:
-            raise ValueError(f"eval_repeats must be a positive integer, got {self.repeats!r}")
-
-    def proposals(self, items: list[TheoremItem], repeat: int) -> list[ProposalSpec]:
-        return proposal_specs(
-            [item.seed for item in items],
-            mode=self.mode,
-            namespace="eval",
-            base_seed=self.seed,
-            pass_index=repeat,
-        )
-
-    def contract(self) -> dict[str, object]:
-        """What a stored best proof rate was measured under."""
-        return {
-            "metric": EVAL_METRIC_VERSION,
-            "mode": self.mode,
-            "seed": self.seed,
-            "repeats": self.repeats,
-            "seed_derivation": SEED_DERIVATION_VERSION,
-        }
-
-
 def training_proposals(cfg: RLTrainingConfig, batch: list[TheoremItem], round_idx: int) -> list[ProposalSpec]:
     """Sampled proposals for one collection round, seeded by round and input."""
     return proposal_specs(
@@ -474,12 +383,6 @@ def apply_evaluation_overrides(
     if repeats is not None:
         cfg.eval_repeats = repeats
     return cfg.evaluation_settings()
-
-
-def subset_identity(items: list[TheoremItem]) -> str:
-    """Digest of an ordered list of inputs, by their stable identities."""
-    body = json.dumps([input_identity(item.seed) for item in items])
-    return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -596,18 +499,6 @@ async def build_theorem_pool(
     return pool
 
 
-def _describe(item: TheoremItem) -> str:
-    source = item.seed.source_dict
-    label = source.get("theorem") or source.get("file") or "seed"
-    where = source.get("row_index", source.get("line"))
-    return f"{label}#{where}" if where is not None else str(label)
-
-
-def _searched(stats: dict[str, float]) -> float:
-    """Inputs that were actually searched: a seed that failed to replay was not."""
-    return stats["attempted"] - stats.get("seeds_inadmissible", 0.0)
-
-
 # ---------------------------------------------------------------------------
 # BC anneal
 # ---------------------------------------------------------------------------
@@ -620,127 +511,6 @@ def bc_weight_at_round(round_idx: int, cfg: RLTrainingConfig) -> float:
         return cfg.bc_anneal_end
     t = round_idx / cfg.bc_anneal_rounds
     return cfg.bc_anneal_start + t * (cfg.bc_anneal_end - cfg.bc_anneal_start)
-
-
-# ---------------------------------------------------------------------------
-# Fault-isolated collect
-# ---------------------------------------------------------------------------
-
-
-async def collect_round(
-    reasoner: RLHybridReasoner,
-    batch: list[TheoremItem],
-    *,
-    timeout_s: float,
-    proposals: list[ProposalSpec],
-    reasoner_pool: LiveReasonerPool | None = None,
-    model_generation: int = 0,
-) -> tuple[list[RLSearchResult], dict[str, float]]:
-    """Collect with per-theorem fault isolation.
-
-    ``proposals[i]`` is the proposal mode and seed of ``batch[i]``'s search.
-
-    A pool uses isolated reasoners and Pantograph clients concurrently and
-    replaces a worker whose client failed. The single-reasoner path remains
-    available for tests and small runs; it cannot replace its only client, so a
-    transport failure or a timeout that retired the client ends the run.
-
-    Timeout handling: ``prove`` receives a monotonic ``deadline`` and stops
-    cleanly between expansions / simulation batches, returning the partial
-    graph — a multi-simulation search that runs out of time keeps its
-    completed simulations as experience. ``asyncio.timeout`` stays as a
-    backstop at ``timeout_s * 1.25`` for a hang inside a single Lean call,
-    where cancellation (and the loss of that search) is the only option left.
-    """
-    if reasoner_pool is not None:
-        collected = await reasoner_pool.collect_round(
-            batch,
-            timeout_s=timeout_s,
-            proposals=proposals,
-            model_generation=model_generation,
-        )
-        return collected.results, {**collected.stats, **search_counters(collected.results)}
-    results: list[RLSearchResult] = []
-    solved = 0
-    failed = 0
-    cooperative_deadlines = 0
-    hard_timeouts = 0
-    inadmissible = 0
-    if len(proposals) != len(batch):
-        raise ValueError(
-            f"Expected one proposal per item: {len(proposals)} for {len(batch)} items."
-        )
-    for item, proposal in zip(batch, proposals):
-        try:
-            deadline = time.monotonic() + timeout_s
-            async with asyncio.timeout(timeout_s * 1.25):
-                result = await reasoner.prove(item.seed, proposal=proposal, deadline=deadline)
-            results.append(result)
-            if result.graph.is_solved():
-                solved += 1
-            if result.graph.end_reason == SearchEndReason.DEADLINE:
-                cooperative_deadlines += 1
-        except ReplayInputError as exc:
-            # The seed itself failed to replay: no search ran, so nothing is learned.
-            inadmissible += 1
-            console_print(f"  [collect] inadmissible seed {_describe(item)}: {exc}")
-        except (asyncio.TimeoutError, PantographRequestTimeout) as exc:
-            failed += 1
-            hard_timeouts += 1
-            console_print(f"  [collect] timeout on: {_describe(item)}")
-            server = getattr(reasoner, "server", None)
-            if server is not None and not server.is_usable:
-                raise PantographTransportError(
-                    "A hard timeout retired the only Pantograph client; use a "
-                    "reasoner pool to replace interrupted workers."
-                ) from exc
-        except (*FATAL_SESSION_ERRORS, PantographTransportError):
-            raise
-        except Exception as exc:  # noqa: BLE001 — a single search may not kill the run
-            failed += 1
-            console_print(f"  [collect] error on: {_describe(item)} — {exc}")
-    stats = {
-        "attempted": float(len(batch)),
-        "collected": float(len(results)),
-        "solved": float(solved),
-        "searches_failed": float(failed),
-        "searches_cooperative_deadline": float(cooperative_deadlines),
-        "searches_hard_timed_out": float(hard_timeouts),
-        "seeds_inadmissible": float(inadmissible),
-        **search_counters(results),
-    }
-    return results, stats
-
-
-def search_counters(results: list[RLSearchResult]) -> dict[str, float]:
-    """Proposal, widening and observation work summed over completed searches.
-
-    ``raw_draws`` counts every draw the searches made and ``settled_draws``
-    those with a checked outcome (the observations' multiplicities); draws of
-    an interrupted round are the difference. ``accepted_edges <=
-    distinct_commands <= raw_draws`` holds for each search.
-    """
-    totals: dict[str, float] = {
-        "proposal_rounds": 0.0,
-        "widening_rounds": 0.0,
-        "raw_draws": 0.0,
-        "distinct_commands": 0.0,
-        "accepted_edges": 0.0,
-        "rejected_commands": 0.0,
-        "cache_hits": 0.0,
-        "completed_simulations": 0.0,
-        "deferred_selections": 0.0,
-        "settled_draws": 0.0,
-        "observations": 0.0,
-    }
-    for result in results:
-        if result.graph is None:
-            continue
-        for key, value in result.graph.search_counters().items():
-            totals[key] = totals.get(key, 0.0) + value
-        totals["settled_draws"] += float(result.draws())
-        totals["observations"] += float(len(result.observations))
-    return totals
 
 
 # ---------------------------------------------------------------------------
@@ -864,128 +634,6 @@ def save_checkpoint(
 
 
 # ---------------------------------------------------------------------------
-# Evaluation
-# ---------------------------------------------------------------------------
-
-
-async def evaluate_proof_rate(
-    reasoner: RLHybridReasoner,
-    eval_items: list[TheoremItem],
-    *,
-    settings: EvaluationSettings,
-    timeout_s: float = 60.0,
-    reasoner_pool: LiveReasonerPool | None = None,
-    model_generation: int = 0,
-) -> dict[str, Any]:
-    """Proof rate on the fixed held-out pool — the model-selection metric.
-
-    Runs ``settings.repeats`` passes over ``eval_items``, each with seeds
-    derived from ``settings.seed``, the repeat and the input, so a pass is
-    reproducible and independent of the worker that ran each search. The
-    proof rate counts searched seeds only; inadmissible seeds are reported
-    separately. The model is only read: no optimizer runs and the global RNG
-    is not consumed. The fixed pool makes the number comparable across rounds,
-    but only between runs with the same ``settings.contract()``.
-    """
-    if not eval_items:
-        raise ValueError("The evaluation subset is empty; set eval_pool_size > 0.")
-    was_training = reasoner.model.training
-    reasoner.model.eval()
-    repeats: list[dict[str, Any]] = []
-    try:
-        for repeat in range(settings.repeats):
-            proposals = settings.proposals(eval_items, repeat)
-            _results, stats = await collect_round(
-                reasoner,
-                eval_items,
-                timeout_s=timeout_s,
-                proposals=proposals,
-                reasoner_pool=reasoner_pool,
-                model_generation=model_generation,
-            )
-            seeds = json.dumps([proposal.seed for proposal in proposals])
-            repeats.append(
-                {
-                    "repeat": repeat,
-                    "proof_rate": stats["solved"] / (_searched(stats) or 1.0),
-                    "searched": _searched(stats),
-                    "proposal_seeds_sha256": hashlib.sha256(seeds.encode("utf-8")).hexdigest(),
-                    **stats,
-                }
-            )
-    finally:
-        if was_training:
-            reasoner.model.train()
-
-    def total(key: str) -> float:
-        return sum(float(row.get(key, 0.0)) for row in repeats)
-
-    searched = total("searched")
-    return {
-        "proof_rate": total("solved") / (searched or 1.0),
-        "solved": total("solved"),
-        "attempted": total("attempted"),
-        "searched": searched,
-        "searches_failed": total("searches_failed"),
-        "searches_hard_timed_out": total("searches_hard_timed_out"),
-        "searches_cooperative_deadline": total("searches_cooperative_deadline"),
-        "seeds_inadmissible": total("seeds_inadmissible"),
-        **{key: total(key) for key in search_counters([])},
-        "evaluation": settings.contract(),
-        "eval_subset_size": len(eval_items),
-        "eval_subset_sha256": subset_identity(eval_items),
-        "repeats": repeats,
-    }
-
-
-def evaluation_report(
-    cfg: RLTrainingConfig,
-    stats: dict[str, Any],
-    *,
-    pool: "TheoremPool",
-    checkpoint: str | None,
-    model_generation: int,
-) -> dict[str, Any]:
-    """The evaluation result with the settings and inputs it was measured on."""
-    return {
-        "kind": "rl-evaluation-report",
-        "result": stats,
-        "checkpoint": checkpoint,
-        "model_generation": model_generation,
-        "search_settings": search_settings(cfg),
-        "budgets": {
-            "theorem_timeout_s": cfg.theorem_timeout_s,
-            "top_k_tactics": cfg.top_k_tactics,
-            "max_depth": cfg.max_depth,
-            "max_nodes": cfg.max_nodes,
-        },
-        "dataset": {
-            "data_source": cfg.data_source,
-            "dataset_name": cfg.dataset_name,
-            "dataset_revision": cfg.dataset_revision,
-            "split": cfg.leandojo_split,
-            "theorem_file": str(cfg.theorem_file) if cfg.theorem_file else None,
-            "eval_pool_size": cfg.eval_pool_size,
-        },
-        "admission": pool.admission,
-        "workers": cfg.collection_workers,
-        "reproducibility": (
-            "Proposal draws repeat for the same seeds, model, inputs and device; "
-            "Lean and wall-clock timing (deadlines, timeouts) are not reproducible."
-        ),
-    }
-
-
-def write_evaluation_report(report: dict[str, Any], path: Path) -> Path:
-    """Write ``report`` to a new file; an existing report is never replaced."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "x", encoding="utf-8") as handle:
-        json.dump(report, handle, indent=2, ensure_ascii=False)
-        handle.write("\n")
-    return path
-
-
-# ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
 
@@ -996,88 +644,6 @@ def _create_run_dir(run_root: Path) -> Path:
     run_dir = run_root / stamp
     run_dir.mkdir(parents=True, exist_ok=False)
     return run_dir
-
-
-async def _create_live_reasoner_pool(
-    *,
-    model: ActorCriticWithArgsClassifier,
-    node_vocab: dict[str, int],
-    tactic_vocab: dict[str, int],
-    cfg: RLTrainingConfig,
-    env: PantographEnv,
-    plan: ResourcePlan,
-    model_generation: int = 0,
-) -> LiveReasonerPool:
-    """Create workers whose reasoners preserve the complete MCTS configuration."""
-    from maths_ai.hybrid_reasoner.joint_inference import PantographExecutor
-
-    if cfg.retrieval is None:
-        # Only a model bound to no retrieval library may run on local candidates.
-        if model.model_spec.retrieval_binding:
-            raise ValueError(
-                "Live source-aware RL requires retrieval artifacts. Migrate the RL config first."
-            )
-        provider = LocalCandidateProvider()
-    else:
-        if cfg.retrieval.faiss_threads > plan.usable_cpu_count:
-            raise ValueError("Retrieval thread budget exceeds the available CPU quota.")
-        provider = LiveLemmaProvider(cfg.retrieval)
-        try:
-            provider.verify_environment(env)
-            if model.model_spec.retrieval_binding != provider.library.fingerprint:
-                raise ValueError("Checkpoint and live retrieval artifacts differ.")
-        except BaseException:
-            await provider.aclose()
-            raise
-
-    async def server_factory(_worker_id: int):
-        return await create_model_sexpr_client(env)
-
-    retention = cfg.retention_limits()
-    # Workers are tasks in this one process: one baseline after model setup.
-    collection_memory = ResidentMemoryMonitor(retention.max_collection_rss_growth_mb)
-
-    def reasoner_factory(worker_id, device, replica, server):
-        del worker_id
-        return RLHybridReasoner(
-            model=replica,
-            candidate_provider=provider,
-            node_vocab=node_vocab,
-            tactic_vocab=tactic_vocab,
-            executor=PantographExecutor(server),
-            device=device,
-            **cfg.search_kwargs(),
-            retention=retention,
-            certify_heartbeats=cfg.certify_heartbeats,
-            collection_memory=collection_memory,
-        )
-
-    async def search_factory(reasoner, theorem, proposal, deadline):
-        return await reasoner.prove(theorem.seed, proposal=proposal, deadline=deadline)
-
-    try:
-        result = await LiveReasonerPool.create(
-            model=model,
-            plan=plan,
-            server_factory=server_factory,
-            reasoner_factory=reasoner_factory,
-            search_factory=search_factory,
-            is_solved=lambda result: result.graph.is_solved(),
-            is_cooperative_deadline=lambda result: (
-                result.graph.end_reason == SearchEndReason.DEADLINE
-            ),
-            startup_timeout_s=cfg.server_start_timeout_s,
-            shutdown_timeout_s=cfg.worker_shutdown_timeout_s,
-            queue_size=cfg.worker_queue_size,
-            environment_description=env.describe(),
-            model_generation=model_generation,
-            log=console_print,
-        )
-    except BaseException:
-        await provider.aclose()
-        raise
-    result.close_callbacks.append(provider.aclose)
-    return result
 
 
 async def run_rl_training(
@@ -1116,22 +682,11 @@ async def _run_rl_training_impl(
     resource_plan = cfg.resource_plan()
     device = resource_plan.update_device
     console_print(f"RL resources: {resource_plan.describe()}")
+    policy = load_policy(cfg, device=device)
+    model, model_spec = policy.model, policy.model_spec
+    node_vocab, tactic_vocab = policy.node_vocab, policy.tactic_vocab
     metadata = load_prepared_metadata(cfg.prepared_root, splits=())
-    require_graph_representation(metadata.graph_representation)
-    node_vocab, tactic_vocab = metadata.node_vocab, metadata.tactic_vocab
-
-    checkpoint = torch.load(cfg.warmstart_checkpoint, map_location=device, weights_only=False)
-    model, _manifest, model_spec = build_model_from_checkpoint(
-        checkpoint,
-        node_vocab=node_vocab,
-        tactic_vocab=tactic_vocab,
-        graph_representation=metadata.graph_representation,
-        expected_model_kind="actor_critic_with_args",
-    )
-    model = model.to(device)
-    model_parameter_bytes = sum(
-        parameter.numel() * parameter.element_size() for parameter in model.parameters()
-    )
+    model_parameter_bytes = policy.parameter_bytes
     console_print(
         f"Warm start (strict, {model_spec.architecture}): {cfg.warmstart_checkpoint}"
     )
@@ -1637,41 +1192,9 @@ def driver_main(argv: list[str] | None = None) -> int:
         cfg.eval_every = 0
 
         async def _eval() -> None:
-            environment = pantograph_env(cfg)
-            environment.verify()
-            console_print(f"Pantograph environment: {environment.describe()}")
-
-            resource_plan = cfg.resource_plan()
-            device = resource_plan.update_device
-            console_print(f"RL resources: {resource_plan.describe()}")
-            metadata = load_prepared_metadata(cfg.prepared_root, splits=())
-            require_graph_representation(metadata.graph_representation)
-            node_vocab, tactic_vocab = metadata.node_vocab, metadata.tactic_vocab
-            checkpoint = torch.load(
-                cfg.warmstart_checkpoint,
-                map_location=device,
-                weights_only=False,
-            )
-            model, _manifest, _model_spec = build_model_from_checkpoint(
-                checkpoint,
-                node_vocab=node_vocab,
-                tactic_vocab=tactic_vocab,
-                graph_representation=metadata.graph_representation,
-                expected_model_kind="actor_critic_with_args",
-            )
-            model = model.to(device)
-
-            live_pool = await _create_live_reasoner_pool(
-                model=model,
-                node_vocab=node_vocab,
-                tactic_vocab=tactic_vocab,
-                cfg=cfg,
-                env=environment,
-                plan=resource_plan,
-                model_generation=0,
-            )
-            async with live_pool:
-                theorem_pool = await build_theorem_pool(cfg, environment)
+            async with await open_live_runtime(cfg) as runtime:
+                live_pool = runtime.pool
+                theorem_pool = await build_theorem_pool(cfg, runtime.env)
                 live_pool.assert_generation(0)
                 stats = await evaluate_proof_rate(
                     live_pool.primary,

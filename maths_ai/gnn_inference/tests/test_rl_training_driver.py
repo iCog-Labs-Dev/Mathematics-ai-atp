@@ -43,7 +43,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver import (
     write_evaluation_report,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.rl_live_collection import LiveReasonerPool
-from maths_ai.gnn_inference.atp_lean_gnn import rl_training_driver
+from maths_ai.gnn_inference.atp_lean_gnn import live_runtime, rl_training_driver
 from maths_ai.hybrid_reasoner.proposal import ProposalSpec
 from maths_ai.gnn_inference.atp_lean_gnn.rl_resources import ResourcePlan
 from pantograph_async import (
@@ -347,12 +347,12 @@ class ConfigTests(unittest.TestCase):
             )
             with (
                 patch(
-                    "maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver."
+                    "maths_ai.gnn_inference.atp_lean_gnn.live_runtime."
                     "create_model_sexpr_client",
                     new=create_server,
                 ),
                 patch(
-                    "maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver."
+                    "maths_ai.gnn_inference.atp_lean_gnn.live_runtime."
                     "RLHybridReasoner",
                     new=_RecordingReasoner,
                 ),
@@ -1519,6 +1519,7 @@ class LivePoolDriverTests(unittest.TestCase):
             with (
                 patch.object(rl_training_driver, "pantograph_env", lambda _cfg: _Environment()),
                 patch.object(rl_training_driver, "create_model_sexpr_client", create_client),
+                patch.object(live_runtime, "create_model_sexpr_client", create_client),
                 patch.object(LiveReasonerPool, "collect_round", collect),
                 patch.object(LiveReasonerPool, "synchronize", synchronize),
                 patch.object(rl_training_driver, "train_step_onpolicy", onpolicy),
