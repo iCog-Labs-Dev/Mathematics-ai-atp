@@ -103,10 +103,24 @@ class PLNRLTrainingTests(unittest.TestCase):
         g, featurize, model, tactic_to_id = self._setup()
         optimizer = AdamW(model.parameters(), lr=0.01)
         before = [p.detach().clone() for p in model.parameters()]
-        metrics = train_step(
-            model, optimizer, [g], featurize, tactic_to_id,
-            reward_cfg=RewardConfig(step_penalty=0.0), bc_weight=0.1,
+        forward_modes = []
+        handle = model.encoder.register_forward_pre_hook(
+            lambda module, args: forward_modes.append(
+                (module.training, torch.is_grad_enabled())
+            )
         )
+        try:
+            with torch.no_grad():
+                metrics = train_step(
+                    model, optimizer, [g], featurize, tactic_to_id,
+                    reward_cfg=RewardConfig(step_penalty=0.0), bc_weight=0.1,
+                )
+                self.assertFalse(torch.is_grad_enabled())
+        finally:
+            handle.remove()
+        self.assertTrue(forward_modes)
+        self.assertTrue(all(mode == (False, True) for mode in forward_modes))
+        self.assertTrue(all(not module.training for module in model.modules()))
         self.assertEqual(metrics["num_transitions"], 3.0)
         after = list(model.parameters())
         changed = any(not torch.equal(b, a) for b, a in zip(before, after))
@@ -159,6 +173,51 @@ class HTPSStyleStepTests(unittest.TestCase):
         self.assertEqual(first["num_imitation_rows"], 2.0)
         self.assertEqual(first["num_critic_rows"], 2.0)
         self.assertEqual(first["htps_optimizer_step"], 1.0)
+
+    def test_htps_restores_training_mode_after_onpolicy_update(self):
+        model, featurize, tactic_batch, critic_batch = self._setup()
+        for module in model.modules():
+            if isinstance(module, torch.nn.Dropout):
+                module.p = 0.2
+        onpolicy_opt = AdamW(model.parameters(), lr=0.001)
+        htps_opt = AdamW(model.parameters(), lr=0.001)
+        goal = tactic_batch[0].goal
+        # A rejected observation supplies an actor row without requiring Lean.
+        from types import SimpleNamespace
+        from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import (
+            EdgeAction, ObservationOutcome, PolicyObservation, train_step_onpolicy,
+        )
+        observation = PolicyObservation(
+            node_id=0, goal=goal,
+            action=EdgeAction(
+                tactic_id=1, graph_fingerprint=_fingerprint(goal),
+            ),
+            outcome=ObservationOutcome.REJECTED, first_round=0,
+            log_prior=-1.0, provider="test",
+        )
+        graph = ProofHypergraph(goal)
+        result = SimpleNamespace(
+            graph=graph, observations=[observation], accepted_edge_ids=lambda: set(),
+        )
+        metrics = train_step_onpolicy(
+            model, onpolicy_opt, [result], featurize,
+        )
+        self.assertEqual(metrics["onpolicy_optimizer_step"], 1)
+        self.assertTrue(all(not module.training for module in model.modules()))
+        modes = []
+        handle = model.encoder.register_forward_pre_hook(
+            lambda module, args: modes.append((module.training, torch.is_grad_enabled()))
+        )
+        try:
+            metrics = train_step_htps_style(
+                model, htps_opt, tactic_batch, critic_batch, featurize,
+            )
+        finally:
+            handle.remove()
+        self.assertEqual(metrics["htps_optimizer_step"], 1)
+        self.assertTrue(modes)
+        self.assertTrue(all(mode == (True, True) for mode in modes))
+        self.assertTrue(all(module.training for module in model.modules()))
 
     def test_does_not_touch_the_onpolicy_optimizer(self):
         model, featurize, tactic_batch, critic_batch = self._setup()

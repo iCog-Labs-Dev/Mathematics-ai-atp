@@ -244,5 +244,15 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
         if entry["path"] in expected:
             assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
         expected[entry["path"]] = entry["sha256"]
+    # On-policy mode consistency extends the chain while preserving HTPS training mode.
+    policy_mode = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "mcts_policy_mode/source_manifest.json").read_text()
+    )
+    assert policy_mode["target_base_commit"] == "e96d2f7a733d1301e8167f52de2d988ea6eb28ff"
+    assert policy_mode["application_source_commit"] == "6b5ef6360ad2bed828698e8088a9b23c3da24a88"
+    for entry in policy_mode["sources"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        expected[entry["path"]] = entry["sha256"]
     for path, digest in expected.items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path

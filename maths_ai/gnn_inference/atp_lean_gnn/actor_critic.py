@@ -363,8 +363,11 @@ class ActorCriticWithArgsClassifier(nn.Module):
         calls this to rebuild ``log π(τ|s)`` and ``Σ_k log π(u_k|s,τ)`` with gradient, feeding
         each stored argument's embedding forward autoregressively via
         ``ArgumentSelector.forced_step``. Valid only under the one-optimizer-step-per-collect
-        invariant (parameters unchanged between collect and train), otherwise the recomputed
-        probabilities are off-policy and would need a PPO-style ratio correction.
+        invariant (parameters unchanged between collect and train). Collection and
+        recomputation must also use evaluation-mode layers, identical graph features,
+        candidate masks, and autoregressive inputs. Gradient recording is independent
+        of evaluation mode and must be enabled for the update. Changed parameters
+        require an appropriate off-policy objective.
 
         Return ``(tactic_logp [B], arg_logp [B], entropy [B], values [B], tactic_logits)``.
         """

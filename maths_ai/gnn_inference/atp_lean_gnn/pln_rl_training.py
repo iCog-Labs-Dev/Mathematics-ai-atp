@@ -259,6 +259,7 @@ def make_dag_featurizer(node_vocab: dict[str, int]):
     return featurize
 
 
+@torch.enable_grad()
 def compute_transition_loss(
     model: ActorCriticWithArgsClassifier,
     transitions: list[ActorTransition],
@@ -280,7 +281,9 @@ def compute_transition_loss(
     is outside ``tactic_to_id`` are dropped. Returns
     ``None`` if nothing survives. The BC anchor uses each transition's own tactic id as the
     supervised label (the search-chosen action), annealed by ``bc_weight``.
+    Use evaluation-mode layers with gradients and leave the model in evaluation mode.
     """
+    model.eval()
     device = device or torch.device("cpu")
     actor_datas: list[Data] = []
     action_ids: list[int] = []
@@ -370,6 +373,7 @@ def compute_transition_loss(
     return total, metrics
 
 
+@torch.enable_grad()
 def compute_onpolicy_loss(
     model: ActorCriticWithArgsClassifier,
     transitions: list[ActorTransition],
@@ -391,7 +395,9 @@ def compute_onpolicy_loss(
     Recompute pattern (refinement 2): the collect phase stored only the integer actions
     (``EdgeAction``); here ``model.evaluate_actions`` rebuilds ``log π(τ|s)`` and
     ``Σ_k log π(u_k|s,τ)`` with gradient under the current parameters. Exactly on-policy only
-    when no optimizer step ran between collect and this call.
+    when no optimizer step ran between collect and this call. Evaluation-mode layers
+    match collection while gradient recording remains enabled. Leave the model in
+    evaluation mode.
 
     Per accepted observation whose edge has a harvested transition:
       ``L_actor = −m · (log π(τ) + w_arg · Σ_k log π(u_k)) · Â.detach()``
@@ -403,6 +409,7 @@ def compute_onpolicy_loss(
     Per rejected or unrenderable observation (refinement 4): the same actor term with
     ``return = terminal_failure − step_penalty`` and NO critic target.
     """
+    model.eval()
     device = device or torch.device("cpu")
     reward_cfg = reward_cfg or RewardConfig()
 
@@ -535,6 +542,7 @@ def compute_onpolicy_loss(
     return total, metrics
 
 
+@torch.enable_grad()
 def train_step(
     model: ActorCriticWithArgsClassifier,
     optimizer: torch.optim.Optimizer,
@@ -552,7 +560,11 @@ def train_step(
     max_update_nodes: int = 0,
     max_update_edges: int = 0,
 ) -> dict[str, float]:
-    """Harvest transitions from a batch of search graphs and take one gradient step."""
+    """Take one graph-harvest RL step with evaluation-mode layers and gradients.
+
+    An enclosing ``torch.no_grad()`` is supported; ``torch.inference_mode()`` is not.
+    """
+    model.eval()
     reward_cfg = reward_cfg or RewardConfig()
     harvest_cfg = harvest_cfg or HarvestConfig()
     transitions: list[ActorTransition] = []
@@ -564,7 +576,6 @@ def train_step(
     if not transitions and not critic_samples:
         return {"num_transitions": 0.0}
 
-    model.train()
     optimizer.zero_grad(set_to_none=True)
     result = compute_transition_loss(
         model, transitions, critic_samples, featurize, tactic_to_id,
@@ -610,6 +621,7 @@ async def collect_and_train(
 # ---------------------------------------------------------------------------
 
 
+@torch.enable_grad()
 def train_step_onpolicy(
     model: ActorCriticWithArgsClassifier,
     optimizer: torch.optim.Optimizer,
@@ -634,8 +646,11 @@ def train_step_onpolicy(
     observation to its edge's transition; rejected and unrenderable observations
     enter as failure rows. Exactly ONE ``optimizer.step()`` per
     collect round — the recomputed log-probs are on-policy only while the parameters match
-    those that sampled the actions.
+    those that sampled the actions. Evaluation-mode layers match collection while
+    gradient recording remains enabled. An enclosing ``torch.no_grad()`` is supported;
+    ``torch.inference_mode()`` is not. Leave the model in evaluation mode.
     """
+    model.eval()
     reward_cfg = reward_cfg or RewardConfig()
     harvest_cfg = harvest_cfg or HarvestConfig()
 
@@ -666,7 +681,6 @@ def train_step_onpolicy(
     unknown_edges_skipped = accepted_edges - len(transitions)
     unknown_nodes_skipped = sum(len(result.graph.nodes) for result in results) - len(critic_samples)
 
-    model.train()
     optimizer.zero_grad(set_to_none=True)
     loss_result = compute_onpolicy_loss(
         model, transitions, critic_samples, observations, featurize,
