@@ -7,6 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     "datasets>=5.0.1",
     "faiss-cpu>=1.14.2",
+    "fastapi>=0.115.0",
     "graphviz>=0.21",
     "pantograph-async-client @ git+https://github.com/123nol/Pantograph-Client@955a4921b4cacaa49f4b3087f3982d7ca3629566",
     "pydantic>=2.13.4",
@@ -14,6 +15,7 @@ dependencies = [
     "torch>=2.12.0",
     "torch-geometric>=2.7.0",
     "transformers>=4.45,<5",
+    "uvicorn>=0.30.0",
 ]
 
 
@@ -24,4 +26,4 @@ exclude=["data", "experiments", "tests", "tests.*"]
 
 
 [dependency-groups]
-dev = ["pytest>=9.0.3"]
+dev = ["httpx>=0.27.0", "pytest>=9.0.3"]
