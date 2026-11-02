@@ -374,6 +374,36 @@ class LiveReasonerPool:
         self.model_generation = model_generation
         return time.perf_counter() - started_at
 
+    def rebind(self, reasoner_factory: ReasonerFactory) -> None:
+        """Rebuild every worker's reasoner with ``reasoner_factory`` while idle.
+
+        The clients, model replicas, devices, generation and close callbacks
+        are kept. Every replacement reasoner is built before any is published,
+        so a factory that fails leaves the current bindings in use. Later
+        worker replacements use ``reasoner_factory`` too.
+        """
+        if self._closed:
+            raise PantographStateError("Cannot rebind a closing pool.")
+        if self._collecting:
+            raise PantographStateError("Cannot rebind workers during a collection round.")
+        workers = self.active_workers
+        for worker in workers:
+            if not getattr(worker.server, "is_usable", True):
+                raise PantographStateError(f"Worker {worker.worker_id} has an unusable client.")
+            if getattr(worker.reasoner, "_proving", False):
+                raise PantographStateError(f"Worker {worker.worker_id} is running a search.")
+        replacements = [
+            reasoner_factory(worker.worker_id, worker.device, worker.model, worker.server)
+            for worker in workers
+        ]
+        for worker, reasoner in zip(workers, replacements):
+            worker.reasoner = reasoner
+        self.reasoner_factory = reasoner_factory
+
+    @property
+    def collecting(self) -> bool:
+        return self._collecting
+
     async def _replacement_worker(
         self, worker: LiveReasonerWorker
     ) -> LiveReasonerWorker:

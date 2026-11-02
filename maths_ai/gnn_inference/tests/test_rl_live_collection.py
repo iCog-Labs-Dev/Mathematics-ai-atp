@@ -668,3 +668,64 @@ def test_two_gpu_topology_assigns_inference_workers_to_both_devices():
             return {worker.device for worker in pool.workers}
 
     assert asyncio.run(run()) == {torch.device("cuda:0"), torch.device("cuda:1")}
+
+
+def test_rebind_replaces_every_idle_reasoner_and_later_replacements():
+    async def run():
+        pool, _model, servers = await _create_pool(workers=2)
+        async with pool:
+            before = [worker.reasoner for worker in pool.workers]
+
+            def profiled(worker_id, device, model, server):
+                reasoner = _Reasoner(worker_id, model, server)
+                reasoner.profile = "best_first"
+                return reasoner
+
+            pool.rebind(profiled)
+            after = [worker.reasoner for worker in pool.workers]
+            # Clients and model replicas are kept; only the reasoners change.
+            assert [w.server for w in pool.workers] == servers
+            assert all(old is not new for old, new in zip(before, after))
+            assert all(r.profile == "best_first" for r in after)
+            replaced = await pool._replacement_worker(pool.workers[0])
+            assert replaced.reasoner.profile == "best_first"
+
+    asyncio.run(run())
+
+
+def test_rebind_that_fails_to_build_keeps_the_current_bindings():
+    async def run():
+        pool, _model, _servers = await _create_pool(workers=2)
+        async with pool:
+            before = [worker.reasoner for worker in pool.workers]
+            factory = pool.reasoner_factory
+
+            def broken(worker_id, device, model, server):
+                if worker_id == 1:
+                    raise ValueError("invalid profile")
+                return _Reasoner(worker_id, model, server)
+
+            with pytest.raises(ValueError, match="invalid profile"):
+                pool.rebind(broken)
+            assert [worker.reasoner for worker in pool.workers] == before
+            assert pool.reasoner_factory is factory
+
+    asyncio.run(run())
+
+
+def test_rebind_is_rejected_during_collection_and_while_searching():
+    async def run():
+        pool, _model, _servers = await _create_pool(workers=1, delays={"slow": 0.2})
+        async with pool:
+            round_task = asyncio.create_task(
+                pool.collect_round(["slow"], timeout_s=5.0, model_generation=0, proposals=[None])
+            )
+            await asyncio.sleep(0.05)
+            with pytest.raises(PantographStateError, match="collection round"):
+                pool.rebind(lambda *args: _Reasoner(*args[:1], args[2], args[3]))
+            await round_task
+            pool.workers[0].reasoner._proving = True
+            with pytest.raises(PantographStateError, match="running a search"):
+                pool.rebind(lambda *args: _Reasoner(*args[:1], args[2], args[3]))
+
+    asyncio.run(run())
