@@ -1,0 +1,174 @@
+{
+  "chainer_revision": "b1678e97c4498b376b91e8cce215f5ab0398ddef",
+  "petta_revision": "e1490899cefc67c128d5311ff4861f9997674957",
+  "chainer": {
+    "path": "/tmp/pln-structured-chainer/pettachainer/metta/petta_chainer.metta",
+    "sha256": "01c8fb6c46e9e55250bd709c57450081bf85a464ae543c794c26efdaf85b95e7"
+  },
+  "axioms": {
+    "path": "/tmp/pln-structured-chainer/pettachainer/metta/metamath/axioms/metamath_axioms.metta",
+    "sha256": "4cb774a96ad13cae59c9926d501e67071bfc50981a1d4d267fdcda15c459c106"
+  },
+  "executable": {
+    "path": "/usr/local/bin/petta",
+    "sha256": "adb9bff55bd453b359e19ff328b888fe247507286e1124eac36045098c25e406"
+  },
+  "control_axiom": {
+    "path": "/tmp/pln-structured-import-validation/control_axiom.metta",
+    "sha256": "a019d4be70499392d683862075643ce2533994f294466ed183516fa7338a962f"
+  },
+  "timeout_s": 60,
+  "cases": [
+    {
+      "name": "core_implication",
+      "command": [
+        "/usr/local/bin/petta",
+        "/tmp/pln-structured-import-validation/core_implication.metta"
+      ],
+      "returncode": 0,
+      "error": null,
+      "answers": [
+        {
+          "proof": [
+            "rule-proof",
+            "diagnostic-import-rule",
+            "diagnostic-fact"
+          ],
+          "stv": [
+            1.0,
+            0.9
+          ]
+        }
+      ],
+      "expected_rule": "diagnostic-import-rule",
+      "expected_rule_present": true,
+      "passed": true,
+      "observation_only": false
+    },
+    {
+      "name": "imported_control",
+      "command": [
+        "/usr/local/bin/petta",
+        "/tmp/pln-structured-import-validation/imported_control.metta"
+      ],
+      "returncode": 0,
+      "error": null,
+      "answers": [
+        {
+          "proof": [
+            "rule-proof",
+            "diagnostic-import-rule",
+            "diagnostic-fact"
+          ],
+          "stv": [
+            1.0,
+            0.9
+          ]
+        }
+      ],
+      "expected_rule": "diagnostic-import-rule",
+      "expected_rule_present": true,
+      "passed": true,
+      "observation_only": false
+    },
+    {
+      "name": "without_control",
+      "command": [
+        "/usr/local/bin/petta",
+        "/tmp/pln-structured-import-validation/without_control.metta"
+      ],
+      "returncode": 0,
+      "error": null,
+      "answers": [],
+      "expected_rule": "diagnostic-import-rule",
+      "expected_rule_present": false,
+      "passed": true,
+      "observation_only": false
+    },
+    {
+      "name": "fork_axioms",
+      "command": [
+        "/usr/local/bin/petta",
+        "/tmp/pln-structured-import-validation/fork_axioms.metta"
+      ],
+      "returncode": 0,
+      "error": null,
+      "answers": [
+        {
+          "proof": [
+            "merge/revision",
+            [
+              "merge/revision",
+              [
+                "ctx",
+                "proof",
+                "490"
+              ],
+              [
+                "rule-proof",
+                [
+                  "no_inverse",
+                  "pm2.18"
+                ],
+                [
+                  "ctx",
+                  "proof",
+                  "172"
+                ]
+              ]
+            ],
+            [
+              "rule-proof",
+              [
+                "no_inverse",
+                "pm2.18i"
+              ],
+              [
+                "ctx",
+                "proof",
+                "173"
+              ]
+            ]
+          ],
+          "stv": [
+            1.0,
+            0.9999000899290449
+          ]
+        }
+      ],
+      "expected_rule": "pm2.18",
+      "expected_rule_present": true,
+      "passed": true,
+      "observation_only": false
+    },
+    {
+      "name": "without_fork_axioms",
+      "command": [
+        "/usr/local/bin/petta",
+        "/tmp/pln-structured-import-validation/without_fork_axioms.metta"
+      ],
+      "returncode": 0,
+      "error": null,
+      "answers": [],
+      "expected_rule": "pm2.18",
+      "expected_rule_present": false,
+      "passed": true,
+      "observation_only": false
+    },
+    {
+      "name": "conjunction_observation",
+      "command": [
+        "/usr/local/bin/petta",
+        "/tmp/pln-structured-import-validation/conjunction_observation.metta"
+      ],
+      "returncode": 0,
+      "error": null,
+      "answers": [],
+      "expected_rule": null,
+      "expected_rule_present": null,
+      "passed": true,
+      "observation_only": true
+    }
+  ],
+  "passed": true
+}

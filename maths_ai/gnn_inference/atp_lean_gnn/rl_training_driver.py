@@ -67,6 +67,7 @@ from .checkpointing import build_model_from_checkpoint, checkpoint_payload
 from .graph_contract import GraphRepresentationSpec, require_graph_representation
 from .graph import dag_fingerprint, model_goal_to_dag
 from .dataset import DATASET_NAME, DATASET_REVISION
+from maths_ai.pln_inference.compiler import TRANSLATION_VERSION
 from .pln_reward import RewardConfig
 from .pln_rl_training import make_dag_featurizer, train_step_htps_style, train_step_onpolicy
 from .reporting import console_print
@@ -372,6 +373,7 @@ def search_settings(cfg: RLTrainingConfig) -> dict[str, object]:
         "sim_batch_size": cfg.sim_batch_size,
         "puct_c": cfg.puct_c,
         "use_pln": cfg.use_pln,
+        "pln_translation": TRANSLATION_VERSION if cfg.use_pln else None,
         "visit_threshold": cfg.visit_threshold,
         "widening": None if cfg.widening() is None else cfg.widening().as_dict(),
         "proposal": {
@@ -437,6 +439,7 @@ class EvaluationSettings:
         """What a stored best proof rate was measured under."""
         return {
             "metric": EVAL_METRIC_VERSION,
+            "pln_translation": TRANSLATION_VERSION,
             "mode": self.mode,
             "seed": self.seed,
             "repeats": self.repeats,
@@ -1366,6 +1369,9 @@ async def _run_rl_training_impl(
         # supervised HTPS updates. Replicas are not read anywhere in this phase.
         imitation_mined = 0
         for result in results:
+            for status, count in result.graph.execution.get("pln_counts", {}).items():
+                key = "pln_" + status
+                metrics[key] = metrics.get(key, 0.0) + float(count)
             critic_queue.extend(
                 extract_critic_samples(
                     result.graph,

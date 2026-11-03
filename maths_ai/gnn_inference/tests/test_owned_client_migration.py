@@ -97,8 +97,8 @@ def test_translator_projection_uses_local_names_for_raw_free_variables():
     fixture = Path(__file__).parent / "fixtures/pantograph/future_contract.json"
     wire = json.loads(fixture.read_text())["successes"]["identity_intro"]["goals"][0]
     projection = execution_goal_to_translator(decode_execution_goal(wire))
-    script, _cleanup, _hyps, formula = essentialize_subgoal(projection, mode="dynamic")
-    assert "_uniq" not in formula and "p" in formula
+    script, _cleanup, _hyps, formula = essentialize_subgoal(projection)
+    assert "_uniq" not in formula and "lean_" in formula
     assert "_uniq" not in script
 
 
@@ -277,5 +277,25 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
         if entry["path"] in expected:
             assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
         expected[entry["path"]] = entry["sha256"]
+    sampler_cli = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "pln_sampler_cli/source_manifest.json").read_text()
+    )
+    assert sampler_cli["target_base_commit"] == "119eacd35e4c005c07e48fd85e12acf41080edfe"
+    for entry in sampler_cli["sources"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        expected[entry["path"]] = entry["sha256"]
+    translation = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "pln_structured_translation/source_manifest.json").read_text()
+    )
+    assert translation["target_base_commit"] == "119eacd35e4c005c07e48fd85e12acf41080edfe"
+    for entry in translation["sources"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        expected[entry["path"]] = entry["sha256"]
+    for entry in translation["removed"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected.pop(entry["path"]), entry["path"]
+        assert not (root / entry["path"]).exists()
     for path, digest in expected.items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path

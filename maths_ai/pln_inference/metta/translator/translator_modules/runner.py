@@ -3,7 +3,7 @@ Runner script generation, log parsing, and subgoal ranking.
 
 Handles the post-generation workflow:
   - write_runner_script(): creates a bash script to run .metta files
-  - extract_stv_scores(): parses (STV strength confidence) from logs
+  - rule_answers(): validates target-bound rule derivations and STVs
   - parse_and_rank_logs(): reads manifest, scores and ranks subgoals
   - print_ranked_results(): console output of ranked subgoals
 """
@@ -13,10 +13,11 @@ from __future__ import annotations
 import json
 import os
 import random
-import re
 import shlex
 from pathlib import Path
 from typing import Any
+from maths_ai.pln_inference.answers import rule_answers
+from maths_ai.pln_inference.compiler import TRANSLATION_VERSION
 
 
 def safe_name(name: str) -> str:
@@ -69,15 +70,13 @@ def write_runner_script(
         lines.append(f"echo 'Metta: {metta_path}'")
         lines.append(f"echo 'Log:   {log_path}'")
 
+        exit_path = os.path.abspath(item["exit_code_path"])
+        lines.append(
+            f'if "$petta_bin" {shell_quote(metta_path)} > {shell_quote(log_path)} 2>&1; then exit_code=0; else exit_code=$?; fi'
+        )
+        lines.append(f'printf "%s\\n" "$exit_code" > {shell_quote(exit_path)}')
         if stop_on_error:
-            lines.append(
-                f'"$petta_bin" {shell_quote(metta_path)} > {shell_quote(log_path)} 2>&1'
-            )
-        else:
-            lines.append(
-                f'"$petta_bin" {shell_quote(metta_path)} > {shell_quote(log_path)} 2>&1 '
-                f"|| echo 'Command failed for {test_name} goal {goal_index}; see log.'"
-            )
+            lines.append('if [ "$exit_code" -ne 0 ]; then exit "$exit_code"; fi')
         lines.append("")
 
     lines.append("echo 'Done.'")
@@ -87,22 +86,6 @@ def write_runner_script(
 
     os.chmod(runner_path, 0o755)
     return runner_path
-
-
-def extract_stv_scores(log_text: str) -> list[tuple[float, float]]:
-    number = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
-    stv_pattern = re.compile(rf"\(STV\s+({number})\s+({number})\)")
-
-    proof_scores: list[tuple[float, float]] = []
-
-    for line in log_text.splitlines():
-        if "rule-proof" not in line:
-            continue
-
-        for strength, confidence in stv_pattern.findall(line):
-            proof_scores.append((float(strength), float(confidence)))
-
-    return proof_scores
 
 
 def score_from_stv(strength: float, confidence: float) -> float:
@@ -169,7 +152,7 @@ class DynamicThompsonSampler:
 
     @staticmethod
     def subgoal_key(item: dict) -> str:
-        return f"{item.get('test_name', 'unknown')}_goal_{item.get('goal_index', 0)}"
+        return f"{TRANSLATION_VERSION}:{item.get('test_name', 'unknown')}_goal_{item.get('goal_index', 0)}"
 
     @staticmethod
     def load_from(path: str, C: float = 100.0) -> "DynamicThompsonSampler":
@@ -246,9 +229,6 @@ class DynamicThompsonSampler:
         return f"DynamicThompsonSampler({len(self._state)} subgoals, C={self.C})"
 
 
-ThompsonSampler = DynamicThompsonSampler
-
-
 def parse_and_rank_logs(
     manifest_path: str,
     *,
@@ -284,6 +264,10 @@ def parse_and_rank_logs(
     with open(manifest_path, "r", encoding="utf-8") as f:
         manifest = json.load(f)
 
+    if manifest.get("translation_version") != TRANSLATION_VERSION:
+        raise ValueError(
+            "Ranking requires a manifest from the current PLN translator; regenerate it"
+        )
     generated_items = manifest.get("generated_items", [])
     ranked: list[dict[str, Any]] = []
 
@@ -313,8 +297,22 @@ def parse_and_rank_logs(
             entry["thompson_alpha"] = 1.0
             entry["thompson_beta"] = 1.0
 
+        if item.get("status") == "unsupported":
+            entry["status"] = "unsupported"
+            ranked.append(entry)
+            continue
         if not os.path.exists(log_path):
             entry["status"] = "missing_log"
+            ranked.append(entry)
+            continue
+        try:
+            exit_code = int(Path(item["exit_code_path"]).read_text().strip())
+        except (KeyError, OSError, ValueError):
+            entry["status"] = "missing_exit_status"
+            ranked.append(entry)
+            continue
+        if exit_code != 0:
+            entry["status"] = "engine_error"
             ranked.append(entry)
             continue
 
@@ -322,7 +320,7 @@ def parse_and_rank_logs(
             text = f.read()
 
         entry["log_excerpt"] = text[:2000]
-        truth_values = extract_stv_scores(text)
+        truth_values = rule_answers(text, item["target_formula"])
         entry["truth_values"] = [
             {"strength": s, "confidence": c, "score": score_from_stv(s, c)}
             for s, c in truth_values
@@ -340,7 +338,7 @@ def parse_and_rank_logs(
 
             # --- dynamic Thompson update: learn from the observed score ---
             if ts is not None:
-                key = ThompsonSampler.subgoal_key(entry)
+                key = DynamicThompsonSampler.subgoal_key(entry)
                 ts.record_observation(key, entry["score"])
                 entry["thompson_alpha"] = ts.alpha(key)
                 entry["thompson_beta"] = ts.beta(key)
@@ -352,8 +350,8 @@ def parse_and_rank_logs(
                 entry["status"] = "no_stv_found"
 
             # CHANGE 2: Record the failure so the sampler learns
-            if ts is not None:
-                key = ThompsonSampler.subgoal_key(entry)
+            if ts is not None and entry["status"] == "no_stv_found":
+                key = DynamicThompsonSampler.subgoal_key(entry)
                 ts.record_failure(key, penalty=1.0)
                 entry["thompson_alpha"] = ts.alpha(key)
                 entry["thompson_beta"] = ts.beta(key)
@@ -361,7 +359,7 @@ def parse_and_rank_logs(
         ranked.append(entry)
 
     any_stv_found = any(item.get("truth_values") for item in ranked)
-    any_log_available = any(item.get("status") != "missing_log" for item in ranked)
+    any_log_available = any(item.get("status") == "no_stv_found" for item in ranked)
 
     # ------------------------------------------------------------------
     # Fallback: assign scores when no subgoal log contains an STV
@@ -385,9 +383,17 @@ def parse_and_rank_logs(
     # --- build result envelope -------------------------------------------
     if fallback_strategy == "thompson":
         if ts is None:
-            ts = ThompsonSampler(C=thompson_c)
+            ts = DynamicThompsonSampler(C=thompson_c)
         for item in ranked:
-            key = ThompsonSampler.subgoal_key(item)
+            if item["status"] in {
+                "unsupported",
+                "engine_error",
+                "missing_exit_status",
+                "missing_log",
+                "log_error_no_stv",
+            }:
+                continue
+            key = DynamicThompsonSampler.subgoal_key(item)
             item["thompson_alpha"] = ts.alpha(key)
             item["thompson_beta"] = ts.beta(key)
 
@@ -403,6 +409,7 @@ def parse_and_rank_logs(
 
     result: dict[str, Any] = {
         "manifest_path": os.path.abspath(manifest_path),
+        "translation_version": TRANSLATION_VERSION,
         "ranking_method": ranking_method,
         "random_fallback": {
             "enabled": random_fallback,
@@ -449,7 +456,7 @@ def _apply_random_fallback(
     beta: float,
 ) -> None:
     for item in ranked:
-        if item.get("status") == "missing_log":
+        if item.get("status") != "no_stv_found":
             continue
 
         fallback_score = sample_fallback_score(
@@ -467,7 +474,7 @@ def _apply_random_fallback(
         item["random_fallback_used"] = True
         item["random_fallback_score"] = fallback_score
         item["status"] = "random_fallback_no_stv_global"
-        item["truth_values"] = [
+        item["fallback_values"] = [
             {
                 "strength": fallback_score,
                 "confidence": 1.0,
@@ -484,15 +491,15 @@ def _apply_thompson_fallback(
     seed: int | None,
 ) -> None:
     if sampler is None:
-        sampler = ThompsonSampler()
+        sampler = DynamicThompsonSampler()
 
     rng = random.Random(seed)
 
     for item in ranked:
-        if item.get("status") == "missing_log":
+        if item.get("status") != "no_stv_found":
             continue
 
-        key = ThompsonSampler.subgoal_key(item)
+        key = DynamicThompsonSampler.subgoal_key(item)
         thompson_score = sampler.sample(key, rng)
 
         item["score"] = thompson_score
@@ -501,7 +508,7 @@ def _apply_thompson_fallback(
         item["random_fallback_used"] = True
         item["random_fallback_score"] = thompson_score
         item["status"] = "thompson_fallback_no_stv_global"
-        item["truth_values"] = [
+        item["fallback_values"] = [
             {
                 "strength": thompson_score,
                 "confidence": 1.0,

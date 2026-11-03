@@ -128,7 +128,7 @@ def _RejectExecutor():
 
 
 class _StubPLN:
-    async def evaluate_async(self, expression, hypotheses=None, **kwargs):
+    async def evaluate_async(self, goal, **kwargs):
         return PLNResult(stv=STV(strength=0.1, confidence=1.0), status="ok", is_fallback=False)
 
 

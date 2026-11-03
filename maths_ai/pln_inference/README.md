@@ -85,8 +85,8 @@ The diagnostic checks:
 
 Answer inspection is restricted to returned statements with the requested target
 and a finite strength/confidence pair. Echoed facts and compiled rules do not
-count as answers. The diagnostic does not use the live extractor's `rule-proof`
-filter as its only oracle.
+count as answers. A successful score also requires an actual `rule-proof` subtree in that returned
+statement. A direct fact or a standalone proof-marker string is insufficient.
 
 The supported module paths contain only ASCII letters, digits, `/`, `_`, `-`,
 and `.`. Paths with spaces or MeTTa syntax characters are rejected. Imports use
@@ -99,7 +99,8 @@ Live search reads `PETTACHAINER_ROOT` and `PETTA_BIN`. It defaults to the fork's
 validated when preparing a query. Missing files/executable raise
 `PLNConfigurationError` rather than becoming random scores. A configured process
 that fails returns `engine_error`, `timeout`, or `petta_unavailable` with retained
-diagnostics. Completed queries with no recognized answer remain fallback results.
+diagnostics. Only supported completed queries without a qualifying rule derivation may receive
+a labeled exploration fallback. Engine errors and unsupported translation have no STV.
 
 The Python API supports explicit `chainer_root`, `axioms_path`, and `petta_bin`
 arguments. There is no arbitrary import-header parameter. An explicit axiom file
@@ -125,12 +126,65 @@ diagnostic above.
 
 ## Known limits and the Git-import alternative
 
-Import verification does not validate general Lean-to-MeTTa translation. Named
-hypotheses, operator precedence, parentheses, opaque arithmetic/quantifier
-translation, and direct-fact STV extraction have separately identified defects.
-Search also supplies the parent goal as a heuristic assumption. These are not
-repaired here. Genuine PLN scores are heuristics; Lean replay and kernel
-certification determine proof success.
+Live scoring now compiles `GoalInput` from raw execution expressions and unique
+local IDs. Batch generation uses the same typed compiler. The old permissive
+parser, name sanitization, numeric buckets, and binder-erasing normalization
+have been removed. The parent target is no longer asserted as a child hypothesis.
+
+Supported initial forms are propositional conjunction, disjunction, equivalence,
+negation, nondependent implication, exact proposition identities, and exact
+uninterpreted equality atoms retaining their type and operands. Equality atoms
+are not an arithmetic solver. `P : Prop` introduces a symbol, `h : P` supplies a
+fact, and known data declarations supply terms rather than facts.
+
+Unknown proposition typing, dependent binders, unresolved metavariables, ambiguous
+projection placeholders, and lets return `unsupported` with a typed diagnostic.
+No structured decode error falls back to printed text. `evaluate_text` is a
+separate explicit propositional grammar with declared symbols, named hypotheses,
+Lean precedence, and no arbitrary application/equality/quantifier text.
+
+```python
+from maths_ai.pln_inference.compiler import GoalInput
+from maths_ai.pln_inference.model import PLNInference
+
+# canonical_goal is an actual structured Goal returned by the application adapter.
+result = PLNInference().evaluate(GoalInput.from_goal(canonical_goal))
+# For an explicit text-only propositional query:
+result = PLNInference().evaluate_text(
+    "Q", ("hP : P", "hPQ : P → Q"), propositions={"P": "P", "Q": "Q"}
+)
+```
+
+Success requires a target-matching returned statement with a structured
+`rule-proof` (possibly inside a merged proof) and its attached finite strength and
+confidence. A direct-fact STV is intentionally not success. An unsupported goal
+retains the policy prior, receives no STV or PLN potential, and does not train the
+Thompson sampler. It remains a Lean search obligation. Genuine scores, fallback
+scores, and unsupported counts are recorded separately in search execution data
+and round metrics.
+
+Translation version `lean-pln-exact-v1-rule-proof` is included in sampler keys,
+batch manifests, and search/evaluation contracts. Regenerate old batch manifests
+and start a fresh RL run when changing translation semantics. Model warm starts
+remain supported; model graph features and weights have not been changed.
+
+The first 100 local JSONL rows yielded 92 Lean admission rejections and eight
+admitted states. Three admitted states were supported and five had unknown sort
+classification. This ordered local sample is not a Mathlib-wide coverage estimate.
+See `maths_ai/gnn_inference/docs/pln_validation/local_first100_coverage.json`.
+General predicate classification needs additional Lean-derived metadata; the
+current client does not expose a per-local `isProp` field. Kernel certification,
+not a PLN score, still determines proof success.
+
+To repeat the audit on your dataset:
+
+```bash
+python -m maths_ai.pln_inference.coverage \
+  --input /absolute/states.jsonl --source-root /absolute/mathlib4 \
+  --repl /absolute/repl --output /absolute/new_coverage_directory \
+  --max-scan-rows 100 --time-budget 120
+```
+
 
 Native tests verified that `git-import!` can download the available fork and
 register its library root after explicit Prolog bootstrap. The ordinary header

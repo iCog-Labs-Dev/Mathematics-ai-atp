@@ -2,6 +2,7 @@ import asyncio
 import argparse
 import random
 import json
+import hashlib
 import time
 from enum import Enum
 try:
@@ -33,7 +34,8 @@ from maths_ai.data_models.proof_components import (
 )
 from maths_ai.lean_replay import LeanGoalSeed, render_replay, seed_from_text
 from maths_ai.gnn_inference.inference_engine import GNNModelEngine
-from maths_ai.pln_inference.model import PLNInference
+from maths_ai.pln_inference.model import PLNInference, PLNResult
+from maths_ai.pln_inference.compiler import GoalInput, TranslationError, TRANSLATION_VERSION
 from maths_ai.pln_inference.metta.translator.translator_modules.runner import DynamicThompsonSampler
 
 from maths_ai.hybrid_reasoner.execution_limits import (
@@ -212,6 +214,7 @@ class HybridReasoner:
     ) -> None:
         self.use_pln = use_pln
         self._proving = False
+        self.pln_counts = {}
         self._scope: PantographStateScope | None = None
         self._registry: SnapshotRegistry | None = None
         self._replay: ReplayCoordinator | None = None
@@ -328,22 +331,11 @@ class HybridReasoner:
 
     # PLN side
     def _make_dts_key(self, parent_goal: str, tactic: TacticCandidate, subgoal: Goal) -> str:
-        """Create a meaningful DTS state key that identifies the subgoal in context.
-        
-        The key includes:
-        - Parent goal expression
-        - Tactic name and arguments (what was applied to get here)
-        - Subgoal expression
-        
-        This makes the DTS state more interpretable and allows tracking
-        which tactics lead to which subgoals.
-        """
-        tactic_str = f"{tactic.tactic_name}({' '.join(tactic.arguments)})" if tactic.arguments else tactic.tactic_name
-        # Truncate long expressions to keep keys manageable
-        max_len = 50
-        parent_trunc = parent_goal[:max_len] + "..." if len(parent_goal) > max_len else parent_goal
-        subgoal_trunc = subgoal.expression[:max_len] + "..." if len(subgoal.expression) > max_len else subgoal.expression
-        return f"{parent_trunc} --[{tactic_str}]--> {subgoal_trunc}"
+        """Bind sampler history to the exact execution expression and translation."""
+        payload = {"version": TRANSLATION_VERSION, "parent": parent_goal,
+                   "command": tactic.command, "target": subgoal.goal_sexp,
+                   "locals": [(v.internal_name, v.type_sexp, v.value_sexp) for v in subgoal.locals or []]}
+        return TRANSLATION_VERSION + ":" + hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
     async def rank_subgoals(
         self,
@@ -361,8 +353,7 @@ class HybridReasoner:
         serializing them, and the event loop stays free for other concurrent searches.
 
         Args:
-            goal: the parent goal's expression — passed to PLN as extra
-                local context (one more hypothesis the subgoal may rely on).
+            goal: the parent goal expression, used only for search provenance.
             sub_goals: candidate subgoals produced by applying one tactic to
                 ``goal``, each carrying its own local hypotheses (the
                 executor's variable context for that subgoal).
@@ -387,20 +378,26 @@ class HybridReasoner:
             raise RuntimeError(
                 "rank_subgoals requires PLN; the reasoner was constructed with use_pln=False"
             )
-        # Dispatch all PLN queries concurrently (off the event-loop thread).
-        results = await asyncio.gather(
-            *(
-                self.petta_chainer.evaluate_async(
-                    subgoal.expression,
-                    hypotheses=[goal, *subgoal.hypotheses],
-                )
-                for subgoal in sub_goals
-            )
-        )
+        # Keep the parent only as provenance; facts come from each child's locals.
+        async def score(subgoal):
+            try:
+                goal_input = GoalInput.from_goal(subgoal)
+            except TranslationError as exc:
+                return PLNResult(None, "unsupported", False, diagnostic=exc.as_dict())
+            return await self.petta_chainer.evaluate_async(goal_input)
+
+        results = await asyncio.gather(*(score(subgoal) for subgoal in sub_goals))
 
         # DTS bookkeeping is cheap and stateful — process results sequentially, in order.
         ranked: List[RankedSubgoal] = []
         for subgoal, result in zip(sub_goals, results):
+            self.pln_counts[result.status] = self.pln_counts.get(result.status, 0) + 1
+            if result.is_fallback:
+                self.pln_counts["fallback"] = self.pln_counts.get("fallback", 0) + 1
+            if result.diagnostic and result.status == "unsupported":
+                reason = result.diagnostic["reason"]
+                key = "unsupported:" + reason
+                self.pln_counts[key] = self.pln_counts.get(key, 0) + 1
             stv = result.stv
             if (
                 self.pln_fallback_strategy == "thompson"
@@ -410,7 +407,7 @@ class HybridReasoner:
                 key = self._make_dts_key(goal, tactic, subgoal)
                 sampled = self.dts_sampler.sample(key, self._dts_rng)
                 stv = STV(strength=sampled, confidence=1.0)
-            elif self.pln_fallback_strategy == "thompson" and self.dts_sampler is not None:
+            elif stv is not None and result.status == "ok" and self.pln_fallback_strategy == "thompson" and self.dts_sampler is not None:
                 key = self._make_dts_key(goal, tactic, subgoal)
                 self.dts_sampler.record_observation(key, reward=stv.score)
 
@@ -488,6 +485,7 @@ class HybridReasoner:
         if self._proving:
             raise PantographStateError("A reasoner supports only one active search.")
         self._proving = True
+        self.pln_counts = {}
         try:
             async with self.server.state_scope() as scope:
                 self._scope = scope
@@ -625,6 +623,8 @@ class HybridReasoner:
         replay = self._replay
         graph.execution = {
             **self._counters,
+            "pln_counts": dict(self.pln_counts),
+            "pln_translation": TRANSLATION_VERSION if self.use_pln else None,
             "evidence": SEARCH_EVIDENCE_VERSION,
             "replay_tactic_calls": replay.total_steps,
             "replay_combinations": replay.total_combinations,
@@ -1596,7 +1596,7 @@ class HybridReasoner:
             for i, (child, stv) in enumerate(zip(children, stvs)):
                 print(
                     f"    subgoal {i}: {child.goal.expression} | "
-                    f"stv=({stv.strength:.3f}, {stv.confidence:.3f})"
+                    f"stv={None if stv is None else (stv.strength, stv.confidence)}"
                 )
         edge = self._link(graph, node, action, list(zip(children, stvs)), outcome)
         for child, child_id in zip(children, edge.child_ids):

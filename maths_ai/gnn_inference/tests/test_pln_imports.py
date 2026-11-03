@@ -17,6 +17,12 @@ from maths_ai.pln_inference.dependencies import (
 )
 from maths_ai.pln_inference.diagnose import diagnose, proof_contains, query_answers
 from maths_ai.pln_inference.model import PLNInference
+from maths_ai.pln_inference.compiler import (
+    GoalInput,
+    LocalInput,
+    compile_text,
+    TRANSLATION_VERSION,
+)
 
 
 @pytest.fixture
@@ -72,15 +78,21 @@ def test_explicit_axioms_override(installation, tmp_path):
 def test_live_source_uses_shared_imports(installation):
     root, binary = installation
     model = PLNInference(chainer_root=root, petta_bin=str(binary))
-    source = model._render_query_source("Q", ["P", "P → Q"])
+    source = model._render_query_source(
+        compile_text("Q", ("hP : P", "hPQ : P → Q"), propositions={"P": "P", "Q": "Q"})
+    )
     assert source.startswith(PLNDependencies.resolve(root).imports())
-    assert "!(query 10 kb (: $prf (Q) $tv))" in source
+    assert "!(query 10 kb" in source
     with patch("maths_ai.pln_inference.model.subprocess.run") as run:
         run.return_value = subprocess.CompletedProcess(
             [], 2, "partial output", "Lean import failed"
         )
-        result = model.evaluate("Q", ["P"])
-    assert result.status == "engine_error" and result.is_fallback
+        result = model.evaluate(GoalInput("(:c True)", ()))
+    assert (
+        result.status == "engine_error"
+        and result.stv is None
+        and not result.is_fallback
+    )
     assert "code 2" in result.raw_output and "Lean import failed" in result.raw_output
     generated = Path(run.call_args.args[0][1])
     assert not generated.exists()
@@ -95,7 +107,7 @@ def test_timeout_preserves_diagnostics(installation):
             "petta", 1, output=b"partial stdout", stderr=b"partial stderr"
         ),
     ):
-        result = model.evaluate("P")
+        result = model.evaluate(GoalInput("(:c True)", ()))
     assert result.status == "timeout"
     assert (
         "partial stdout" in result.raw_output and "partial stderr" in result.raw_output
@@ -106,9 +118,11 @@ def test_configuration_errors_are_not_random_scores(installation, monkeypatch):
     root, _ = installation
     monkeypatch.delenv("PETTACHAINER_ROOT", raising=False)
     with pytest.raises(PLNConfigurationError):
-        PLNInference().evaluate("P")
+        PLNInference().evaluate(GoalInput("(:c True)", ()))
     with pytest.raises(PLNConfigurationError, match="executable"):
-        PLNInference(chainer_root=root, petta_bin="/missing/petta").evaluate("P")
+        PLNInference(chainer_root=root, petta_bin="/missing/petta").evaluate(
+            GoalInput("(:c True)", ())
+        )
 
 
 @pytest.mark.parametrize("complete", [True, False])
@@ -190,3 +204,55 @@ def test_diagnostic_failure_records_and_no_overwrite(installation, tmp_path):
     assert len(list(evidence.glob("*.stderr.log"))) == 6
     with pytest.raises(FileExistsError):
         diagnose(evidence, chainer_root=root, petta_bin=str(binary))
+
+
+def test_ranking_cli_loads_and_updates_saved_dynamic_sampler(tmp_path, monkeypatch):
+    import sys
+    from maths_ai.pln_inference.metta.translator.translator_modules import cli
+
+    log = tmp_path / "proof.log"
+    log.write_text("(: (rule-proof example hP) (P) (STV 0.8 0.9))\n")
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "translation_version": TRANSLATION_VERSION,
+                "generated_items": [
+                    {
+                        "test_name": "example",
+                        "goal_index": 0,
+                        "log_path": str(log),
+                        "target_formula": "(P)",
+                        "exit_code_path": str(log) + ".exitcode",
+                    }
+                ],
+            }
+        )
+    )
+    Path(str(log) + ".exitcode").write_text("0")
+    state = tmp_path / "sampler.json"
+    state.write_text(
+        json.dumps(
+            {f"{TRANSLATION_VERSION}:example_goal_0": {"alpha": 3.0, "beta": 2.0}}
+        )
+    )
+    updated = tmp_path / "updated.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "translator",
+            "--rank-manifest",
+            str(manifest),
+            "--fallback-strategy",
+            "thompson",
+            "--thompson-state-input",
+            str(state),
+            "--thompson-state-output",
+            str(updated),
+        ],
+    )
+    cli.main()
+    posterior = json.loads(updated.read_text())[f"{TRANSLATION_VERSION}:example_goal_0"]
+    assert posterior["alpha"] > 3.0
+    assert posterior["beta"] > 2.0

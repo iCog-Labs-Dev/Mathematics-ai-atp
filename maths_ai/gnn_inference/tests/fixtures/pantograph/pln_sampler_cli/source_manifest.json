@@ -1,0 +1,21 @@
+{
+  "kind": "pln-sampler-cli-name-repair",
+  "target_base_commit": "119eacd35e4c005c07e48fd85e12acf41080edfe",
+  "sources": [
+    {
+      "path": "maths_ai/pln_inference/metta/translator/translator_modules/cli.py",
+      "target_base_sha256": "99b40ce39ff8515be22a78cd724ba83d272db4aac4003b2c3b0f6e2e3fb17902",
+      "sha256": "2a9bf1d55690e514965f87bdd349369eb585fec1995318568221e16ab6a4aef2"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_pln_imports.py",
+      "target_base_sha256": "a5012043831a48995e6e66ea47e05b319cb6417c6901a30794664b825603f7cb",
+      "sha256": "154e93a16fbb5bc264ed610fe794bc879a93d1703296e3dcc67836136f20c957"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
+      "target_base_sha256": "8ffa9987b2757547d1f7eddfe51a014dbf915c30ef73d40ab448a34f3576bb33",
+      "sha256": "d74b0024ef113d87295d6b1217b5dadb903d57d585ab8e7d467b89e4def84a5a"
+    }
+  ]
+}

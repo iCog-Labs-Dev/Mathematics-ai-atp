@@ -27,9 +27,9 @@ import shutil
 from typing import Any
 
 from maths_ai.pln_inference.dependencies import PLNDependencies
+from maths_ai.pln_inference.compiler import TRANSLATION_VERSION, TranslationError
 
 from .extractor import essentialize_subgoal, proof_state_after_tactics
-from .parser import to_plain
 from .runner import (
     parse_and_rank_logs,
     print_ranked_results,
@@ -68,7 +68,6 @@ async def run_demo(
     runner_name: str = "run_all_generated.sh",
     stop_on_error: bool = False,
     env: PantographEnv,
-    normalize_variables: bool = False,
     chainer_root: Path | None = None,
     axioms_path: str | None = None,
 ) -> dict[str, Any]:
@@ -169,12 +168,22 @@ async def run_demo(
             for i, g in enumerate(goals):
                 print(f"\nGoal {i} Processed:")
 
-                script, cleanup, hyp_records, query_formula = essentialize_subgoal(
-                    g,
-                    mode="dynamic",
-                    depth=depth,
-                    normalize_variables=normalize_variables,
-                )
+                try:
+                    script, cleanup, hyp_records, query_formula = essentialize_subgoal(
+                        g, depth=depth
+                    )
+                except TranslationError as exc:
+                    item = {
+                        "test_name": test_name,
+                        "goal_index": i,
+                        "status": "unsupported",
+                        "diagnostic": exc.as_dict(),
+                        "target_formula": None,
+                        "log_path": "",
+                    }
+                    generated_items.append(item)
+                    test_summary["subgoals"].append(item)
+                    continue
 
                 print(script)
 
@@ -206,6 +215,7 @@ async def run_demo(
                     "goal_index": i,
                     "metta_path": metta_file_path,
                     "log_path": log_file_path,
+                    "exit_code_path": log_file_path + ".exitcode",
                     "target_formula": query_formula,
                     "hypotheses": hyp_records,
                 }
@@ -219,9 +229,12 @@ async def run_demo(
             test_summaries.append(test_summary)
 
         runner_path = None
-        if generated_items:
+        executable_items = [
+            item for item in generated_items if item.get("status") != "unsupported"
+        ]
+        if executable_items:
             runner_path = write_runner_script(
-                generated_items,
+                executable_items,
                 output_dir,
                 runner_name=runner_name,
                 stop_on_error=stop_on_error,
@@ -235,7 +248,7 @@ async def run_demo(
             "output_dir": os.path.abspath(output_dir),
             "runner_path": os.path.abspath(runner_path) if runner_path else None,
             "depth": depth,
-            "normalize_variables": normalize_variables,
+            "translation_version": TRANSLATION_VERSION,
             "generated_items": generated_items,
             "tests": test_summaries,
         }
@@ -400,15 +413,6 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--normalize-variables",
-        action="store_true",
-        help=(
-            "Map Lean variables/propositions to v0,v1,... as before. "
-            "By default this adjusted version preserves concrete Lean names."
-        ),
-    )
-
-    parser.add_argument(
         "--chainer-root",
         type=Path,
         help="Local PeTTaChainer checkout; defaults to PETTACHAINER_ROOT.",
@@ -422,9 +426,11 @@ def main() -> None:
     args = parse_args()
 
     if args.rank_manifest:
-        thompson_sampler: ThompsonSampler | None = None
+        thompson_sampler: DynamicThompsonSampler | None = None
         if args.fallback_strategy == "thompson" and args.thompson_state_input:
-            thompson_sampler = ThompsonSampler.load_from(args.thompson_state_input)
+            thompson_sampler = DynamicThompsonSampler.load_from(
+                args.thompson_state_input
+            )
 
         ranked = parse_and_rank_logs(
             args.rank_manifest,
@@ -468,7 +474,6 @@ def main() -> None:
                 runner_name=args.runner_name,
                 stop_on_error=args.stop_on_error,
                 env=env,
-                normalize_variables=args.normalize_variables,
                 chainer_root=args.chainer_root,
                 axioms_path=args.axioms_path,
             )

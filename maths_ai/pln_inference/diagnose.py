@@ -14,35 +14,24 @@ from maths_ai.lean_replay.sexp import parse_sexp_string
 from .dependencies import PLNDependencies, module_import, resolve_petta
 
 
-def query_answers(output: str, target: str) -> list[dict]:
-    """Read returned statements for this target, excluding compilation output."""
-    expected = parse_sexp_string(target)
-    answers = []
-    for line in output.splitlines():
-        try:
-            statement = parse_sexp_string(line.strip())
-        except ValueError:
-            continue
-        if not isinstance(statement, list) or len(statement) != 4:
-            continue
-        if statement[0] != ":" or statement[2] != expected:
-            continue
-        truth = statement[3]
-        if not isinstance(truth, list) or len(truth) != 3 or truth[0] != "STV":
-            continue
-        try:
-            values = [float(item) for item in truth[1:]]
-        except (ValueError, TypeError):
-            continue
-        if all(math.isfinite(value) and 0 <= value <= 1 for value in values):
-            answers.append({"proof": statement[1], "stv": values})
-    return answers
-
-
 def proof_contains(proof: object, symbol: str) -> bool:
     if isinstance(proof, list):
         return any(proof_contains(item, symbol) for item in proof)
     return proof == symbol
+
+
+def query_answers(output: str, target: str) -> list[dict]:
+    from .answers import rule_answers
+
+    answers = []
+    for line in output.splitlines():
+        if not rule_answers(line, target):
+            continue
+        statement = parse_sexp_string(line.strip())
+        answers.append(
+            {"proof": statement[1], "stv": [float(v) for v in statement[3][1:]]}
+        )
+    return answers
 
 
 def _decode(value: str | bytes | None) -> str:

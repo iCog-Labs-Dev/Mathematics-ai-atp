@@ -136,7 +136,7 @@ class _SubgoalExecutor(ScriptedExecutor):
 class _StubPLN:
     """PLN stand-in: a real (non-fallback) low score, no subprocess."""
 
-    async def evaluate_async(self, expression, hypotheses=None, **kwargs):
+    async def evaluate_async(self, goal, **kwargs):
         return PLNResult(stv=STV(strength=0.1, confidence=1.0), status="ok", is_fallback=False)
 
 

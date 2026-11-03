@@ -193,9 +193,10 @@ remain distinguishable fallback results in the live wrapper.
 
 Only after the diagnostic succeeds, set `"use_pln": true` and launch the normal
 RL command. An enabled flag alone does not establish genuine PLN scoring. The
-printed-state parser, named-hypothesis conversion, and direct-fact STV extraction
-have known limitations documented in the PLN guide. Keep `"use_pln": false` when
-those limitations are unacceptable for the experiment.
+shared compiler has a conservative supported fragment and reports unsupported
+states without an STV. Success requires a target-matching rule-proof and STV;
+direct-fact answers are intentionally excluded. Consult the PLN guide for coverage
+and start a new run after changing translation semantics.
 
 ### 3.4 Sanity: unit suite + live smoke
 

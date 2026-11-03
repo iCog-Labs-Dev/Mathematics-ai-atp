@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 import unittest
 
+from maths_ai.pln_inference.compiler import GoalInput
 from maths_ai.pln_inference.model import PLNInference, PLNResult
 from maths_ai.data_models.proof_components import STV
 
@@ -30,7 +31,7 @@ class PLNAsyncTests(unittest.TestCase):
         )
 
         # Stub the blocking evaluate with a deterministic fake result.
-        def fake_evaluate(expression, hypotheses=None):
+        def fake_evaluate(goal):
             return PLNResult(
                 stv=STV(strength=0.7, confidence=0.5), status="ok", is_fallback=False
             )
@@ -38,9 +39,10 @@ class PLNAsyncTests(unittest.TestCase):
         pln.evaluate = fake_evaluate  # type: ignore[assignment]
 
         async def _run():
-            return await pln.evaluate_async("x = x", ["h : Nat"])
+            return await pln.evaluate_async(GoalInput("(:c True)", ()))
 
         result = asyncio.run(_run())
+        assert result.stv is not None
         self.assertEqual(result.stv.strength, 0.7)
         self.assertEqual(result.stv.confidence, 0.5)
 
@@ -53,7 +55,7 @@ class PLNAsyncTests(unittest.TestCase):
         delay = 0.2
         n = 6
 
-        def slow_evaluate(expression, hypotheses=None):
+        def slow_evaluate(goal):
             time.sleep(delay)  # stand-in for the blocking subprocess.run
             return PLNResult(
                 stv=STV(strength=1.0, confidence=1.0), status="ok", is_fallback=False
@@ -63,7 +65,7 @@ class PLNAsyncTests(unittest.TestCase):
 
         async def _run():
             return await asyncio.gather(
-                *(pln.evaluate_async(f"g{i}") for i in range(n))
+                *(pln.evaluate_async(GoalInput("(:c True)", ())) for i in range(n))
             )
 
         start = time.perf_counter()
