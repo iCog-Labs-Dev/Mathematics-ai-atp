@@ -26,6 +26,7 @@ from maths_ai.gnn_inference.scripts.setup_sexpr_environment import LEAN_TOOLCHAI
 from maths_ai.gnn_inference.atp_lean_gnn import tactic_templates
 from maths_ai.gnn_inference.atp_lean_gnn import intro_templates
 from maths_ai.gnn_inference.atp_lean_gnn import application_templates
+from maths_ai.gnn_inference.atp_lean_gnn import recursive_templates
 from maths_ai.gnn_inference.atp_lean_gnn.template_catalog import (
     canonical_form, form_id, load_validation_plan, validation_summary,
 )
@@ -104,9 +105,10 @@ def main(argv=None):
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--file-timeout", type=float, default=600)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--renderer", choices=("flat", "template-v1", "template-v2", "template-v3"), default="flat")
+    parser.add_argument("--renderer", choices=("flat", "template-v1", "template-v2", "template-v3", "template-v4"), default="flat")
     parser.add_argument("--validation-plan", type=Path,
                         help="Use an inventory's fixed exact-aligned selection instead of theorem sampling")
+    parser.add_argument("--row-indices", type=Path, help="JSON list of fixed dataset row IDs for a targeted native check")
     args = parser.parse_args(argv)
     if args.num_theorems < 1 or not math.isfinite(args.file_timeout) or args.file_timeout <= 0:
         raise ValueError("theorem count and file timeout must be positive")
@@ -118,6 +120,8 @@ def main(argv=None):
         if not (cache_root / args.split / directory).is_dir():
             raise ValueError(f"cache directory absent: {cache_root / args.split / directory}")
     validation_plan = None
+    if args.validation_plan and args.row_indices:
+        raise ValueError("choose validation plan or row IDs, not both")
     if args.validation_plan:
         validation_plan = load_validation_plan(args.validation_plan.resolve(), split=args.split, renderer=args.renderer)
         if validation_plan["manifest"]["cache_root"] != str(cache_root):
@@ -129,6 +133,15 @@ def main(argv=None):
                     if row.row_index in expected_rows]
         if len(selected) != len(expected_rows) or {row.row_index for row in selected} != set(expected_rows):
             raise ValueError("validation selection is missing/duplicated in the dataset")
+    elif args.row_indices:
+        indices = json.loads(args.row_indices.read_text(encoding="utf-8"))
+        if (not isinstance(indices, list) or not indices or any(type(i) is not int or i < 0 for i in indices)
+                or len(indices) != len(set(indices))):
+            raise ValueError("row-indices must contain unique nonnegative dataset row IDs")
+        wanted = set(indices)
+        selected = [row for row in iter_dataset_rows(dataset_name=args.dataset_name, split=args.split) if row.row_index in wanted]
+        if len(selected) != len(wanted) or {row.row_index for row in selected} != wanted:
+            raise ValueError("selected row IDs are missing/duplicated in dataset")
     else:
         rows = list(iter_dataset_rows(dataset_name=args.dataset_name, split=args.split))
         selected = select_theorems(rows, count=args.num_theorems, seed=args.seed)
@@ -159,8 +172,8 @@ def main(argv=None):
     manifest = {
         "schema": "native_gold_step_replay_v2", "original_replay_mode": ORIGINAL_REPLAY_MODE,
         "dataset": args.dataset_name, "split": args.split,
-        "seed": args.seed if validation_plan is None else None,
-        "requested_theorems": args.num_theorems if validation_plan is None else None,
+        "seed": args.seed if validation_plan is None and not args.row_indices else None,
+        "requested_theorems": args.num_theorems if validation_plan is None and not args.row_indices else None,
         "selected_theorems": [{"file_path": file, "theorem": theorem}
                               for file, theorem in sorted({(p["file_path"], p["theorem"]) for p in planned})],
         "source_root": str(source_root), "pantograph_root": str(pantograph_root),
@@ -174,8 +187,11 @@ def main(argv=None):
         "reference_lookup": "validated_source_or_exact_global_identity_v1",
         "template_schema": {"template-v1": tactic_templates.TEMPLATE_SCHEMA,
                             "template-v2": tactic_templates.APPLICATION_TEMPLATE_SCHEMA,
-                            "template-v3": tactic_templates.NAMED_APPLICATION_TEMPLATE_SCHEMA}.get(args.renderer),
-        "intro_template_schema": intro_templates.INTRO_TEMPLATE_SCHEMA if args.renderer == "template-v3" else None,
+                             "template-v3": tactic_templates.NAMED_APPLICATION_TEMPLATE_SCHEMA,
+                             "template-v4": recursive_templates.RECURSIVE_RULE_SCHEMA}.get(args.renderer),
+        "intro_template_schema": intro_templates.INTRO_TEMPLATE_SCHEMA if args.renderer in {"template-v3", "template-v4"} else None,
+        "recursive_application_schema": recursive_templates.RECURSIVE_APPLICATION_SCHEMA if args.renderer == "template-v4" else None,
+        "recursive_parser_sha256": file_sha256(Path(recursive_templates.__file__)),
         "application_term_schema": application_templates.APPLICATION_TERM_SCHEMA if args.renderer == "template-v3" else None,
         "intro_parser_sha256": file_sha256(Path(intro_templates.__file__)),
         "application_parser_sha256": file_sha256(Path(application_templates.__file__)),
@@ -184,6 +200,7 @@ def main(argv=None):
         "rows": [{"row_index": p["row_index"], "cache_hashes": p["cache_hashes"]} for p in planned],
         "validation_plan_sha256": file_sha256(args.validation_plan.resolve()) if validation_plan is not None else None,
         "validation_selection_policy": validation_plan["manifest"]["selection_policy"] if validation_plan is not None else None,
+        "row_indices_sha256": file_sha256(args.row_indices) if args.row_indices else None,
     }
     root = args.output_dir
     if root.exists() and not args.resume:
@@ -256,7 +273,7 @@ def main(argv=None):
         print(json.dumps({"template_validation": {key: value for key, value in report["template_validation"].items()
                                                   if key != "by_form"}}, indent=2), flush=True)
     print(f"Report: {path}", flush=True)
-    accepted = {"rendered_transition_match"} if validation_plan is not None else {"rendered_transition_match", "render_unsupported"}
+    accepted = {"rendered_transition_match"} if validation_plan is not None or args.row_indices else {"rendered_transition_match", "render_unsupported"}
     return 0 if all(r["status"] in accepted
                     for file in report["files"].values() for r in file["rows"]) else 2
 

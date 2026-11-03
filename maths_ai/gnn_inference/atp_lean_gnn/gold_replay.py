@@ -322,6 +322,8 @@ def summarize_replays(rows: list[dict]) -> dict:
         "template_v3_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "rw_simp_template_v3" for r in rows),
         "intro_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "intro_binders_v1" for r in rows),
         "application_term_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "reference_application_v1" for r in rows),
+        "recursive_rule_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "recursive_rw_simp_v1" for r in rows),
+        "recursive_application_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "recursive_application_v1" for r in rows),
         "applied_rule_parsed_steps": sum(any(rule.get("arguments") for rule in (r.get("template_target") or {}).get("rules", []))
                                          for r in rows),
         "named_rule_parsed_steps": sum(any(argument.get("parameter") is not None

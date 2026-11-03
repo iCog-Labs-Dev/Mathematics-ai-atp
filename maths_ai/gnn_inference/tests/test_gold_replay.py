@@ -475,6 +475,22 @@ def test_replay_runner_retains_failures_and_resume_binding(tmp_path, monkeypatch
     with pytest.raises(ValueError, match="validation row changed"):
         runner.main([*plan_argv, "--output-dir", str(tmp_path / "stale_plan")])
 
+    indices_path = tmp_path / "focused_rows.json"
+    indices_path.write_text("[1]")
+    focused_output = tmp_path / "focused_v4"
+    focused_argv = [*argv, "--output-dir", str(focused_output), "--renderer", "template-v4", "--row-indices", str(indices_path)]
+    assert runner.main(focused_argv) == 0
+    focused = json.loads((focused_output / "report.json").read_text())
+    assert focused["summary"]["selected_steps"] == focused["summary"]["recursive_application_parsed_steps"] == 1
+    assert focused["manifest"]["row_indices_sha256"] == file_sha256(indices_path)
+    assert runner.main([*focused_argv, "--resume"]) == 0
+    indices_path.write_text("[1, 1]")
+    with pytest.raises(ValueError, match="unique nonnegative"):
+        runner.main([*focused_argv, "--output-dir", str(tmp_path / "duplicate_selection")])
+    indices_path.write_text("[999]")
+    with pytest.raises(ValueError, match="missing/duplicated"):
+        runner.main([*focused_argv, "--output-dir", str(tmp_path / "missing_selection")])
+
     def fail_native(*args, **kwargs):
         raise RuntimeError("backend failed")
 

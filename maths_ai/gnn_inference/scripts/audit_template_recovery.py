@@ -11,6 +11,7 @@ from pathlib import Path
 from maths_ai.gnn_inference.atp_lean_gnn import tactic_templates
 from maths_ai.gnn_inference.atp_lean_gnn.application_templates import APPLICATION_TERM_SCHEMA
 from maths_ai.gnn_inference.atp_lean_gnn.intro_templates import INTRO_TEMPLATE_SCHEMA, MAX_INTRO_BINDERS
+from maths_ai.gnn_inference.atp_lean_gnn import recursive_templates
 from maths_ai.gnn_inference.atp_lean_gnn.bundle import file_sha256
 from maths_ai.gnn_inference.scripts.audit_unsupported_actions import _rows, read_snapshot, verify_coverage
 
@@ -31,6 +32,10 @@ def _new_stats():
         "rule_list_rescues", "long_rule_list_parsed_steps",
         "exact_aligned_v3_renderable_steps", "exact_aligned_v3_rescues_vs_v2", "exact_aligned_v3_losses_vs_v2",
         "overall_v3_rescues_vs_original", "overall_v3_losses_vs_original",
+        "template_v4_renderable_steps", "v4_rescues_vs_v3", "v4_losses_vs_v3",
+        "recursive_rule_rescues", "recursive_application_rescues", "other_v4_rescues",
+        "exact_aligned_v4_renderable_steps", "exact_aligned_v4_rescues_vs_v3", "exact_aligned_v4_losses_vs_v3",
+        "v4_constructor_rescues", "v4_hole_rescues", "v4_numeral_rescues", "v4_projection_rescues",
     )})
 
 
@@ -72,14 +77,30 @@ def _add(stats, row):
                       "exact_aligned_v3_losses_vs_v2": exact and final and not v3,
                       "overall_v3_rescues_vs_original": v3 and not before,
                       "overall_v3_losses_vs_original": before and not v3})
+    if row.get("v4_evaluated"):
+        v4, v3 = row["v4_renderable"], row["v3_renderable"]
+        rescue = v4 and not v3
+        rule = row.get("v4_schema") == recursive_templates.RECURSIVE_RULE_SCHEMA
+        term = row.get("v4_schema") == recursive_templates.RECURSIVE_APPLICATION_SCHEMA
+        features = row.get("v4_term_features", [])
+        stats.update({"template_v4_renderable_steps": v4, "v4_rescues_vs_v3": rescue,
+                      "v4_losses_vs_v3": v3 and not v4, "recursive_rule_rescues": rescue and rule,
+                      "recursive_application_rescues": rescue and term, "other_v4_rescues": rescue and not rule and not term,
+                      "exact_aligned_v4_renderable_steps": exact and v4,
+                      "exact_aligned_v4_rescues_vs_v3": exact and rescue,
+                      "exact_aligned_v4_losses_vs_v3": exact and v3 and not v4,
+                      **{f"v4_{name}_rescues": rescue and name in features for name in ("constructor", "hole", "numeral", "projection")}})
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline-coverage-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--renderer", choices=("template-v2", "template-v3"), default="template-v2")
+    parser.add_argument("--renderer", choices=("template-v2", "template-v3", "template-v4"), default="template-v2")
+    parser.add_argument("--pilot-actions", type=int, default=24, help="Maximum new exact val actions in focused native row-ID file")
     args = parser.parse_args(argv)
+    if args.pilot_actions < 1:
+        raise ValueError("pilot action count must be positive")
     baseline, output = args.baseline_coverage_dir.resolve(), args.output_dir.resolve()
     source_path, rows_path = baseline / "report.json", baseline / "rows.jsonl"
     source = json.loads(source_path.read_text(encoding="utf-8"))
@@ -94,32 +115,42 @@ def main(argv=None):
     code_root = Path(__file__).parents[1]
     paths = [Path(__file__), code_root / "scripts/audit_unsupported_actions.py",
              *(code_root / "atp_lean_gnn" / name for name in (
-                 "tactic_templates.py", "intro_templates.py", "application_templates.py", "gold_replay.py", "preparation.py", "labels.py", "argument_relabeling.py")),
+                 "tactic_templates.py", "intro_templates.py", "application_templates.py", "recursive_templates.py", "gold_replay.py", "preparation.py", "labels.py", "argument_relabeling.py")),
              *sorted((code_root / "atp_lean_gnn/action_targets").glob("*.py"))]
-    report = {"manifest": {"schema": "template_recovery_v2" if args.renderer == "template-v3" else "template_recovery_v1",
+    report = {"manifest": {"schema": {"template-v2": "template_recovery_v1", "template-v3": "template_recovery_v2",
+                                     "template-v4": "template_recovery_v3"}[args.renderer],
                            "renderer": args.renderer, "baseline_dir": str(baseline),
                            "baseline_sha256": hashes, "cache_root": str(cache),
-                           "template_schema": (tactic_templates.NAMED_APPLICATION_TEMPLATE_SCHEMA if args.renderer == "template-v3"
-                                               else tactic_templates.APPLICATION_TEMPLATE_SCHEMA),
-                           "max_rule_arguments": tactic_templates.MAX_RULE_ARGUMENTS,
-                           "max_rules": tactic_templates.MAX_V3_RULES if args.renderer == "template-v3" else tactic_templates.MAX_RULES,
-                           "intro_template_schema": INTRO_TEMPLATE_SCHEMA if args.renderer == "template-v3" else None,
+                           "template_schema": {"template-v2": tactic_templates.APPLICATION_TEMPLATE_SCHEMA,
+                                               "template-v3": tactic_templates.NAMED_APPLICATION_TEMPLATE_SCHEMA,
+                                               "template-v4": recursive_templates.RECURSIVE_RULE_SCHEMA}[args.renderer],
+                           "max_rule_arguments": (recursive_templates.MAX_TERM_CHILDREN if args.renderer == "template-v4"
+                                                  else tactic_templates.MAX_RULE_ARGUMENTS),
+                           "max_rules": tactic_templates.MAX_RULES if args.renderer == "template-v2" else tactic_templates.MAX_V3_RULES,
+                           "intro_template_schema": INTRO_TEMPLATE_SCHEMA if args.renderer in {"template-v3", "template-v4"} else None,
                            "application_term_schema": APPLICATION_TERM_SCHEMA if args.renderer == "template-v3" else None,
-                           "max_intro_binders": MAX_INTRO_BINDERS if args.renderer == "template-v3" else None,
-                           "parameter_label_policy": "named_argument_position_v1" if args.renderer == "template-v3" else None,
+                           "max_intro_binders": MAX_INTRO_BINDERS if args.renderer in {"template-v3", "template-v4"} else None,
+                           "parameter_label_policy": "named_argument_position_v1" if args.renderer in {"template-v3", "template-v4"} else None,
+                           "recursive_application_schema": recursive_templates.RECURSIVE_APPLICATION_SCHEMA if args.renderer == "template-v4" else None,
                            "reference_lookup": "validated_source_or_exact_global_identity_v1",
                            "code_sha256": {str(path.relative_to(code_root)): file_sha256(path) for path in paths},
+                           "recursive_limits": {"nodes": recursive_templates.MAX_TERM_NODES, "depth": recursive_templates.MAX_TERM_DEPTH,
+                                                 "children": recursive_templates.MAX_TERM_CHILDREN,
+                                                 "literal_chars": recursive_templates.MAX_LITERAL_CHARS} if args.renderer == "template-v4" else None,
+                           "pilot_actions": args.pilot_actions,
                            "native_execution_measured": False, "proof_success_measured": False},
               "complete": False, "splits": {}}
     output.mkdir(parents=True, exist_ok=False)
     totals, families, previous, errors = defaultdict(_new_stats), defaultdict(_new_stats), defaultdict(_new_stats), defaultdict(Counter)
     v3_errors = defaultdict(Counter)
+    v4_errors, pilot_groups = defaultdict(Counter), defaultdict(list)
 
     def checkpoint():
         report["splits"] = {split: {"summary": dict(stats),
             "by_family": {name: dict(value) for (s, name), value in families.items() if s == split},
             "by_previous_error": {name: dict(value) for (s, name), value in previous.items() if s == split},
-            "v2_error_counts": dict(errors[split]), "v3_error_counts": dict(v3_errors[split])} for split, stats in totals.items()}
+            "v2_error_counts": dict(errors[split]), "v3_error_counts": dict(v3_errors[split]),
+            "v4_error_counts": dict(v4_errors[split])} for split, stats in totals.items()}
         temporary = output / "report.tmp"
         temporary.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
         temporary.replace(output / "report.json")
@@ -134,8 +165,10 @@ def main(argv=None):
             row.update(baseline_renderable=original["template_mode_renderable"],
                        quarantined=original["status"] in {"cache_invalid", "source_trace_invalid"},
                        lookup_fixed_v1_renderable=False, v2_renderable=False, v2_parsed=False, has_applied_rule=False)
-            if args.renderer == "template-v3":
+            if args.renderer in {"template-v3", "template-v4"}:
                 row.update(v3_evaluated=True, v3_renderable=False, v3_schema=None)
+            if args.renderer == "template-v4":
+                row.update(v4_evaluated=True, v4_renderable=False, v4_schema=None)
             if not row["quarantined"]:
                 fixed = tactic_templates.prepare_gold_rendering(raw["tactic"], trace, renderer="template-v1")
                 extended = tactic_templates.prepare_gold_rendering(raw["tactic"], trace, renderer="template-v2")
@@ -149,7 +182,7 @@ def main(argv=None):
                     errors[row["split"]][row["v2_error_code"] or row["v2_error"]] += 1
                 if target is not None:
                     row["rule_argument_counts"] = [len(rule["arguments"]) for rule in target["rules"]]
-                if args.renderer == "template-v3":
+                if args.renderer in {"template-v3", "template-v4"}:
                     projected = tactic_templates.prepare_gold_rendering(raw["tactic"], trace, renderer="template-v3")
                     v3_target = projected["template_target"] or {}
                     v3_arguments = [argument for rule in v3_target.get("rules", []) for argument in rule.get("arguments", [])]
@@ -164,6 +197,25 @@ def main(argv=None):
                         row["intro_mode"] = v3_target["mode"]
                     if row["v3_error"]:
                         v3_errors[row["split"]][row["v3_error_code"] or row["v3_error"]] += 1
+                if args.renderer == "template-v4":
+                    projected = tactic_templates.prepare_gold_rendering(raw["tactic"], trace, renderer="template-v4")
+                    target = projected["template_target"] or {}
+                    pending = [target["term"]] if "term" in target else [rule["term"] for rule in target.get("rules", [])]
+                    features = set()
+                    while pending:
+                        node = pending.pop()
+                        features.add(node["kind"])
+                        pending.extend(node.get("children", []))
+                    row.update(v4_renderable=isinstance(projected["rendered_tactic"], str), v4_schema=target.get("schema"),
+                               v4_rendered_tactic=projected["rendered_tactic"], v4_error=projected["render_error"],
+                               v4_error_code=projected["template_error_code"], v4_term_features=sorted(features))
+                    if row["v4_error"]:
+                        v4_errors[row["split"]][row["v4_error_code"] or row["v4_error"]] += 1
+                    if (row["split"] == "val" and row["v4_renderable"] and not row["v3_renderable"]
+                            and row["alignment_kind"] == "exact" and row["dataset_target_matches_source"] is True):
+                        key = (row["family"], tuple(sorted(features)))
+                        rank = hashlib.sha256(str(row["row_index"]).encode()).hexdigest()
+                        pilot_groups[key].append((rank, row["row_index"]))
             prior_error = "supported" if original["status"] == "renderable" else (
                 original.get("template_error_code") or original.get("render_error") or original.get("error") or "unknown")
             _add(totals[row["split"]], row)
@@ -183,11 +235,27 @@ def main(argv=None):
                 or totals[split]["baseline_renderable_steps"] != source["splits"][split]["summary"]["template_mode_renderable_steps"]):
             raise ValueError("recovery cohort differs from baseline")
     report.update(complete=True, row_records_sha256=rows_digest.hexdigest())
+    if args.renderer == "template-v4":
+        groups = [sorted(values) for _, values in sorted(pilot_groups.items())]
+        chosen = []
+        while groups and len(chosen) < args.pilot_actions:
+            remaining = []
+            for group in groups:
+                if len(chosen) == args.pilot_actions:
+                    break
+                chosen.append(group[0][1])
+                if len(group) > 1:
+                    remaining.append(group[1:])
+            groups = remaining
+        (output / "new_val_pilot_rows.json").write_text(json.dumps(sorted(chosen)), encoding="utf-8")
+        report["native_pilot"] = {"split": "val", "selected_steps": len(chosen), "candidate_groups": len(pilot_groups),
+                                  "row_indices_file": "new_val_pilot_rows.json", "policy": "round_robin_family_features_lowest_sha_v1"}
     checkpoint()
     print(json.dumps({split: dict(stats) for split, stats in totals.items()}, indent=2), flush=True)
     print(f"Report: {output / 'report.json'}", flush=True)
     return 2 if any(stats["combined_losses"] or stats["lookup_losses"] or stats["v2_grammar_losses"]
                     or stats["v3_losses_vs_v2"] or stats["overall_v3_losses_vs_original"]
+                    or stats["v4_losses_vs_v3"]
                     for stats in totals.values()) else 0
 
 

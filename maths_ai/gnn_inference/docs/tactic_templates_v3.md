@@ -1,5 +1,8 @@
 # V3 coverage expansion: binders, parameter roles and reference applications
 
+Next expansion: [V4 bounded recursive terms](tactic_templates_v4.md), including
+nested applications, constructors and anonymous holes, with a focused delta pilot.
+
 V3 targets three remaining gaps from the unsupported-action census:
 simple introduction declarations, named-argument labels, and bounded
 applications in `exact`/`apply`/`refine`. Select `--renderer template-v3`.

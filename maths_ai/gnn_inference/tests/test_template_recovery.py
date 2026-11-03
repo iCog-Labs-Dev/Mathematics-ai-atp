@@ -151,3 +151,34 @@ def test_v3_recovery_separates_binders_named_roles_and_v2_support(tmp_path):
     after = _snapshot(tmp_path)
     assert all(after[path] == digest for path, digest in before.items())
     assert all(path in before or path.startswith("v3/") for path in after)
+
+
+def test_v4_recovery_measures_recursive_gains_and_selects_only_new_exact_val_pilot(tmp_path):
+    prepared, cache, baseline = (tmp_path / name for name in ("prepared", "cache", "baseline"))
+    inner = _node("Lean.Parser.Term.app", _local(), _node("null", _local()))
+    nested = _node("Lean.Parser.Term.app", _local(), _node("null", inner))
+    constructor = _node("Lean.Parser.Term.anonymousCtor", _atom("⟨"), _node("null", _local()), _atom("⟩"))
+    train = [_cache_row(cache, "train", 0, _rw(nested), "rw [h0 (h0 h0)]"),
+             _cache_row(cache, "train", 1, _rw(_local()), "rw [h0]")]
+    val = [_cache_row(cache, "val", 0, _rw(nested), "rw [h0 (h0 h0)]"),
+           _cache_row(cache, "val", 1, _rw(nested), "rw [h0 (h0 h0)]", alignment="unknown", target=False),
+           _cache_row(cache, "val", 2, _node("Lean.Parser.Tactic.exact", _atom("exact"), constructor), "exact ⟨h0⟩"),
+           _cache_row(cache, "val", 3, _rw(_local()), "rw [h0]")]
+    _prepared(prepared, {"train": train, "val": val})
+    assert coverage.main(["--prepared-root", str(prepared), "--cache-root", str(cache), "--output-dir", str(baseline)]) == 0
+    before = _snapshot(tmp_path)
+    output = tmp_path / "v4"
+    assert recovery.main(["--baseline-coverage-dir", str(baseline), "--output-dir", str(output),
+                          "--renderer", "template-v4", "--pilot-actions", "2"]) == 0
+    report = json.loads((output / "report.json").read_text())
+    assert report["manifest"]["schema"] == "template_recovery_v3"
+    train, val = (report["splits"][split]["summary"] for split in ("train", "val"))
+    assert train["template_v3_renderable_steps"] == 1 and train["template_v4_renderable_steps"] == 2
+    assert train["v4_rescues_vs_v3"] == 1 and train["v4_losses_vs_v3"] == 0
+    assert val["v4_rescues_vs_v3"] == 3 and val["exact_aligned_v4_rescues_vs_v3"] == 2
+    assert val["recursive_rule_rescues"] == 2 and val["recursive_application_rescues"] == 1
+    assert val["v4_constructor_rescues"] == 1
+    assert json.loads((output / "new_val_pilot_rows.json").read_text()) == [0, 2]
+    after = _snapshot(tmp_path)
+    assert all(after[path] == digest for path, digest in before.items())
+    assert all(path in before or path.startswith("v4/") for path in after)

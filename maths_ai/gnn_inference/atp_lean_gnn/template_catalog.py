@@ -15,6 +15,9 @@ def renderer_fingerprints():
     paths = [root / "atp_lean_gnn" / name for name in (
         "gold_replay.py", "tactic_templates.py", "intro_templates.py", "application_templates.py",
         "labels.py", "argument_relabeling.py", "preparation.py")]
+    recursive = root / "atp_lean_gnn/recursive_templates.py"
+    if recursive.is_file():
+        paths.append(recursive)
     paths.extend(sorted((root / "atp_lean_gnn/action_targets").glob("*.py")))
     return {str(path.relative_to(root)): file_sha256(path) for path in paths}
 
@@ -80,7 +83,27 @@ def canonical_form(target, rendered, local_context=()):
                 "references": [reference(value) for value in references]}
     schema = target["schema"]
     form = {"schema": schema, "family": target["family"]}
-    if schema in {"rw_simp_template_v1", "rw_simp_template_v2", "rw_simp_template_v3"}:
+    if schema in {"recursive_rw_simp_v1", "recursive_application_v1"}:
+        def term(node):
+            output = {"kind": node["kind"]}
+            if "reference" in node:
+                output["reference"] = reference(node["reference"])
+            for key in ("value", "hole_slot"):
+                if key in node:
+                    output[key] = node[key]
+            if "children" in node:
+                output["children"] = [term(child) for child in node["children"]]
+            return output
+
+        if schema == "recursive_application_v1":
+            form["term"] = term(target["term"])
+        else:
+            form["rules"] = [{"term": term(rule["term"]), "backward": rule["backward"]} for rule in target["rules"]]
+            form["only"] = target["only"]
+            location = target["location"]
+            form["location"] = {"kind": location["kind"], "reference": reference(location["reference"])
+                                if location["kind"] == "local" else None}
+    elif schema in {"rw_simp_template_v1", "rw_simp_template_v2", "rw_simp_template_v3"}:
         form["only"] = target["only"]
         form["rules"] = [{"reference": reference(rule["reference"]), "backward": rule["backward"],
                           "arguments": [argument(value, schema) for value in rule.get("arguments", [])]}
