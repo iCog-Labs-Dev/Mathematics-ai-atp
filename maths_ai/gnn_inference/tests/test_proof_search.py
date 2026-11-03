@@ -38,6 +38,8 @@ def test_native_restart_reconstructs_prefix_and_keeps_remaining_alternatives():
         def request(self, command, state, timeout, **payload):
             assert state // 100 == self.number, "stale native snapshot ID"
             tactic = payload["tactic"]
+            if command == "split":
+                return {"status": "ok", "prefixes": [tactic]}
             self.requests.append(tactic)
             if tactic == "slow":
                 raise TimeoutError("injected native timeout")
@@ -237,3 +239,112 @@ def test_theorem_adapter_cannot_add_generated_assumptions(tmp_path):
     assert record["status"] != "passed"
     assert record["trials"][0]["status"] == "lean_error"
     assert "unknown identifier" in record["trials"][0]["error"]
+
+
+def test_late_failure_retains_middle_prefix_and_selects_it(tmp_path):
+    context = _context(tmp_path)
+    task = {"id": "middle_target", "prefix": "import Lean\n", "ingest_status": "parsed",
+            "header": "theorem middle_target (P : Prop) (h : P) : P"}
+    proposals = iter(['```lean4\nhave first : True := True.intro\nhave useful : P := h\nexact missing\n```',
+                      '```lean4\nexact useful\n```'])
+    prompts, record = [], {}
+    def generate(messages, *args):
+        prompts.append(messages[0]["content"])
+        return {"raw_text": next(proposals)}
+    search.search(task, record, generate,
+                  lambda task, raw, left: dev._validate(task, raw, context, min(left, 30)),
+                  lambda: None, _factory(task, context), budget=search.SearchBudget(model_calls=2), branching=3, seed=42)
+    assert record["status"] == "passed", record
+    assert "useful : P" in prompts[1]
+    assert [trial["status"] for trial in record["trials"][:3]] == ["ok", "ok", "lean_error"]
+    assert "have useful" in record["proof"]
+
+
+def test_universal_introductions_are_aligned_by_verified_reversion(tmp_path):
+    context = _context(tmp_path)
+    task = {"id": "binder_target", "prefix": "import Lean\n", "ingest_status": "parsed",
+            "header": "theorem binder_target (n : Nat) (positive : 0 < n) : n = n"}
+    raw = '```lean4\ntheorem universal : ∀ n : Nat, 0 < n → n = n := by\n  intro n hn\n  rfl\n```'
+    record = {}
+    search.search(task, record, lambda *a: {"raw_text": raw},
+                  lambda task, raw, left: dev._validate(task, raw, context, min(left, 30)),
+                  lambda: None, _factory(task, context), budget=search.SearchBudget(model_calls=1), branching=3, seed=42)
+    assert record["status"] == "passed", record
+    assert "revert" in record["proof"] and "intro n hn" in record["proof"]
+    assert set(record["lean"]["axioms"]) <= dev.control.ALLOWED_AXIOMS
+
+
+def test_nested_proof_for_different_target_is_not_unwrapped(tmp_path):
+    context = _context(tmp_path)
+    task = {"id": "different_inner", "prefix": "import Lean\n", "ingest_status": "parsed",
+            "header": "theorem different_inner (P : Prop) (h : P) : P"}
+    with _factory(task, context)(30) as session:
+        result = session.request("split", 0, 10,
+                                 tactic="have auxiliary : ∀ n : Nat, n = n := by\n  intro n\n  rfl\nexact h")
+        assert result["status"] == "ok"
+        assert result["inner_prefixes"] is None
+        assert len(result["prefixes"]) == 2
+
+
+def test_proactive_lookup_reaches_model_without_a_lookup_request(tmp_path):
+    context = _context(tmp_path)
+    task = {"id": "auto_lookup", "prefix": "import Lean\nset_option pp.notation false\n", "ingest_status": "parsed",
+            "header": "theorem auto_lookup (n : Nat) : Nat.add n 0 = n"}
+    record = {}
+    def generate(messages, *args):
+        assert "Nat.add" in messages[0]["content"] and '"automatic": true' in messages[0]["content"]
+        return {"raw_text": "```lean4\nrfl\n```"}
+    search.search(task, record, generate,
+                  lambda task, raw, left: dev._validate(task, raw, context, min(left, 30)),
+                  lambda: None, _factory(task, context), budget=search.SearchBudget(model_calls=1), branching=3, seed=42)
+    assert record["status"] == "passed"
+    assert record["lookup_cache"] and len(record["calls"]) == 1
+
+
+def test_retained_prefix_keeps_unsolved_sibling_after_bullet_failure(tmp_path):
+    context = _context(tmp_path)
+    task = {"id": "bullet_target", "prefix": "import Lean\n", "ingest_status": "parsed",
+            "header": "theorem bullet_target (P Q : Prop) (hp : P) (hq : Q) : P ∧ Q"}
+    proposals = iter(['```lean4\nconstructor\n· exact hp\n· exact missing\n```', '```lean4\nexact hq\n```'])
+    record = {}
+    search.search(task, record, lambda *a: {"raw_text": next(proposals)},
+                  lambda task, raw, left: dev._validate(task, raw, context, min(left, 30)),
+                  lambda: None, _factory(task, context), budget=search.SearchBudget(model_calls=2), branching=3, seed=42)
+    assert record["status"] == "passed", record
+    assert len(record["nodes"][1]["goals"]) == 2
+    assert len(record["nodes"][2]["goals"]) == 1
+
+
+def test_binder_reversion_is_rejected_when_sequent_differs_from_frozen_spec(tmp_path):
+    context = _context(tmp_path)
+    task = {"id": "extra_context", "prefix": "import Lean\n", "ingest_status": "parsed",
+            "header": "theorem extra_context (P : Prop) (h : P) : P"}
+    with _factory(task, context)(30) as session:
+        node = session.request("step", 0, 10, tactic="have extra : True := True.intro")
+        result = session.request("split", node["state"], 10, tactic="intro P h\nexact h")
+        assert result["status"] == "ok" and result["adapted_prefixes"] is None
+
+
+def test_optional_proactive_lookup_timeout_restarts_without_spending_model_call():
+    sessions = []
+    class Session:
+        def __init__(self):
+            self.number = len(sessions)
+            self.root = {"state": self.number * 10, "goals": ["n : Nat\n⊢ Nat.add n 0 = n"]}
+            sessions.append(self)
+        def request(self, command, state, timeout, **payload):
+            assert state // 10 == self.number
+            if command == "lookup":
+                raise TimeoutError("optional lookup timeout")
+            if command == "split":
+                return {"status": "ok", "prefixes": [payload["tactic"]]}
+            return {"status": "ok", "state": self.number * 10 + 1, "goals": []}
+        def close(self):
+            pass
+    record = {}
+    search.search({"prefix": "", "header": "theorem target (n : Nat) : n + 0 = n"}, record,
+                  lambda *a: {"raw_text": "```lean4\nrfl\n```"}, lambda *a: {"status": "passed"},
+                  lambda: None, lambda left: Session(), budget=search.SearchBudget(model_calls=1), branching=3, seed=42)
+    assert record["status"] == "passed" and len(record["calls"]) == 1
+    assert len(sessions) == 2
+    assert record["lookup_cache"]["Nat.add"]["status"] == "lookup_error"

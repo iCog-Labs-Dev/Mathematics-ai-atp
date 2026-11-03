@@ -131,6 +131,7 @@ class NativeSession:
         self.temporary = tempfile.TemporaryDirectory(prefix="atp_native_search_")
         self.lines = queue.Queue()
         self.log = []
+        self.spec = "Spec_" + task["id"]
         project, toolchain, lean_path = context
         helper = LEAN_HELPER.read_text().removeprefix("import Lean\n")
         header = re.sub(r"^theorem\s+" + re.escape(task["id"]), "theorem SearchRoot_" + task["id"],
@@ -177,7 +178,7 @@ class NativeSession:
     def request(self, command, state, timeout, **payload):
         if self.proc is None or self.proc.poll() is not None:
             raise RuntimeError("Native session is not running")
-        self.proc.stdin.write(json.dumps({"command": command, "state": state, **payload}, ensure_ascii=False) + "\n")
+        self.proc.stdin.write(json.dumps({"command": command, "state": state, "spec": self.spec, **payload}, ensure_ascii=False) + "\n")
         self.proc.stdin.flush()
         return self._response(timeout)
 
@@ -203,6 +204,25 @@ class NativeSession:
         self.close()
 
 
+def lookup_queries(goals):
+    text = "\n".join(goals)
+    queries = []
+    if "↑" in text and ("ℕ" in text or "Nat" in text):
+        queries.append("cast lt")
+    if "choose" in text:
+        queries.extend(["sum choose", "mul choose"])
+    elif "∑" in text or "Finset.sum" in text:
+        queries.extend(["sum lt", "sum le"])
+    else:
+        types = dict(re.findall(r"^([A-Za-z_][A-Za-z_0-9]*) : (Nat|Int|Real|ℕ|ℤ|ℝ)\b", text, re.MULTILINE))
+        aliases = {"ℕ": "Nat", "ℤ": "Int", "ℝ": "Real"}
+        for receiver, method in re.findall(r"\b([A-Za-z_][A-Za-z_0-9]*)\.([A-Za-z_][A-Za-z_0-9]*)", text):
+            namespace = types.get(receiver, receiver if receiver in {"Nat", "Int", "Real", "Finset"} else "")
+            namespace = aliases.get(namespace, namespace)
+            queries.append(namespace + "." + method if namespace else method)
+    return list(dict.fromkeys(queries))[:2]
+
+
 def messages(task, node, branching):
     feedback = node["feedback"][-3:]
     content = (
@@ -210,7 +230,10 @@ def messages(task, node, branching):
         "Start with the Lean code block; omit the mathematical essay and theorem declaration. "
         "Intermediate steps may leave goals; sibling goals are preserved. "
         "Do not use sorry/admit, add assumptions, or repeat previously rejected candidates.\n"
-        "Example response format:\n```lean4\nintro h\n```\n"
+        "Variables/hypotheses printed above ⊢ are ALREADY introduced; do not introduce them again. "
+        "Use intro only when the current target itself is a forall or implication. "
+        "Use explicit casts when combining Nat bounds with Real inequalities.\n"
+        "Example response format:\n```lean4\nassumption\n```\n"
         "Return one such Lean block, JSON {\"tactics\": [\"block1\", \"block2\"]} "
         f"with at most {branching} independent alternatives, or JSON "
         "{\"lookup\": \"sum choose\"} to obtain real declaration names AND types. "
@@ -235,6 +258,7 @@ def search(task, record, generate, validate, save, session_factory, *, budget, b
     record.setdefault("nodes", [])
     record.setdefault("trials", [])
     record.setdefault("duplicates", 0)
+    record.setdefault("lookup_cache", {})
     for node in record["nodes"]:
         node.setdefault("expansions", 0)
     record["budget"] = asdict(budget)
@@ -300,12 +324,30 @@ def search(task, record, generate, validate, save, session_factory, *, budget, b
                     record["stop_reason"] = "frontier_exhausted"
                     break
                 index, node = min(eligible, key=lambda item: (item[1]["expansions"], len(item[1]["goals"]),
-                                                             -len(item[1]["steps"]), item[0]))
+                                                             -item[1].get("progress", len(item[1]["steps"])), item[0]))
                 call = {"node": index, "seed": seed + len(record["calls"]), "status": "started"}
                 record["calls"].append(call)
                 node["visits"] += 1
                 checkpoint()
             state = restore(index)
+            if not node.get("auto_lookup_done"):
+                for query in lookup_queries(node["goals"]):
+                    if query not in record["lookup_cache"]:
+                        try:
+                            state = restore(index)
+                            result = session.request("lookup", state, min(budget.tactic_timeout, remaining()), query=query)
+                        except (TimeoutError, RuntimeError) as error:
+                            close()
+                            result = {"status": "lookup_error", "error": str(error)}
+                        record["lookup_cache"][query] = {"query": query, **result, "automatic": True}
+                    if not any(hit.get("query") == query for hit in node["lookups"]):
+                        node["lookups"].append(record["lookup_cache"][query])
+                node["auto_lookup_done"] = True
+                checkpoint()
+                if remaining() <= 0:
+                    record["stop_reason"] = "wall_time"
+                    break
+                state = restore(index)
             try:
                 if "raw_text" not in call:
                     call.update(generate(messages(task, node, branching), call["seed"], remaining()))
@@ -331,25 +373,33 @@ def search(task, record, generate, validate, save, session_factory, *, budget, b
             if not call.get("expanded"):
                 node["expansions"] += 1
                 call["expanded"] = True
-            # Use Lean syntax boundaries, never line splitting, to expose a
-            # useful prefix when a complete proposed block fails later.
+            # Every cumulative prefix uses the original parser tree boundaries.
+            # Each success is saved before the next prefix can fail or time out.
             if not call.get("prepared_tactics"):
-                candidates = []
+                groups = []
                 for tactic in proposal["tactics"]:
-                    if "\n" in tactic and len(candidates) < branching:
-                        split = session.request("split", state, min(budget.tactic_timeout, remaining()), tactic=tactic)
-                        call.setdefault("splits", []).append(split)
-                        inner = split.get("inner_tactic") if split.get("status") == "ok" else None
-                        if inner and all(candidate_key(inner) != candidate_key(old) for old in candidates):
-                            candidates.append(inner)
-                        first = split.get("first_tactic") if split.get("status") == "ok" else None
-                        if first and candidate_key(first) != candidate_key(tactic):
-                            candidates.append(first)
-                    candidates.append(tactic)
-                call["prepared_tactics"] = candidates[:branching]
+                    before = len(groups)
+                    split = session.request("split", state, min(budget.tactic_timeout, remaining()), tactic=tactic)
+                    call.setdefault("splits", []).append(split)
+                    if split.get("status") == "ok":
+                        for key in ("inner_prefixes", "adapted_prefixes", "prefixes"):
+                            if split.get(key) and split[key] not in groups:
+                                groups.append(split[key][:32])
+                    else:
+                        groups.append([tactic])
+                    if len(groups) == before:
+                        groups.append([tactic])
+                groups = groups[:branching]
+                call["prepared_tactics"] = [tactic for group in groups for tactic in group]
+                call["prepared_groups"] = [i for i, group in enumerate(groups) for _ in group]
+                call["prefix_lengths"] = [i + 1 for group in groups for i in range(len(group))]
                 checkpoint()
             for alternative, tactic in enumerate(call["prepared_tactics"]):
                 if alternative in call.get("done_tactics", []):
+                    continue
+                group = call["prepared_groups"][alternative]
+                if group in call.get("failed_groups", []):
+                    call.setdefault("done_tactics", []).append(alternative)
                     continue
                 trial = next((trial for trial in record["trials"]
                               if trial["seed"] == call["seed"] and trial["alternative"] == alternative), None)
@@ -376,6 +426,7 @@ def search(task, record, generate, validate, save, session_factory, *, budget, b
                     result = {"status": "native_error", "error": str(error)}
                 trial.update(result)
                 if result["status"] != "ok":
+                    call.setdefault("failed_groups", []).append(group)
                     node["feedback"].append({"tactic": tactic, "error": result.get("error", str(result))})
                 else:
                     steps = node["steps"] + [tactic]
@@ -393,6 +444,7 @@ def search(task, record, generate, validate, save, session_factory, *, budget, b
                         child = len(record["nodes"])
                         native_ids[child] = result["state"]
                         record["nodes"].append({"steps": steps, "goals": result["goals"], "visits": 0, "expansions": 0,
+                                                "progress": node.get("progress", 0) + call["prefix_lengths"][alternative],
                                                 "tried": [], "lookups": [], "feedback": []})
                 call.setdefault("done_tactics", []).append(alternative)
                 checkpoint()

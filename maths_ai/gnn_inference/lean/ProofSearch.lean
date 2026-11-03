@@ -41,9 +41,61 @@ def firstTactic (seq : Syntax) : Option Syntax := do
     else if body.getKind == ``Parser.Tactic.tacticSeq1Indented then some body[0] else none
   elements.getArgs.find? (·.getKind != nullKind)
 
-partial def firstNestedTactic (stx : Syntax) : Option Syntax := do
-  if stx.getKind == ``Parser.Term.byTactic then firstTactic stx[1]
-  else stx.getArgs.findSome? firstNestedTactic
+def tacticPrefixes (seq : Syntax) : Except String (Array String) := do
+  let body := if seq.getKind == ``Parser.Tactic.tacticSeq then seq[0] else seq
+  let elements := if body.getKind == ``Parser.Tactic.tacticSeqBracketed then body[1] else body[0]
+  let mut texts : Array String := #[]
+  let mut prefixes : Array String := #[]
+  for tac in elements.getArgs do
+    if tac.getKind != nullKind then
+      let some text := tac.reprint | throw "Cannot recover original tactic text"
+      texts := texts.push text.trim
+      prefixes := prefixes.push (String.intercalate "\n" texts.toList)
+  return prefixes
+
+def parseBlock (text : String) : TacticM Syntax := do
+  let wrapped := "focus\n" ++ String.intercalate "\n" (text.splitOn "\n" |>.map ("  " ++ ·))
+  match Parser.runParserCategory (← getEnv) `tactic wrapped with
+  | .ok stx => pure stx
+  | .error error => throwError error
+
+def alignedInner (first : Syntax) : TacticM (Option (Array String)) := do
+  let checkpoint ← Tactic.saveState
+  try
+    match first with
+    | `(tactic| have $_name:ident : $ty:term := by $seq:tacticSeq) =>
+      (← getMainGoal).withContext do
+        let type ← Term.elabType ty
+        Term.synthesizeSyntheticMVarsNoPostponing
+        if ← isDefEq type (← (← getMainGoal).getType) then
+          match tacticPrefixes seq with
+          | .ok prefixes => return some prefixes
+          | .error _ => return none
+        else return none
+    | _ => return none
+  catch _ => return none
+  finally checkpoint.restore (restoreInfo := true)
+
+def alignedIntroductions (stx : Syntax) (spec : String) : TacticM (Option String) := do
+  let checkpoint ← Tactic.saveState
+  try
+    let some first := firstTactic stx[1] | return none
+    let some text := first.reprint | return none
+    unless text.trim.startsWith "intro " do return none
+    let goal ← getMainGoal
+    goal.withContext do
+      if (← whnf (← goal.getType)).isForall then return none
+      let names := (← getLCtx).foldl (init := #[]) fun names decl =>
+        if decl.isAuxDecl then names else names.push s!"«{decl.userName}»"
+      if names.isEmpty then return none
+      let revertText := "revert " ++ String.intercalate " " names.toList
+      -- change succeeds only when the reverted sequent is definitionally the
+      -- frozen original proposition. Never guess which introductions to drop.
+      let check := revertText ++ "\nchange " ++ spec
+      Term.withoutErrToSorry <| withoutRecover <| evalTactic (← parseBlock check)
+      return some revertText
+  catch _ => return none
+  finally checkpoint.restore (restoreInfo := true)
 
 partial def serve (states : Array Tactic.SavedState) : TacticM Unit := do
   let input ← IO.getStdin
@@ -75,16 +127,23 @@ partial def serve (states : Array Tactic.SavedState) : TacticM Unit := do
           | .ok value => pure value
           | .error error => throwError error
         -- Each block focuses the first goal; Lean's focus restores its siblings.
-        let wrapped := "focus\n" ++ String.intercalate "\n" (text.splitOn "\n" |>.map ("  " ++ ·))
-        let stx ← match Parser.runParserCategory (← getEnv) `tactic wrapped with
-          | .ok stx => pure stx
-          | .error error => throwError error
+        let stx ← parseBlock text
         if command == "split" then
           let some first := firstTactic stx[1] | throwError "No top-level tactic in proposal"
           let some text := first.reprint | throwError "Cannot recover original tactic text"
-          let inner := (firstNestedTactic first).bind Syntax.reprint |>.map String.trim
+          let prefixes ← match tacticPrefixes stx[1] with
+            | .ok prefixes => pure prefixes
+            | .error error => throwError error
+          let inner ← alignedInner first
+          let spec := (request.getObjValAs? String "spec").toOption.getD ""
+          let revertText ← alignedIntroductions stx spec
+          -- Revert+intro alone only renames the original sequent. Keep it as
+          -- preprocessing, not a new search node that can loop indefinitely.
+          let adapted := revertText.map fun rev => (prefixes.extract 1 prefixes.size).map
+            (fun fragment => rev ++ "\n" ++ fragment)
           return (states, false, Json.mkObj [("status", toJson "ok"), ("first_tactic", toJson text.trim),
-            ("inner_tactic", toJson inner)])
+            ("prefixes", toJson prefixes), ("inner_prefixes", toJson inner),
+            ("adapted_prefixes", toJson adapted)])
         Term.withoutErrToSorry <| withoutRecover <| evalTactic stx
         Term.synthesizeSyntheticMVarsNoPostponing
         let errors ← (← Core.getMessageLog).toList.filter (·.severity == .error) |>.mapM (·.toString)

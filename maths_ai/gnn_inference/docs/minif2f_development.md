@@ -144,7 +144,7 @@ scripted controller tests are not DeepSeek solve results. Schema v3 binds
 controller/helper code and all search budgets; v1/v2 reports remain valid
 candidate sources. Whole-proof mode remains available with `--proof-engine whole`.
 
-Verification: **74 focused tests passed / 1 optional integration skipped**.
+Verification: **81 focused tests passed / 1 optional integration skipped**.
 Real Lean **4.10.0-rc1** tests cover rollback, sibling preservation, local lets
 across snapshots, typed lookup, duplicate rejection, full-proof checking and
 backtracking after a forbidden-axiom closure. Fault-injection tests cover
@@ -231,6 +231,118 @@ Real Lean regression verifies theorem-response adaptation, preservation of a
 valid prefix before a failing later tactic, refusal of generated extra
 assumptions, and continued search after three formatting failures. No new
 DeepSeek/native-search solve result is claimed before the server pilot.
+
+### Two-task pilot trace audit
+
+Pilot report SHA-256:
+`cae3670572ce16190c3e7e1ef20581ffd064d44acd27b0058a63e90d0206e7d8`.
+Manifest/cohort/source-report bindings and implementation digests match.
+The run retains **12/25**, with **24 calls / 29 trials / zero additional
+proofs** and ten other eligible tasks pending.
+
+**AIME 1988:** 18 calls, 37,780 generated tokens, 1,018.965 s generation
+within 1,200.183 active seconds. Trials: **8 accepted, 13 Lean errors, 4
+native timeouts**. Model makes zero lookup requests. Accepted states include
+the useful bound `19 ≤ S`, where `S = ∑ k ∈ range n, |a k|`, but also duplicate
+hypotheses and restatements of existing facts. Nodes 2 and 7 have identical
+printed goals/context; this observation alone is not a safe native-state merge.
+
+Trial 9 reaches its final `linarith` with both `19 ≤ S` and `S < (n : ℝ)`.
+The latter bound was inside a larger rejected block and never became a saved
+search node: current adapter retains the first/nested leading tactic or full
+block, not every successful prefix before a late failure. Arithmetic then
+fails while relating Real inequalities to the Nat goal `20 ≤ n`.
+
+A manual diagnostic preserves that model-generated prefix and replaces the
+last arithmetic call with an explicit cast bridge:
+
+```lean
+have strict : (19 : Real) < (n : Real) := lt_of_le_of_lt h₃ h₅
+have natural : 19 < n := by exact_mod_cast strict
+exact Nat.succ_le_of_lt natural
+```
+
+The repaired original AIME statement passes frozen-target/axiom verification
+locally under Lean **4.29.1**, with narrow Mathlib imports, in **5.202 s**;
+allowed axioms only. The abstract cast bridge separately passes in **7.848 s**.
+This is a **human diagnostic repair**, not a newly generated automated proof,
+and it has not been checked in server Lean 4.10. Automated score stays 12/25.
+
+**Binomial sum:** 6 calls, 9,072 tokens, 235.056 s generation out of 240.549 s.
+All four executed trials fail immediately at `intro n hn` or `intro h`.
+The model writes a universal theorem (`∀ n, 0 < n → ...`) while actual native
+context already contains `n` and its positivity hypothesis. Header stripping
+leaves introductions that do not apply to the current equality goal. Eight
+duplicate candidates are skipped. The proposed combinatorial steps never run;
+their mathematical/library correctness has not been tested by this pilot.
+There are zero lookup requests here as well: typed lookup exists but was not
+exercised by either model run.
+
+Additional controller issue: pulling an inner tactic out of a subproof loses
+its expected target. For example, inner `exact Finset.sum_nonneg ...` is for
+`0 ≤ S`, not current goal `20 ≤ n`; inner `intro k hk` is for a quantified
+auxiliary fact. Lean safely rejects them, but these speculative fragments
+waste trials. Nested extraction should be conditioned on native type alignment.
+
+Next justified work: retain the longest independently verified prefix up to
+the first failing tactic, align full-theorem/binder and nested-subproof context
+before reusing steps, and provide typed premise results proactively rather
+than relying on an untrained tool-call behavior. Prefer targeted cast/goal
+repair over repeating whole case-enumeration blocks or increasing budgets.
+
+### Verified prefixes, checked binders and automatic premises
+
+These pilot-driven repairs are now implemented:
+
+- Lean returns cumulative prefixes at actual top-level syntax boundaries.
+  Every accepted prefix is checkpointed before the next prefix is attempted.
+  Failure stops that candidate group, leaving earlier saved states available.
+  Each cumulative block is checked from its original parent, preserving bullet
+  scope and sibling obligations. Prefixes are capped at 32 per candidate and
+  remain subject to the global trial/time/node budgets. Longer accepted
+  prefixes receive preference among equally expanded/equally sized states.
+- Nested `have ... := by ...` bodies are only unwrapped when Lean verifies
+  the auxiliary proposition is definitionally the current goal. Context-free
+  inner `intro`/`exact` fragments are no longer tried against unrelated goals.
+- For universal-style introductions at an already introduced goal, the helper
+  tests explicit reversion of user locals and `change Spec_<task>` under a
+  temporary snapshot. Adaptation is offered only if that sequent is the frozen
+  original proposition. The actual candidate includes the reversion and is
+  checked again. Generated headers and assumptions are never installed;
+  revert+intro alone is preprocessing, not a new progress node.
+- Up to two typed name-fragment queries are supplied proactively per state,
+  cached per theorem: sum/choose, finite-sum inequalities, cast inequalities,
+  or methods qualified using visible local types. This is generic lexical
+  guidance, not a semantic retriever or GNN. Model-requested lookup still works.
+  Optional lookup timeout/failure is recorded, the native session restarts,
+  and proof search continues without charging an extra model request.
+
+Use the same two original pilot tasks and budgets, seeded from the last pilot:
+
+```sh
+git pull --ff-only jajos gnn-issue-fixes
+LD_PRELOAD= python -B -u -m maths_ai.gnn_inference.scripts.run_minif2f_dev \
+  --output-dir maths_ai/gnn_inference/runs/minif2f_prefix_context_pilot \
+  --lean-project maths_ai/_support_files/sexpr_environment/mathlib4 \
+  --replay-report maths_ai/gnn_inference/runs/minif2f_native_adapter_pilot/report.json \
+  --replay-passed-only --proof-engine search --allow-environment-port \
+  --per-group 5 --seed 42 --device cuda:0 --dtype bfloat16 \
+  --context-tokens 12288 --max-new-tokens 4096 --request-timeout 120 \
+  --max-heartbeats 1000000 --max-rec-depth 2048 --lean-timeout 180 \
+  --search-task aime_1988_p4 --search-task numbertheory_sumkmulnckeqnmul2pownm1 \
+  --search-model-calls 32 --search-tactic-trials 96 --search-nodes 64 \
+  --search-depth 16 --search-visits 6 --search-seconds 1200 --search-tactic-timeout 20
+```
+
+**81 focused tests pass / 1 optional integration skipped**, including actual
+Lean 4.10 middle-prefix retention, sibling preservation after bullet failure,
+universal-binder reversion, refusal of incompatible reversion and nested
+subgoal extraction, proactive types before the first model response, and
+optional-lookup timeout recovery. A separate scripted native 4.29 diagnostic
+encountered stdin disconnection, also reproduced with core-only imports;
+native compatibility here is verified for server's Lean 4.10, not 4.29.
+The earlier standalone hand-repaired 4.29 proof remains diagnostic evidence.
+No new automated solve is claimed until the server run; prior score is 12/25.
 
 ## Revised solving run (v2)
 
