@@ -134,7 +134,7 @@ def main(argv=None):
     code_root = Path(__file__).parents[1]
     paths = [Path(__file__), code_root / "scripts/audit_unsupported_actions.py",
              *(code_root / "atp_lean_gnn" / name for name in (
-                 "tactic_templates.py", "intro_templates.py", "application_templates.py", "recursive_templates.py", "gold_replay.py", "preparation.py", "labels.py", "argument_relabeling.py")),
+                  "tactic_templates.py", "intro_templates.py", "application_templates.py", "recursive_templates.py", "wrapper_templates.py", "gold_replay.py", "preparation.py", "labels.py", "argument_relabeling.py")),
              *sorted((code_root / "atp_lean_gnn/action_targets").glob("*.py"))]
     report = {"manifest": {"schema": {"template-v2": "template_recovery_v1", "template-v3": "template_recovery_v2",
                                      "template-v4": "template_recovery_v3"}[args.renderer],

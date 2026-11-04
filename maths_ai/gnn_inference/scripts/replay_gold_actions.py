@@ -27,6 +27,7 @@ from maths_ai.gnn_inference.atp_lean_gnn import tactic_templates
 from maths_ai.gnn_inference.atp_lean_gnn import intro_templates
 from maths_ai.gnn_inference.atp_lean_gnn import application_templates
 from maths_ai.gnn_inference.atp_lean_gnn import recursive_templates
+from maths_ai.gnn_inference.atp_lean_gnn import wrapper_templates
 from maths_ai.gnn_inference.atp_lean_gnn.template_catalog import (
     canonical_form, form_id, load_validation_plan, validation_summary,
 )
@@ -105,7 +106,7 @@ def main(argv=None):
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--file-timeout", type=float, default=600)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--renderer", choices=("flat", "template-v1", "template-v2", "template-v3", "template-v4"), default="flat")
+    parser.add_argument("--renderer", choices=("flat", "template-v1", "template-v2", "template-v3", "template-v4", "template-v5"), default="flat")
     parser.add_argument("--validation-plan", type=Path,
                         help="Use an inventory's fixed exact-aligned selection instead of theorem sampling")
     parser.add_argument("--row-indices", type=Path, help="JSON list of fixed dataset row IDs for a targeted native check")
@@ -188,10 +189,12 @@ def main(argv=None):
         "template_schema": {"template-v1": tactic_templates.TEMPLATE_SCHEMA,
                             "template-v2": tactic_templates.APPLICATION_TEMPLATE_SCHEMA,
                              "template-v3": tactic_templates.NAMED_APPLICATION_TEMPLATE_SCHEMA,
-                             "template-v4": recursive_templates.RECURSIVE_RULE_SCHEMA}.get(args.renderer),
-        "intro_template_schema": intro_templates.INTRO_TEMPLATE_SCHEMA if args.renderer in {"template-v3", "template-v4"} else None,
+                             "template-v4": recursive_templates.RECURSIVE_RULE_SCHEMA,
+                             "template-v5": wrapper_templates.WRAPPER_SCHEMA}.get(args.renderer),
+        "intro_template_schema": intro_templates.INTRO_TEMPLATE_SCHEMA if args.renderer in {"template-v3", "template-v4", "template-v5"} else None,
         "recursive_application_schema": recursive_templates.RECURSIVE_APPLICATION_SCHEMA if args.renderer == "template-v4" else None,
         "recursive_parser_sha256": file_sha256(Path(recursive_templates.__file__)),
+        "wrapper_parser_sha256": file_sha256(Path(wrapper_templates.__file__)),
         "application_term_schema": application_templates.APPLICATION_TERM_SCHEMA if args.renderer == "template-v3" else None,
         "intro_parser_sha256": file_sha256(Path(intro_templates.__file__)),
         "application_parser_sha256": file_sha256(Path(application_templates.__file__)),

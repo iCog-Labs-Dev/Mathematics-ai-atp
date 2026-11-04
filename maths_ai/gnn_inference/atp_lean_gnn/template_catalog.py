@@ -18,6 +18,9 @@ def renderer_fingerprints():
     recursive = root / "atp_lean_gnn/recursive_templates.py"
     if recursive.is_file():
         paths.append(recursive)
+    wrappers = root / "atp_lean_gnn/wrapper_templates.py"
+    if wrappers.is_file():
+        paths.append(wrappers)
     paths.extend(sorted((root / "atp_lean_gnn/action_targets").glob("*.py")))
     return {str(path.relative_to(root)): file_sha256(path) for path in paths}
 
@@ -83,7 +86,7 @@ def canonical_form(target, rendered, local_context=()):
                 "references": [reference(value) for value in references]}
     schema = target["schema"]
     form = {"schema": schema, "family": target["family"]}
-    if schema in {"recursive_rw_simp_v1", "recursive_application_v1"}:
+    if schema in {"recursive_rw_simp_v1", "recursive_application_v1", "extended_tactic_v1"}:
         def term(node):
             output = {"kind": node["kind"]}
             if "reference" in node:
@@ -95,7 +98,20 @@ def canonical_form(target, rendered, local_context=()):
                 output["children"] = [term(child) for child in node["children"]]
             return output
 
-        if schema == "recursive_application_v1":
+        if schema == "extended_tactic_v1":
+            form["rules"] = [{"term": term(rule["term"]) if rule["term"] else None,
+                "kind": rule["kind"], "backward": rule["backward"], "phase": rule["phase"]} for rule in target["rules"]]
+            form["only"] = target["only"]
+            form["terms"] = [term(value) for value in target["terms"]]
+            form["using"] = term(target["using"]) if target["using"] else None
+            location = target["location"]
+            form["location"] = {"kind": location["kind"], "goal": location["goal"],
+                                "locals": [reference(value) for value in location["locals"]]}
+            declaration = target["declaration"]
+            form["declaration"] = {"kind": declaration["kind"],
+                "type": term(declaration["type"]) if declaration["type"] else None,
+                "value": term(declaration["value"])} if declaration else None
+        elif schema == "recursive_application_v1":
             form["term"] = term(target["term"])
         else:
             form["rules"] = [{"term": term(rule["term"]), "backward": rule["backward"]} for rule in target["rules"]]

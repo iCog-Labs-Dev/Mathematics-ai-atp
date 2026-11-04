@@ -336,7 +336,7 @@ def render_rw_simp_template(action: RwSimpTemplate, local_context: list[dict]) -
 def prepare_gold_rendering(raw_tactic: str, trace: dict, *, renderer: str = "flat",
                            reference_lookup: str = "semantic") -> dict:
     """Keep syntax extraction separate from name resolution and old-flat coverage."""
-    if renderer not in {"flat", "template-v1", "template-v2", "template-v3", "template-v4"}:
+    if renderer not in {"flat", "template-v1", "template-v2", "template-v3", "template-v4", "template-v5"}:
         raise ValueError("unknown gold renderer mode")
     result = {"rendered_tactic": None, "render_error": None, "render_path": "flat",
               "flat_renderable": False, "flat_render_error": None, "template_target": None,
@@ -348,7 +348,7 @@ def prepare_gold_rendering(raw_tactic: str, trace: dict, *, renderer: str = "fla
         flat_text = None
         result["flat_render_error"] = str(error)
     family = normalize_tactic(clean_tactic_markup(raw_tactic))
-    if renderer in {"template-v3", "template-v4"} and family in {"intro", "intros"}:
+    if renderer in {"template-v3", "template-v4", "template-v5"} and family in {"intro", "intros"}:
         from .intro_templates import INTRO_TEMPLATE_SCHEMA, parse_intro_trace, render_intro_template
 
         result["render_path"] = INTRO_TEMPLATE_SCHEMA
@@ -362,6 +362,21 @@ def prepare_gold_rendering(raw_tactic: str, trace: dict, *, renderer: str = "fla
             result["render_error"] = str(error)
             result["template_error_code"] = error.code if isinstance(error, TemplateError) else "binder_rendering"
         return result
+    if renderer == "template-v5":
+        from .wrapper_templates import WRAPPER_FAMILIES, WRAPPER_SCHEMA, parse_wrapper_trace, render_wrapper
+
+        if family in WRAPPER_FAMILIES:
+            result["render_path"] = WRAPPER_SCHEMA
+            try:
+                action = parse_wrapper_trace(trace)
+                if action.family != family:
+                    raise TemplateError("family_mismatch", "raw tactic family disagrees with wrapper syntax")
+                result["template_target"] = action.to_target()
+                result["rendered_tactic"] = render_wrapper(action, trace["local_context"])
+            except (RenderError, KeyError, TypeError) as error:
+                result["render_error"] = str(error)
+                result["template_error_code"] = error.code if isinstance(error, TemplateError) else "reference_resolution"
+            return result
     if renderer == "template-v4" and family in {"rw", "simp", "exact", "apply", "refine", "refine'"}:
         from .recursive_templates import (
             RECURSIVE_APPLICATION_SCHEMA, RECURSIVE_RULE_SCHEMA, parse_recursive_trace, render_recursive_tactic,

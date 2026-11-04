@@ -490,6 +490,12 @@ def test_replay_runner_retains_failures_and_resume_binding(tmp_path, monkeypatch
     indices_path.write_text("[999]")
     with pytest.raises(ValueError, match="missing/duplicated"):
         runner.main([*focused_argv, "--output-dir", str(tmp_path / "missing_selection")])
+    indices_path.write_text("[1]")
+    v5_output = tmp_path / "focused_v5"
+    assert runner.main([*argv, "--output-dir", str(v5_output), "--renderer", "template-v5", "--row-indices", str(indices_path)]) == 0
+    v5 = json.loads((v5_output / "report.json").read_text())
+    assert v5["manifest"]["template_schema"] == "extended_tactic_v1"
+    assert v5["summary"]["extended_tactic_parsed_steps"] == v5["summary"]["rendered_transition_match"] == 1
 
     def fail_native(*args, **kwargs):
         raise RuntimeError("backend failed")
