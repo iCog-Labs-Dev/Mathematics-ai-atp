@@ -45,7 +45,34 @@ The original frozen cohort stays fixed. V3 should reproduce **93,113 train /
 `v4_rescues_vs_v3`, `v4_losses_vs_v3`, exact-aligned counterparts,
 recursive-rule/application rescues, `by_family` and `v4_error_counts`.
 Constructor/hole/numeral/projection rescue counters overlap and must not be
-summed. Actual V4 recovery remains pending server measurement.
+summed. Completed server recovery follows.
+
+### Completed paired server result
+
+| Static support or recovery | Train | Val |
+|---|---:|---:|
+| V3 renderable | 93,113 | 1,823 |
+| V4 renderable | 107,913 | 2,096 |
+| New recursive-rule actions | 4,019 | 58 |
+| New recursive-application actions | 10,781 | 215 |
+| Total rescues versus V3 | 14,800 | 273 |
+| Losses versus V3 | 0 | 0 |
+| Exact-aligned V4 support | 100,265 | 2,091 |
+| Exact-aligned rescues | 14,021 | 273 |
+
+Coverage rises **42.57% to 49.34% train / 43.85% to 50.42% val**. The
+remaining unsupported-or-invalid population is **110,814 train / 2,061 val**.
+The **779** new train actions outside exact alignment remain source-only or
+unknown-aligned candidates, not dataset-step labels. Quarantine remains
+**831 train / 9 val**; earlier V3 losses remain separately recorded.
+
+Among rescued rows, constructor features occur **2,395 / 43**, holes
+**9,397 / 181**, numerals **578 / 4**, and structural projections **3,066 /
+69**. These feature counts overlap. A represented hole denotes a pending
+obligation; it does not count as a completed proof. This result is static
+representation recovery, not full-cohort native validity or model accuracy.
+Report: `maths_ai/gnn_inference/runs/template_v4_recovery/report.json`.
+The focused new-action native pilot remains pending.
 
 The audit also writes `new_val_pilot_rows.json`: at most 24 newly renderable,
 exact-aligned val actions, chosen deterministically across family/feature groups.
