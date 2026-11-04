@@ -54,6 +54,10 @@ class _Client:
         self.scopes.append(scope)
         return scope
 
+    async def aclose(self):
+        for scope in self.scopes:
+            await scope.aclose()
+
 
 async def _admit(scope, seed):
     start = await scope.start_goal("root")
@@ -612,7 +616,7 @@ class PuctRetainedSearchTests(unittest.TestCase):
         graph = asyncio.run(reasoner.prove(SEED))
         scope = client.scopes[0]
         self.assertGreaterEqual(graph.root.proposal_rounds, 2)
-        self.assertIsNone(graph.root.command_outcomes["elim"])
+        self.assertEqual(graph.root.command_outcomes["elim"].status.value, "rejected")
         self.assertEqual(scope.count("goal.start"), 1)
         self.assertEqual(graph.execution["intermediate_reconstructions"], 0)
         self.assertTrue(graph.is_solved())

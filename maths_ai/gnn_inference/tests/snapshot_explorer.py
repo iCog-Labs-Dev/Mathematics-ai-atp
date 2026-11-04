@@ -48,7 +48,7 @@ class Explorer:
 
     @classmethod
     async def start(cls, scope, statement: str) -> "Explorer":
-        registry = SnapshotRegistry(scope)
+        registry = SnapshotRegistry(scope, retire_session=scope.aclose)
         state, goal, _ = await materialize_seed(scope, seed_from_text(goal=statement))
         lease = registry.adopt_root(state, "root")
         root = ExecutionOccurrence(

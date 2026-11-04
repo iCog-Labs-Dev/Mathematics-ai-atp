@@ -51,6 +51,7 @@ from .execution_types import (
     bind_arguments,
 )
 from .proof_recipes import ChildRecord, RecipeStep
+from .resource_outcomes import CommandOutcome, CommandStatus
 
 class NodeStatus:
     OPEN = "open"          # not yet expanded; eligible for the search frontier
@@ -77,6 +78,7 @@ class NodeClosureReason(str, Enum):
     EXTERNAL_ABORT = "external_abort"
     RESOURCE_PRUNED = "resource_pruned"
     UNSUPPORTED_OBSERVATION = "unsupported_observation"
+    LEAN_RESOURCE = "lean_resource"
 
 
 # Closures whose node carries no learning evidence of its own: the state was
@@ -86,6 +88,7 @@ UNOBSERVED_CLOSURES = frozenset({
     NodeClosureReason.EXTERNAL_ABORT,
     NodeClosureReason.RESOURCE_PRUNED,
     NodeClosureReason.UNSUPPORTED_OBSERVATION,
+    NodeClosureReason.LEAN_RESOURCE,
 })
 
 
@@ -179,10 +182,9 @@ class ProofNode:
     # Completed simulations whose selection included this node, whether or not
     # they chose one of its edges; progressive widening grows with it.
     visits: int = 0
-    # Checked execution outcome of each command tried at this node: the edge
-    # it created, or None for a Lean rejection. Infrastructure failures are
-    # never recorded. A later draw of the same command reuses the outcome.
-    command_outcomes: Dict[str, Optional[int]] = field(default_factory=dict)
+    # Settled commands include rolled-back resource failures, which are not
+    # negative evidence about the action. Repeated draws reuse the same result.
+    command_outcomes: Dict[str, CommandOutcome] = field(default_factory=dict)
     note: Optional[str] = None
     closure_reason: NodeClosureReason = NodeClosureReason.NONE
     """Free-text annotation for terminal states the graph can't infer on its
@@ -587,6 +589,10 @@ class ProofHypergraph:
         node = self.nodes[node_id]
         if reason == NodeClosureReason.NONE:
             raise ValueError("Closing a proposal source needs a reason.")
+        if reason in {NodeClosureReason.CANDIDATES_EXHAUSTED, NodeClosureReason.WIDENING_BOUND, NodeClosureReason.NO_CANDIDATES} and any(
+            outcome.status is CommandStatus.RESOURCE_LIMIT for outcome in node.command_outcomes.values()
+        ):
+            reason = NodeClosureReason.LEAN_RESOURCE
         node.closure_reason = reason
         if note:
             node.note = note
@@ -616,8 +622,12 @@ class ProofHypergraph:
             "distinct_commands": float(sum(node.attempted_commands for node in nodes)),
             "accepted_edges": float(len(self.edges)),
             "rejected_commands": float(
-                sum(outcome is None for node in nodes for outcome in node.command_outcomes.values())
+                sum(outcome.status is CommandStatus.REJECTED for node in nodes for outcome in node.command_outcomes.values())
             ),
+            "resource_limited_commands": float(sum(
+                outcome.status is CommandStatus.RESOURCE_LIMIT
+                for node in nodes for outcome in node.command_outcomes.values()
+            )),
             "cache_hits": float(self.cache_hits),
             "completed_simulations": float(self.completed_simulations),
             "deferred_selections": float(self.deferred_selections),

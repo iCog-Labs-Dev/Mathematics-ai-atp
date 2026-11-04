@@ -478,7 +478,9 @@ async def build_theorem_pool(
     if not items:
         raise RuntimeError(
             "No seed passed Lean validation; see the admission report for the "
-            "quarantine reasons. Training on an empty pool would only hide them."
+            "quarantine and operational skip reasons "
+            f"({report.skipped.get('replay-resource', 0)} resource-limited rows). "
+            "Training requires a nonempty validated pool."
         )
     if len(items) < cfg.max_pool_size:
         console_print(
@@ -723,7 +725,7 @@ async def _run_rl_training_impl(
         if state.get("search_evidence") != SEARCH_EVIDENCE_VERSION:
             raise ValueError(
                 f"{last_path} records success as {state.get('search_evidence') or 'graph-only readiness'}, "
-                f"not {SEARCH_EVIDENCE_VERSION}; its proof rates are not certified results. "
+                f"not {SEARCH_EVIDENCE_VERSION}; its search/learning semantics differ. "
                 "Start a new run; its model weights remain a valid warm start."
             )
         if state.get("rl_target_schema_version") != RL_TARGET_SCHEMA_VERSION:
@@ -1018,7 +1020,8 @@ async def _run_rl_training_impl(
             dead_rounds = 0
         else:
             collect_stats["replica_sync_s"] = 0.0
-            dead_rounds += 1
+            if _searched(collect_stats) > 0:
+                dead_rounds += 1
 
         collect_stats["model_generation"] = float(model_generation)
         collect_stats["replica_generation"] = float(

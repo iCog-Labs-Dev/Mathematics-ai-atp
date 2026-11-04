@@ -199,7 +199,7 @@ class WideningSearchTests(unittest.TestCase):
         self.assertGreaterEqual(root.proposal_rounds, 2)
         # The rejected command ran in Lean once; its later draw reused the outcome.
         self.assertEqual(executor.calls, ["bad", "good"])
-        self.assertIsNone(root.command_outcomes["bad"])
+        self.assertEqual(root.command_outcomes["bad"].status.value, "rejected")
         # The root was never closed or dead before it was solved.
         self.assertNotIn(NodeStatus.DEAD, reasoner.statuses)
 

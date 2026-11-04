@@ -27,7 +27,7 @@ from maths_ai.hybrid_reasoner.pantograph_model_sexpr import (
     materialize_seed,
 )
 from maths_ai.lean_replay import ReplayInputError, render_replay
-from pantograph_async import PantographProtocolError, PantographRequestTimeout
+from pantograph_async import PantographProtocolError, PantographResourceError, PantographTransportError
 
 
 def graph_view(dag) -> tuple:
@@ -52,7 +52,7 @@ async def run(args) -> dict:
     if args.prepared_root is not None:
         from maths_ai.gnn_inference.atp_lean_gnn.training import load_prepared_metadata
 
-        vocab = load_prepared_metadata(args.prepared_root).node_vocab
+        vocab = load_prepared_metadata(args.prepared_root, splits=()).node_vocab
     counts = Counter()
     unknown = Counter()
     differences = []
@@ -73,7 +73,13 @@ async def run(args) -> dict:
                     unmapped = execution_goal_to_goal(state.goals[0])
             except ReplayInputError:
                 continue
-            except (PantographRequestTimeout, PantographProtocolError):
+            except PantographResourceError:
+                counts["resource_limited"] += 1
+                if not client.is_usable:
+                    await client.aclose()
+                    client = await create_model_sexpr_client(env)
+                continue
+            except (PantographTransportError, PantographProtocolError):
                 if client.is_usable:
                     raise
                 await client.aclose()

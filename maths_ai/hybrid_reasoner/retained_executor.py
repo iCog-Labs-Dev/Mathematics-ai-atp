@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from pantograph_async import PantographTacticRejected, TacticState
+from pantograph_async import PantographResourceError, PantographTacticRejected, TacticState
 
 from maths_ai.data_models.model_identity import carry_model_identity
 from maths_ai.data_models.proof_components import Goal
@@ -21,6 +21,7 @@ from maths_ai.data_models.proof_components import Goal
 from .execution_registry import Lease, LeaseKind, SnapshotRegistry
 from .execution_types import DIRECT, EXTRA, ChildObligation, ExecutionOccurrence
 from .pantograph_adapter import execution_goal_to_goal
+from .resource_outcomes import ResourceDiagnostic
 
 __all__ = [
     "ExecutionReferenceError",
@@ -59,6 +60,7 @@ class RetainedOutcome:
     changed: tuple[str, ...] = ()
     selected_complete: Optional[bool] = None
     selected_holes: tuple[str, ...] = ()
+    resource: ResourceDiagnostic | None = None
 
 
 def _canonical(parent: Goal, state: TacticState, name: str) -> Goal:
@@ -100,9 +102,14 @@ class RetainedTacticExecutor:
                 result = await registry.scope.apply_tactic(state, command, goal_index=index)
             except PantographTacticRejected as exc:
                 return RetainedOutcome(success=False, command=command, error=str(exc))
+            except PantographResourceError as exc:
+                return RetainedOutcome(success=False, command=command, resource=ResourceDiagnostic.from_error(exc))
             lease = reservation.adopt(result, LeaseKind.OPERATION, holder)
             try:
                 return await self._decode(registry, occurrence, result, lease, command)
+            except PantographResourceError as exc:
+                await registry.release(lease)
+                return RetainedOutcome(success=False, command=command, resource=ResourceDiagnostic.from_error(exc))
             except BaseException:
                 await registry.release(lease)
                 raise

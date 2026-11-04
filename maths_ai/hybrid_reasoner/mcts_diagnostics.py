@@ -42,7 +42,7 @@ TARGET_BRANCH = "MCTS-AC-branch"
 TARGET_BASE_COMMIT = "61f6d384730fca3dd7a56918377af4efb2c912cc"
 APPLICATION_SOURCE_COMMIT = "54d7cefe04aed980734798f06528ed80c71b81ac"
 CLIENT_REPOSITORY = "https://github.com/123nol/Pantograph-Client"
-CLIENT_COMMIT = "955a4921b4cacaa49f4b3087f3982d7ca3629566"
+CLIENT_COMMIT = "3300096484d95af070f2494eb42f5ab03a66450a"
 GOLDEN_PATH = (
     Path(__file__).parents[1]
     / "gnn_inference/tests/fixtures/pantograph/canonical_graph_expectations.json"
@@ -220,8 +220,8 @@ async def verify_widening(client: PantographClient) -> list[str]:
     root = graph.root
     require(root.proposal_rounds >= 2, "The root was not widened.")
     require(
-        root.command_outcomes.get("exact False.elim") is None
-        and "exact False.elim" in root.command_outcomes,
+        "exact False.elim" in root.command_outcomes
+        and root.command_outcomes["exact False.elim"].status.value == "rejected",
         "The rejected command has no checked rejection on the root.",
     )
     require(

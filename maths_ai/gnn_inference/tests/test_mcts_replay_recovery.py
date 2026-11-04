@@ -174,7 +174,7 @@ def test_closed_continuation_releases_graph_lease_and_retires_unused_anchor(read
 
     async def run():
         scope = FakeSnapshotScope(RULES, roots={"root": ROOT})
-        registry = SnapshotRegistry(scope)
+        registry = SnapshotRegistry(scope, retire_session=scope.aclose)
         root = await admitted(scope, registry)
         anchor = replace(root, lease=registry.share(root.lease, LeaseKind.REPLAY, "resume"))
         graph_occurrence = replace(root, lease=registry.share(root.lease, LeaseKind.GRAPH, "propose"))
@@ -251,7 +251,7 @@ def test_live_conflicting_candidate_allows_a_later_root_action(live_env):
             assert (await client.stat()).n_goals == 0
         async with await create_model_sexpr_client(live_env) as fresh:
             async with fresh.state_scope() as scope:
-                assert (await reverify(scope, graph.artifact)).is_certified
+                assert (await reverify(scope, graph.artifact, retire_session=fresh.aclose)).is_certified
             assert (await fresh.stat()).n_goals == 0
 
     asyncio.run(run())

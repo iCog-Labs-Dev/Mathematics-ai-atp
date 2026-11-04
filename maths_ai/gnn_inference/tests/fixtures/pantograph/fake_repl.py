@@ -75,7 +75,6 @@ def main():
     if scenario == "unsolicited":
         send({"unexpected": True})
     options = {
-        "printJsonPretty": False,
         "printExprPretty": True,
         "printExprAST": True,
         "printExprModelAST": True,
@@ -97,7 +96,9 @@ def main():
         if command == "protocol.describe":
             result = {
                 "protocol": "maths-ai-pantograph",
-                "protocolVersion": 2,
+                "protocolVersion": 3,
+                "resourceErrorVersion": 1,
+                "commandTransactionVersion": 1,
                 "modelSexpVersion": 1,
                 "transitionValidationVersion": 1,
                 "transitionProvenanceVersion": 1,

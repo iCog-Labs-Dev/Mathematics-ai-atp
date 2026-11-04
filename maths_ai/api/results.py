@@ -19,6 +19,7 @@ SEARCH_OUTCOMES = (
     "inadmissible",
     "hard_timeout",
     "error",
+    "resource_limit",
 )
 
 
@@ -68,6 +69,7 @@ def record_view(record, *, proposal=None, include_trace: bool = True) -> dict[st
         "queue_wait_s": record.queue_wait_s,
         "search_s": record.search_s,
         "exception_category": record.exception_category,
+        "resource": record.resource,
     }
     if proposal is not None:
         view["proposal"] = {"mode": proposal.mode, "seed": proposal.seed, "derivation": proposal.derivation}

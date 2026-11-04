@@ -31,6 +31,10 @@ from pantograph_async import (
     PantographClient,
     PantographEnv,
     PantographProtocolError,
+    PantographResourceError,
+    PantographSessionResourceError,
+    PantographRemoteInternalError,
+    PantographTransportError,
     PantographRequestTimeout,
 )
 from pantograph_async.diagnostics import distribution_source
@@ -46,6 +50,7 @@ from maths_ai.lean_replay import (
 
 from .dataset import iter_dataset_rows
 from .admission_rows import AdmissionSource, SourceRows
+from maths_ai.hybrid_reasoner.resource_outcomes import resource_from_exception
 
 EXAMPLES_PER_REASON = 20
 # Printed-state size buckets (characters) for coverage reporting.
@@ -435,10 +440,23 @@ class AdmissionSession:
             except ReplayInputError as exc:
                 report.quarantine(item.seed.source_dict, exc, item.size, replay=replay.as_dict())
                 return False
-            except (PantographRequestTimeout, PantographProtocolError) as exc:
+            except (PantographResourceError, PantographSessionResourceError, PantographRemoteInternalError) as exc:
+                kind = "replay-resource" if isinstance(exc, (PantographResourceError, PantographSessionResourceError)) else "replay-internal"
+                report.skipped[kind] += 1
+                report.cover(item.seed.source_dict, item.size, "skipped")
+                bucket = report.examples.setdefault(kind, [])
+                if len(bucket) < EXAMPLES_PER_REASON:
+                    diagnostic = resource_from_exception(exc)
+                    bucket.append({"source": item.seed.source_dict, "error": str(exc)[:300], "resource": diagnostic.as_dict() if diagnostic else None})
+                if not client.is_usable:
+                    await client.aclose()
+                    self._client = None
+                return False
+            except (PantographTransportError, PantographProtocolError) as exc:
                 if client.is_usable:
                     raise
-                kind = (
+                diagnostic = resource_from_exception(exc)
+                kind = "replay-resource" if diagnostic else (
                     "replay-timeout"
                     if isinstance(exc, PantographRequestTimeout)
                     else "replay-repl-failure"
@@ -452,6 +470,7 @@ class AdmissionSession:
                             "source": item.seed.source_dict,
                             "replay_chars": len(replay.expression),
                             "error": str(exc)[:300],
+                            "resource": diagnostic.as_dict() if diagnostic else None,
                         }
                     )
                 await client.aclose()

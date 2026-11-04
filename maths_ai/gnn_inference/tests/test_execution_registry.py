@@ -57,7 +57,7 @@ class RegistryTests(unittest.TestCase):
     def test_sibling_leases_share_one_allocation(self):
         async def body():
             scope = FakeSnapshotScope(RULES, roots={"root": ROOT})
-            registry = SnapshotRegistry(scope)
+            registry = SnapshotRegistry(scope, retire_session=scope.aclose)
             root = await admitted(scope, registry)
             outcome = await RetainedTacticExecutor().apply(registry, root, "constructor")
             left = registry.share(outcome.lease, LeaseKind.GRAPH, "left")
@@ -78,7 +78,7 @@ class RegistryTests(unittest.TestCase):
     def test_released_lease_cannot_be_used(self):
         async def body():
             scope = FakeSnapshotScope(RULES, roots={"root": ROOT})
-            registry = SnapshotRegistry(scope)
+            registry = SnapshotRegistry(scope, retire_session=scope.aclose)
             root = await admitted(scope, registry)
             await registry.release(root.lease)
             with self.assertRaises(PantographStateError):
@@ -91,7 +91,7 @@ class RegistryTests(unittest.TestCase):
     def test_bound_counts_allocations_and_reserve_checks_first(self):
         async def body():
             scope = FakeSnapshotScope(RULES, roots={"root": ROOT})
-            registry = SnapshotRegistry(scope, max_snapshots=2)
+            registry = SnapshotRegistry(scope, retire_session=scope.aclose, max_snapshots=2)
             root = await admitted(scope, registry)
             extra = registry.share(root.lease, LeaseKind.REPLAY, "anchor")
             reservation = registry.reserve()
@@ -114,13 +114,13 @@ class RegistryTests(unittest.TestCase):
     def test_close_releases_everything_and_invalidation_forgets(self):
         async def body():
             scope = FakeSnapshotScope(RULES, roots={"root": ROOT})
-            registry = SnapshotRegistry(scope)
+            registry = SnapshotRegistry(scope, retire_session=scope.aclose)
             root = await admitted(scope, registry)
             outcome = await RetainedTacticExecutor().apply(registry, root, "constructor")
             await registry.close()
             self.assertEqual(scope.live, 0)
             self.assertTrue(root.lease.released and outcome.lease.released)
-            other = SnapshotRegistry(scope)
+            other = SnapshotRegistry(scope, retire_session=scope.aclose)
             root = await admitted(scope, other)
             other.invalidate()
             self.assertTrue(root.lease.released)
@@ -134,7 +134,7 @@ class ExecutorTests(unittest.TestCase):
     def test_alternatives_reuse_the_retained_input_without_reconstruction(self):
         async def body():
             scope = FakeSnapshotScope(RULES, roots={"root": ROOT})
-            registry = SnapshotRegistry(scope)
+            registry = SnapshotRegistry(scope, retire_session=scope.aclose)
             root = await admitted(scope, registry)
             starts = scope.count("goal.start")
             executor = RetainedTacticExecutor()
@@ -159,7 +159,7 @@ class ExecutorTests(unittest.TestCase):
     def test_the_selected_goal_is_found_by_name_not_position(self):
         async def body():
             scope = FakeSnapshotScope(RULES, roots={"root": ROOT})
-            registry = SnapshotRegistry(scope)
+            registry = SnapshotRegistry(scope, retire_session=scope.aclose)
             root = await admitted(scope, registry)
             split = await RetainedTacticExecutor().apply(registry, root, "constructor")
             right = split.children[1]
@@ -181,7 +181,7 @@ class ExecutorTests(unittest.TestCase):
     def test_a_decoding_failure_releases_the_result(self):
         async def body():
             scope = FakeSnapshotScope(RULES, roots={"root": ROOT})
-            registry = SnapshotRegistry(scope)
+            registry = SnapshotRegistry(scope, retire_session=scope.aclose)
             root = await admitted(scope, registry)
             executor = RetainedTacticExecutor()
 
@@ -200,7 +200,7 @@ class ExecutorTests(unittest.TestCase):
         async def body():
             rules = table(close_partly=Step(leave_holes=True))
             scope = FakeSnapshotScope(rules, roots={"root": ROOT})
-            registry = SnapshotRegistry(scope)
+            registry = SnapshotRegistry(scope, retire_session=scope.aclose)
             root = await admitted(scope, registry)
             outcome = await RetainedTacticExecutor().apply(registry, root, "close partly")
             self.assertTrue(outcome.success)
@@ -249,7 +249,7 @@ if __name__ == "__main__":
 def test_overlapping_requests_cannot_claim_the_same_result_slot():
     async def body():
         scope = FakeSnapshotScope(RULES, roots={"root": ROOT})
-        registry = SnapshotRegistry(scope, max_snapshots=2)
+        registry = SnapshotRegistry(scope, retire_session=scope.aclose, max_snapshots=2)
         root = await admitted(scope, registry)
         entered, proceed = asyncio.Event(), asyncio.Event()
         original = scope.apply_tactic
@@ -287,7 +287,7 @@ def test_overlapping_requests_cannot_claim_the_same_result_slot():
 def test_request_reservations_and_pins_are_refunded_on_cancel_error_and_rejection():
     async def body():
         scope = FakeSnapshotScope(RULES, roots={"root": ROOT})
-        registry = SnapshotRegistry(scope, max_snapshots=2)
+        registry = SnapshotRegistry(scope, retire_session=scope.aclose, max_snapshots=2)
         root = await admitted(scope, registry)
         executor = RetainedTacticExecutor()
         rejected = await executor.apply(registry, root, "nonsense")
@@ -336,7 +336,7 @@ def test_request_reservations_and_pins_are_refunded_on_cancel_error_and_rejectio
 def test_a_snapshot_being_deleted_still_occupies_capacity():
     async def body():
         scope = FakeSnapshotScope(RULES, roots={"root": ROOT})
-        registry = SnapshotRegistry(scope, max_snapshots=2)
+        registry = SnapshotRegistry(scope, retire_session=scope.aclose, max_snapshots=2)
         root = await admitted(scope, registry)
         outcome = await RetainedTacticExecutor().apply(registry, root, "trivial")
         original = scope.release
@@ -365,7 +365,7 @@ def test_a_snapshot_being_deleted_still_occupies_capacity():
 def test_request_pins_a_graph_only_input_before_the_pruning_hook():
     async def body():
         scope = FakeSnapshotScope(RULES, roots={"root": ROOT})
-        registry = SnapshotRegistry(scope, max_snapshots=2)
+        registry = SnapshotRegistry(scope, retire_session=scope.aclose, max_snapshots=2)
         root = await admitted(scope, registry)
         graph = registry.share(root.lease, LeaseKind.GRAPH, "frontier")
         await registry.release(root.lease)

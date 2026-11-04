@@ -30,7 +30,7 @@ def run(body):
 
 async def explorer_for(rules, **scope_kwargs):
     scope = FakeSnapshotScope(rules, roots={"root": ROOT}, **scope_kwargs)
-    registry = SnapshotRegistry(scope)
+    registry = SnapshotRegistry(scope, retire_session=scope.aclose)
     return scope, Explorer(registry, await admitted(scope, registry))
 
 

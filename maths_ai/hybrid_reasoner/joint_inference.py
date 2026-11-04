@@ -88,6 +88,7 @@ from maths_ai.hybrid_reasoner.pantograph_model_sexpr import (
 )
 from maths_ai.core.config import settings
 from maths_ai.gnn_inference.atp_lean_gnn.reporting import console_print
+from .resource_outcomes import CommandOutcome, CommandStatus
 
 
 
@@ -132,7 +133,7 @@ class ExpansionResult(str, Enum):
 # Version of what search success and learning evidence mean. Success is a
 # kernel certificate of the admitted root, reached by replaying candidate
 # recipes in one Lean execution; graph-only readiness is not success.
-SEARCH_EVIDENCE_VERSION = "kernel-certified-replay-v1"
+SEARCH_EVIDENCE_VERSION = "kernel-certified-replay-resource-v2"
 
 
 def plot_hypergraph(graph: ProofHypergraph) -> None:
@@ -493,6 +494,7 @@ class HybridReasoner:
                 self._scope = scope
                 self._registry = SnapshotRegistry(
                     scope,
+                    retire_session=self.server.aclose,
                     max_snapshots=self.retention.max_retained_snapshots,
                     make_room=self._make_room,
                 )
@@ -623,6 +625,14 @@ class HybridReasoner:
         """
         registry = self._registry
         replay = self._replay
+        resource_incomplete = graph.execution.get("replay_resource_errors", 0) or any(
+            node.closure_reason is NodeClosureReason.LEAN_RESOURCE
+            for node in graph.nodes.values()
+        )
+        if not graph.is_solved() and resource_incomplete and graph.end_reason not in (
+            SearchEndReason.EXTERNAL_ABORT, SearchEndReason.DEADLINE,
+        ):
+            graph.end_reason = SearchEndReason.RESOURCE_LIMIT
         graph.execution = {
             **self._counters,
             "pln_counts": dict(self.pln_counts),
@@ -678,6 +688,11 @@ class HybridReasoner:
             conflicts = graph.execution.get("replay_conflicts", 0) + result.conflict_count
             graph.execution["replay_conflicts"] = conflicts
             graph.execution["last_replay"] = result.status.value
+            if result.resource_count:
+                graph.execution["resource_error_count"] = graph.execution.get("resource_error_count", 0) + result.resource_count
+                details = graph.execution.setdefault("resource_errors", [])
+                details.extend(item.as_dict() for item in result.resources[:max(0, 20-len(details))])
+                graph.execution["replay_resource_errors"] = graph.execution.get("replay_resource_errors", 0) + result.resource_count
             if result.is_certified:
                 graph.certificate = result.certificate
                 graph.witness = result.witness
@@ -1230,6 +1245,11 @@ class HybridReasoner:
                     backup = edge_value(graph.edges[edge_id])
                 elif node.status == NodeStatus.DEAD:
                     backup = self._failure_backup(node)
+                    if backup.validity is BackupValidity.VALID and any(
+                        edge_value(graph.edges[eid]).validity is BackupValidity.UNKNOWN
+                        for eid in node.outgoing_edge_ids
+                    ):
+                        backup = BackupValue.unknown()
                 else:
                     estimate = min(1.0, max(0.0, self._leaf_value(node)))
                     backup = BackupValue.valid(
@@ -1502,12 +1522,12 @@ class HybridReasoner:
             tactic = actions[0].candidate
             if command in node.command_outcomes:
                 graph.cache_hits += 1
-                edge_id = node.command_outcomes[command]
-                if edge_id is not None:
+                settled = node.command_outcomes[command]
+                if settled.status is CommandStatus.ACCEPTED:
                     any_applied = True
                     for action in actions:
-                        graph.observe_alias(edge_id, action)
-                self._on_command_settled(node, command, actions, edge_id, executed=False)
+                        graph.observe_alias(settled.edge_id, action)
+                self._on_command_settled(node, command, actions, settled, executed=False)
                 continue
 
             try:
@@ -1528,10 +1548,21 @@ class HybridReasoner:
                 raise
             self._counters["original_tactic_calls"] += 1
 
+            if outcome.resource is not None:
+                print(f"  [Tactic RESOURCE] {command}: {outcome.resource.kind} during {outcome.resource.phase}")
+                settled = CommandOutcome(CommandStatus.RESOURCE_LIMIT, resource=outcome.resource)
+                node.command_outcomes[command] = settled
+                details = graph.execution.setdefault("resource_errors", [])
+                graph.execution["resource_error_count"] = graph.execution.get("resource_error_count", 0) + 1
+                if len(details) < 20:
+                    details.append(outcome.resource.as_dict())
+                self._on_command_settled(node, command, actions, settled, executed=True)
+                continue
             if not outcome.success:
                 print(f"  [Tactic FAILED] {command} — {outcome.error}")
-                node.command_outcomes[command] = None
-                self._on_command_settled(node, command, actions, None, executed=True)
+                settled = CommandOutcome(CommandStatus.REJECTED)
+                node.command_outcomes[command] = settled
+                self._on_command_settled(node, command, actions, settled, executed=True)
                 continue
             any_applied = True
             print(f"  [Tactic APPLIED] {command} (prob={tactic.probability:.4f})")
@@ -1539,10 +1570,11 @@ class HybridReasoner:
                 edge = await self._link_outcome(graph, node, actions[0], outcome)
             finally:
                 await self._registry.release(outcome.lease)
-            node.command_outcomes[command] = edge.id
+            settled = CommandOutcome(CommandStatus.ACCEPTED, edge_id=edge.id)
+            node.command_outcomes[command] = settled
             for action in actions[1:]:
                 graph.observe_alias(edge.id, action)
-            self._on_command_settled(node, command, actions, edge.id, executed=True)
+            self._on_command_settled(node, command, actions, settled, executed=True)
 
         note = None
         if not any_applied:
@@ -1623,12 +1655,12 @@ class HybridReasoner:
         node: ProofNode,
         command: str,
         actions: List[ProposedAction],
-        edge_id: Optional[int],
+        outcome: CommandOutcome,
         *,
         executed: bool,
     ) -> None:
         """Hook: ``actions`` (all rendering ``command``) now have a checked
-        outcome — ``edge_id``, or None for a Lean rejection. ``executed`` is
+        accepted, rejected, or resource-limited outcome. ``executed`` is
         False when the outcome came from the node's cache. The RL subclass
         turns them into policy observations.
         """

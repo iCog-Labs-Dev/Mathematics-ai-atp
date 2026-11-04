@@ -117,6 +117,9 @@ class _RecordingScope:
     async def release(self, state):
         pass
 
+    async def aclose(self):
+        self.is_usable = False
+
 
 def _occurrence(registry, names):
     state = type("State", (), {"goals": [type("G", (), {"goal_name": name})() for name in names]})()
@@ -128,7 +131,7 @@ def _occurrence(registry, names):
 class ExecutorRenderingTests(unittest.TestCase):
     def test_the_rendered_command_runs_on_the_occurrence_goal(self):
         scope = _RecordingScope()
-        registry = SnapshotRegistry(scope)
+        registry = SnapshotRegistry(scope, retire_session=scope.aclose)
         occurrence = _occurrence(registry, ["other", "selected"])
         command = render_tactic_command(_tactic("rw", "h"))
         outcome = asyncio.run(PantographExecutor(object()).apply(registry, occurrence, command))

@@ -41,7 +41,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Optional
 
-from pantograph_async import CertificationResult
+from pantograph_async import CertificationResult, PantographResourceError
 
 from maths_ai.data_models.model_identity import carry_model_identity
 from maths_ai.data_models.proof_components import Goal, TacticCandidate
@@ -68,6 +68,7 @@ from .proof_recipes import (
     rebind_arguments,
 )
 from .retained_executor import ExecutionReferenceError, RetainedTacticExecutor
+from .resource_outcomes import ResourceDiagnostic, ReplayResourceExhausted
 from maths_ai.data_models.tactic_commands import render_tactic_command
 
 __all__ = [
@@ -90,6 +91,7 @@ class ReplayStatus(str, Enum):
     BUDGET = "budget"
     INCONCLUSIVE = "inconclusive"
     RESOURCE_LIMIT = "resource_limit"
+    COMMAND_RESOURCE = "command_resource"
 
 
 
@@ -179,6 +181,8 @@ class ReplayResult:
     steps: int = 0
     combinations: int = 0
     continuations: list[ReplayContinuation] = field(default_factory=list)
+    resource_count: int = 0
+    resources: list[ResourceDiagnostic] = field(default_factory=list)
 
     @property
     def is_certified(self) -> bool:
@@ -267,6 +271,8 @@ class ReplayCoordinator:
             if certified is not None:
                 result.status = ReplayStatus.CERTIFIED
                 result.certificate, result.witness = certified
+        except PantographResourceError as exc:
+            self._resource(ResourceDiagnostic.from_error(exc))
         except (_Stop, RetentionExceeded) as stop:
             result.status = (
                 stop.status if isinstance(stop, _Stop) else ReplayStatus.RESOURCE_LIMIT
@@ -274,6 +280,8 @@ class ReplayCoordinator:
             for continuation in result.continuations:
                 await self.registry.release(continuation.occurrence.lease)
             result.continuations.clear()
+        if not result.is_certified and result.resource_count and result.status is ReplayStatus.CONFLICT:
+            result.status = ReplayStatus.COMMAND_RESOURCE
         if result.is_certified:
             for continuation in result.continuations:
                 await self.registry.release(continuation.occurrence.lease)
@@ -301,6 +309,11 @@ class ReplayCoordinator:
     def _remember(self, key: tuple) -> None:
         if len(self._failed) < self.MEMO_LIMIT:
             self._failed.add(key)
+
+    def _resource(self, diagnostic: ResourceDiagnostic) -> None:
+        self._result.resource_count += 1
+        if len(self._result.resources) < 20:
+            self._result.resources.append(diagnostic)
 
     async def _search(
         self, lease: Lease, pending, witness, prefix, anchor,
@@ -355,6 +368,7 @@ class ReplayCoordinator:
         explored = self._source.observation(head.node)
         changed = explored.state_fingerprint() != head.goal.state_fingerprint()
         applied = False
+        resources_before = self._result.resource_count
         steps = [
             step
             for step in self._source.alternatives(head.node)
@@ -363,19 +377,26 @@ class ReplayCoordinator:
         for position, step in enumerate(steps):
             choice = (*prefix, (head.node, step.attempt))
             self._check_budget()
-            certified, ran = await self._attempt(
-                lease, head, rest, step, witness, choice, anchor, explored,
-                release_input=own and position == len(steps) - 1, deferred=deferred,
-            )
+            before = self._result.resource_count
+            try:
+                certified, ran = await self._attempt(
+                    lease, head, rest, step, witness, choice, anchor, explored,
+                    release_input=own and position == len(steps) - 1, deferred=deferred,
+                )
+            except PantographResourceError as exc:
+                self._resource(ResourceDiagnostic.from_error(exc))
+                certified, ran = None, False
             if certified is not None:
                 return certified
             applied = applied or ran
-            self._remember((anchor, choice))
+            if self._result.resource_count == before:
+                self._remember((anchor, choice))
         # Only an obligation none of whose recorded attempts applies here, in a
         # context a shared assignment changed, is worth a fresh search.
         if (
             changed
             and not applied
+            and self._result.resource_count == resources_before
             and len(self._result.continuations) < self.limits.max_continuations
         ):
             occurrence = ExecutionOccurrence(
@@ -412,6 +433,9 @@ class ReplayCoordinator:
         )
         self._result.steps += 1
         outcome = await self.executor.apply(self.registry, occurrence, command, holder="replay")
+        if outcome.resource is not None:
+            self._resource(outcome.resource)
+            return None, False
         if not outcome.success:
             self._conflict(head.node, step.attempt, "rejected", outcome.error or "rejected")
             return None, False
@@ -536,7 +560,7 @@ def build_artifact(
     )
 
 
-async def reverify(scope, artifact, *, max_heartbeats: Optional[int] = None) -> CertificationResult:
+async def reverify(scope, artifact, *, retire_session, max_heartbeats: Optional[int] = None) -> CertificationResult:
     """Replay ``artifact`` in ``scope`` from its statement and certify it again.
 
     Steps are applied in order to the obligations their keys name, arguments
@@ -551,7 +575,7 @@ async def reverify(scope, artifact, *, max_heartbeats: Optional[int] = None) -> 
         local_names=tuple(statement["local_names"]),
         universe_levels=tuple(statement["universe_levels"]),
     )
-    registry = SnapshotRegistry(scope)
+    registry = SnapshotRegistry(scope, retire_session=retire_session)
     try:
         state = await materialize_replay(scope, spec)
         lease = registry.adopt_root(state, "artifact")
@@ -589,6 +613,8 @@ async def reverify(scope, artifact, *, max_heartbeats: Optional[int] = None) -> 
                 )
             except ExecutionReferenceError as exc:
                 raise ArtifactMismatch(f"Step {step.attempt}: {exc}") from exc
+            if outcome.resource is not None:
+                raise ReplayResourceExhausted(outcome.resource)
             if not outcome.success:
                 raise ArtifactMismatch(f"Step {step.attempt} was rejected: {outcome.error}")
             shape = tuple((child.slot, child.kind, len(child.introduced)) for child in outcome.children)

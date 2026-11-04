@@ -131,6 +131,11 @@ class FakeSnapshotScope:
         self.snapshots.clear()
         self.issued.clear()
 
+    async def aclose(self):
+        self.is_usable = False
+        self.snapshots.clear()
+        self.issued.clear()
+
     def _name(self, prefix: str) -> str:
         return f"_{prefix}.{next(self._names)}"
 

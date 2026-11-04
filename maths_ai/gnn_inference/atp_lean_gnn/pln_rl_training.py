@@ -182,6 +182,7 @@ class ObservationOutcome(str, Enum):
     ACCEPTED = "accepted"          # Lean accepted the command: it has an edge
     REJECTED = "rejected"          # Lean checked the command and rejected it
     UNRENDERABLE = "unrenderable"  # the draw could not become a command
+    RESOURCE_LIMIT = "resource_limit"  # no negative action evidence
 
 
 @dataclass(frozen=True)
@@ -476,6 +477,8 @@ def compute_onpolicy_loss(
     failure_return = reward_cfg.terminal_failure - reward_cfg.step_penalty
     failures = 0
     for observation in observations:
+        if observation.outcome is ObservationOutcome.RESOURCE_LIMIT:
+            continue
         action = observation.action
         if observation.outcome == ObservationOutcome.ACCEPTED:
             t = by_edge.get(observation.edge_id)

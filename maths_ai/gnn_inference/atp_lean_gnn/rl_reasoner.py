@@ -52,6 +52,7 @@ from maths_ai.data_models.proof_components import (
     TacticCandidate,
 )
 from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph, ProofNode
+from maths_ai.hybrid_reasoner.resource_outcomes import CommandOutcome
 from maths_ai.hybrid_reasoner.joint_inference import (
     ExpansionResult,
     HybridReasoner,
@@ -496,7 +497,7 @@ class RLHybridReasoner(HybridReasoner):
         node: ProofNode,
         command: str,
         actions: List[ProposedAction],
-        edge_id: Optional[int],
+        result: CommandOutcome,
         *,
         executed: bool,
     ) -> None:
@@ -504,7 +505,7 @@ class RLHybridReasoner(HybridReasoner):
         if pending is None:
             raise AssertionError(f"Node {node.id} settled a command it never proposed.")
         ledger = self._ledgers[node.id]
-        outcome = ObservationOutcome.REJECTED if edge_id is None else ObservationOutcome.ACCEPTED
+        outcome = ObservationOutcome(result.status.value)
         for proposal in actions:
             draw = pending.draws.pop(proposal.raw_action_id, None)
             if draw is None:
@@ -519,7 +520,7 @@ class RLHybridReasoner(HybridReasoner):
                     f"Raw action {proposal.raw_action_id} at node {node.id} rendered "
                     f"{rendered} before and {command} now."
                 )
-            self._observe(node, pending.goal, draw.action, outcome, edge_id=edge_id, proposal=proposal)
+            self._observe(node, pending.goal, draw.action, outcome, edge_id=result.edge_id, proposal=proposal)
 
     def _on_unrenderable_action(self, node: ProofNode, proposal: ProposedAction) -> None:
         pending = self._pending[node.id]

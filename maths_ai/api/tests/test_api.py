@@ -83,6 +83,18 @@ def test_a_certified_proof_and_its_settings(tmp_path):
         assert unsolved["certified"] is False and unsolved["outcome"] == "unsolved"
 
 
+def test_resource_outcome_is_reported_without_invalid_input_or_false_success(tmp_path):
+    with _client(tmp_path) as client:
+        _wait_ready(client)
+        response = client.post("/prove", json={"goal": "resource"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["outcome"] == "resource_limit" and not body["certified"]
+        assert body["resource"]["kind"] == "heartbeats"
+        assert body["resource"]["recovery"] == "command-rolled-back"
+        assert client.post("/prove", json={"goal": "proved"}).json()["certified"]
+
+
 @pytest.mark.parametrize(
     "body, category",
     [

@@ -68,7 +68,7 @@ def test_controlled_local_library_and_mixed_actions_against_custom_repl():
                     state, goal, _ = await materialize_seed(
                         scope, seed_from_text(goal=target, hypotheses=hyps)
                     )
-                    registry = SnapshotRegistry(scope, max_snapshots=3)
+                    registry = SnapshotRegistry(scope, retire_session=client.aclose, max_snapshots=3)
                     anchor = registry.adopt_root(state, "source-aware test root")
                     occurrence = ExecutionOccurrence(
                         0,

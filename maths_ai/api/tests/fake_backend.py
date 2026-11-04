@@ -49,6 +49,13 @@ class FakeBackend:
             raise BackendError("input:malformed-text", "scripted input failure")
         elif goal == "inadmissible":
             return {"outcome": "inadmissible", "exception_category": "lean-rejected"}
+        elif goal == "resource":
+            return {
+                "outcome": "resource_limit", "certified": False,
+                "resource": {"command": "goal.tactic", "kind": "heartbeats",
+                             "phase": "execute", "limit": 200000,
+                             "recovery": "command-rolled-back"},
+            }
         return {
             "outcome": "solved" if goal == "proved" else "unsolved",
             "certified": goal == "proved",

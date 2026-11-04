@@ -141,7 +141,7 @@ def test_lazy_exports_preserve_existing_package_api():
 
 
 CLIENT_REPOSITORY = "https://github.com/123nol/Pantograph-Client"
-CLIENT_COMMIT = "955a4921b4cacaa49f4b3087f3982d7ca3629566"
+CLIENT_COMMIT = "3300096484d95af070f2494eb42f5ab03a66450a"
 
 
 def test_dependency_is_the_pinned_client_and_not_pypantograph():
@@ -298,6 +298,15 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
     assert remediation["integration_parents"] == joined["parents"]
     for entry in remediation["sources"]:
         assert entry["target_base_sha256"] == expected.get(entry["path"]), entry["path"]
+        expected[entry["path"]] = entry["sha256"]
+    resources = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "transactional_resources/source_manifest.json").read_text()
+    )
+    assert resources["client_commit"] == CLIENT_COMMIT
+    assert resources["repl_commit"] == "5cab95e132bcdd1d3cb715505d1694ac7bb0e0d6"
+    for entry in resources["sources"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
         expected[entry["path"]] = entry["sha256"]
     for path, digest in expected.items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path

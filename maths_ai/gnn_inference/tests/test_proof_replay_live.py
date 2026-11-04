@@ -200,7 +200,7 @@ def test_an_exported_artifact_reverifies_in_a_fresh_session(live_env):
     artifact = ReplayArtifact.from_dict(scoped(live_env, first).as_dict())
 
     async def again(scope):
-        return await reverify(scope, artifact)
+        return await reverify(scope, artifact, retire_session=scope._client.aclose)
 
     assert scoped(live_env, again).receipt.proof == artifact.receipt["proof"]
 
@@ -216,7 +216,7 @@ def test_an_exported_artifact_reverifies_in_a_fresh_session(live_env):
     for broken in (altered, replace(artifact, steps=tuple(swapped)), foreign):
         async def check(scope, broken=broken):
             with pytest.raises(ArtifactMismatch):
-                await reverify(scope, broken)
+                await reverify(scope, broken, retire_session=scope._client.aclose)
 
         scoped(live_env, check)
 
@@ -273,7 +273,7 @@ def test_the_search_certifies_through_retained_snapshots(live_env):
     artifact = ReplayArtifact.from_dict(graph.artifact.as_dict())
 
     async def again(scope):
-        return await reverify(scope, artifact)
+        return await reverify(scope, artifact, retire_session=scope._client.aclose)
 
     assert scoped(live_env, again).receipt.proof == graph.certificate.receipt.proof
 
@@ -462,6 +462,6 @@ def test_an_assigned_sibling_waits_for_its_later_dependency(live_env):
     artifact = ReplayArtifact.from_dict(graph.artifact.as_dict())
 
     async def again(scope):
-        return await reverify(scope, artifact)
+        return await reverify(scope, artifact, retire_session=scope._client.aclose)
 
     assert scoped(live_env, again).is_certified

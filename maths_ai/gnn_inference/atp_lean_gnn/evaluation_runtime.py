@@ -32,7 +32,7 @@ from maths_ai.hybrid_reasoner.proposal import (
     proposal_specs,
 )
 from maths_ai.lean_replay import ReplayInputError
-from pantograph_async import PantographRequestTimeout, PantographTransportError
+from pantograph_async import PantographRequestTimeout, PantographTransportError, PantographResourceError
 
 from .reporting import console_print
 from .rl_live_collection import FATAL_SESSION_ERRORS, LiveReasonerPool
@@ -74,16 +74,15 @@ def search_settings(cfg: RLTrainingConfig) -> dict[str, object]:
             "alias_policy": PRIOR_ALIAS_POLICY,
             "provider": ACTOR_PRIOR,
         },
-        "observations": "per-node-raw-action-ledger-v1",
+        "observations": "per-node-raw-action-ledger-resource-v2",
         "command_identity": "rendered-lean-command-v1",
     }
 
 
 
-# The proof rate is solved / searched seeds over every repeat. Version 2 is the
-# first with selectable sampled or step-wise greedy proposals and per-search
-# seeds; version-1 scores (tactic-only greedy) are not comparable with it.
-EVAL_METRIC_VERSION = "searched-proof-rate-v2"
+# Version 3 excludes operationally aborted attempts from the proof-rate
+# denominator and reports them separately from completed unsolved searches.
+EVAL_METRIC_VERSION = "searched-proof-rate-resource-v3"
 
 
 @dataclass(frozen=True)
@@ -141,8 +140,9 @@ def _describe(item: TheoremItem) -> str:
 
 
 def _searched(stats: dict[str, float]) -> float:
-    """Inputs that were actually searched: a seed that failed to replay was not."""
-    return stats["attempted"] - stats.get("seeds_inadmissible", 0.0)
+    """Attempts with usable search evidence, excluding operational aborts."""
+    return max(0.0, stats["attempted"] - stats.get("seeds_inadmissible", 0.0)
+               - stats.get("searches_failed", 0.0) - stats.get("searches_resource_limited", 0.0))
 
 
 
@@ -190,6 +190,7 @@ async def collect_round(
     cooperative_deadlines = 0
     hard_timeouts = 0
     inadmissible = 0
+    resource_limited = 0
     if len(proposals) != len(batch):
         raise ValueError(
             f"Expected one proposal per item: {len(proposals)} for {len(batch)} items."
@@ -200,6 +201,8 @@ async def collect_round(
             async with asyncio.timeout(timeout_s * 1.25):
                 result = await reasoner.prove(item.seed, proposal=proposal, deadline=deadline)
             results.append(result)
+            if result.graph.end_reason == SearchEndReason.RESOURCE_LIMIT:
+                resource_limited += 1
             if result.graph.is_solved():
                 solved += 1
             if result.graph.end_reason == SearchEndReason.DEADLINE:
@@ -208,6 +211,12 @@ async def collect_round(
             # The seed itself failed to replay: no search ran, so nothing is learned.
             inadmissible += 1
             console_print(f"  [collect] inadmissible seed {_describe(item)}: {exc}")
+        except PantographResourceError as exc:
+            resource_limited += 1
+            server = getattr(reasoner, "server", None)
+            if server is not None and not server.is_usable:
+                raise PantographTransportError("Resource error cleanup retired the only client.") from exc
+            console_print(f"  [collect] resource limit on {_describe(item)}: {exc}")
         except (asyncio.TimeoutError, PantographRequestTimeout) as exc:
             failed += 1
             hard_timeouts += 1
@@ -231,6 +240,7 @@ async def collect_round(
         "searches_cooperative_deadline": float(cooperative_deadlines),
         "searches_hard_timed_out": float(hard_timeouts),
         "seeds_inadmissible": float(inadmissible),
+        "searches_resource_limited": float(resource_limited),
         **search_counters(results),
     }
     return results, stats
@@ -251,6 +261,9 @@ def search_counters(results: list[RLSearchResult]) -> dict[str, float]:
         "distinct_commands": 0.0,
         "accepted_edges": 0.0,
         "rejected_commands": 0.0,
+        "resource_limited_commands": 0.0,
+        "resource_error_count": 0.0,
+        "replay_resource_errors": 0.0,
         "cache_hits": 0.0,
         "completed_simulations": 0.0,
         "deferred_selections": 0.0,
@@ -262,6 +275,8 @@ def search_counters(results: list[RLSearchResult]) -> dict[str, float]:
             continue
         for key, value in result.graph.search_counters().items():
             totals[key] = totals.get(key, 0.0) + value
+        for key in ("resource_error_count", "replay_resource_errors"):
+            totals[key] += float(result.graph.execution.get(key, 0))
         for status, value in result.graph.execution.get("pln_counts", {}).items():
             key = "pln_" + status
             totals[key] = totals.get(key, 0.0) + float(value)
@@ -282,6 +297,7 @@ ADDITIVE_ROUND_STATS = (
     "collected",
     "solved",
     "searches_failed",
+    "searches_resource_limited",
     "searches_cooperative_deadline",
     "searches_hard_timed_out",
     "seeds_inadmissible",
@@ -356,6 +372,7 @@ def summarize_rows(
         "attempted": total("attempted"),
         "searched": searched,
         "searches_failed": total("searches_failed"),
+        "searches_resource_limited": total("searches_resource_limited"),
         "searches_hard_timed_out": total("searches_hard_timed_out"),
         "searches_cooperative_deadline": total("searches_cooperative_deadline"),
         "seeds_inadmissible": total("seeds_inadmissible"),

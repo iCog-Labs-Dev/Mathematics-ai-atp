@@ -21,7 +21,6 @@ import sys
 PIN = "73781c2d58456e4bf369dadd4a501e1b78a0b177"
 TOOLCHAIN = "leanprover/lean4:v4.10.0-rc1"
 OPTIONS = {
-    "printJsonPretty": False,
     "printExprPretty": True,
     "printExprAST": True,
     "printExprModelAST": True,

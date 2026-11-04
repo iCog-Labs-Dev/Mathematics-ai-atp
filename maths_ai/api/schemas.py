@@ -35,6 +35,14 @@ class Proposal(BaseModel):
     derivation: str
 
 
+class ResourceFailure(_Strict):
+    command: str
+    kind: Literal["heartbeats"]
+    phase: Literal["execute", "validate", "observe", "serialize"]
+    limit: StrictInt = Field(gt=0)
+    recovery: Literal["command-rolled-back", "session-unusable"]
+
+
 class ProveResponse(BaseModel):
     """A finished search. ``certified`` is true only for a kernel-certified root.
 
@@ -50,6 +58,7 @@ class ProveResponse(BaseModel):
     end_reason: Optional[str] = None
     proof_trace: Optional[dict[str, Any]] = None
     certificate: Optional[dict[str, Any]] = None
+    resource: Optional[ResourceFailure] = None
     artifact: Optional[dict[str, Any]] = None
     search_profile: str
     search_settings: Optional[dict[str, Any]] = None

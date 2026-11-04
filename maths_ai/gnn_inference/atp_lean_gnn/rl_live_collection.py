@@ -16,11 +16,13 @@ from pantograph_async import (
     PantographConfigurationError,
     PantographProtocolError,
     PantographRequestTimeout,
+    PantographResourceError,
     PantographStateError,
     PantographTransportError,
 )
 
 from .rl_resources import ResourcePlan
+from maths_ai.hybrid_reasoner.resource_outcomes import resource_from_exception
 
 
 # "inadmissible": the seed could not be replayed faithfully, so no search ran.
@@ -31,6 +33,7 @@ CollectionOutcome = Literal[
     "hard_timeout",
     "error",
     "inadmissible",
+    "resource_limit",
 ]
 ServerFactory = Callable[[int], Awaitable[Any]]
 ReasonerFactory = Callable[[int, torch.device, torch.nn.Module, Any], Any]
@@ -75,6 +78,7 @@ class CollectionRecord:
     outcome: CollectionOutcome
     result: Any | None = None
     exception_category: str | None = None
+    resource: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -531,6 +535,8 @@ class LiveReasonerPool:
                         )
                     if self.is_cooperative_deadline(result):
                         outcome: CollectionOutcome = "cooperative_deadline"
+                    elif getattr(getattr(result, "graph", None), "end_reason", None) == "resource_limit":
+                        outcome = "resource_limit"
                     else:
                         outcome = "solved" if self.is_solved(result) else "unsolved"
                     records.append(
@@ -559,22 +565,27 @@ class LiveReasonerPool:
                     self.log(
                         f"  [collect worker={worker.worker_id}] inadmissible seed: {exc}"
                     )
-                except (asyncio.TimeoutError, PantographTransportError) as exc:
+                except (asyncio.TimeoutError, PantographTransportError, PantographResourceError) as exc:
                     # The interrupted session may hold a request in flight, so
                     # the whole client/reasoner binding is retired.
                     hard_timeout = backstop.expired() or isinstance(
                         exc, (asyncio.TimeoutError, PantographRequestTimeout)
                     )
+                    diagnostic = resource_from_exception(exc)
                     records.append(
                         CollectionRecord(
                             batch_index=index,
                             worker_id=worker.worker_id,
                             queue_wait_s=queue_wait,
                             search_s=time.perf_counter() - search_started,
-                            outcome="hard_timeout" if hard_timeout else "error",
+                            outcome="resource_limit" if diagnostic else ("hard_timeout" if hard_timeout else "error"),
                             exception_category=type(exc).__name__,
+                            resource=diagnostic.as_dict() if diagnostic else None,
                         )
                     )
+                    if isinstance(exc, PantographResourceError) and worker.server.is_usable:
+                        self.log(f"  [collect worker={worker.worker_id}] resource-limited root; session retained")
+                        continue
                     self.log(
                         f"  [collect worker={worker.worker_id}] "
                         f"{'hard timeout' if hard_timeout else type(exc).__name__}; "
@@ -657,6 +668,7 @@ class LiveReasonerPool:
             "seeds_inadmissible": float(
                 sum(record.outcome == "inadmissible" for record in records)
             ),
+            "searches_resource_limited": float(sum(record.outcome == "resource_limit" for record in records)),
             "worker_count": float(len(self.active_workers)),
             "server_count": float(len(self.active_workers)),
             "workers_replaced": float(sum(replacements.values())),

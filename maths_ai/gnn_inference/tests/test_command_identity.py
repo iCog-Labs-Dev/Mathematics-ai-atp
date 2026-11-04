@@ -88,7 +88,8 @@ def test_cache_reuses_rendered_aliases_across_rounds(accepted):
         assert len(edge.raw_log_priors) == 2
         assert math.exp(edge.log_mass) == pytest.approx(0.5)
     else:
-        assert graph.root.command_outcomes == {"exact p": None}
+        assert set(graph.root.command_outcomes) == {"exact p"}
+        assert graph.root.command_outcomes["exact p"].status.value == "rejected"
         assert not graph.root.outgoing_edge_ids
 
 

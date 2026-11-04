@@ -731,7 +731,8 @@ class MCTSSearchTests(unittest.TestCase):
     @staticmethod
     def _retain(reasoner, graph, node_ids, *, skip=()):
         """Give each leaf a registry-owned occurrence of its own."""
-        registry = SnapshotRegistry(FakeStateScope(ScopedFakeClient()))
+        client = ScopedFakeClient()
+        registry = SnapshotRegistry(FakeStateScope(client), retire_session=client.aclose)
         reasoner._registry = registry
         leases = {}
         for node_id in node_ids:

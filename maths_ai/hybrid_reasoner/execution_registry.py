@@ -16,12 +16,13 @@ restarted worker starts a new theorem attempt.
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import Enum
 from typing import Awaitable, Callable, Optional
 
-from pantograph_async import PantographStateError, PantographStateScope, TacticState
+from pantograph_async import await_cleanup, PantographStateError, PantographStateScope, PantographTransportError, TacticState
 
 __all__ = [
     "Lease",
@@ -96,6 +97,7 @@ class SnapshotRegistry:
         self,
         scope: PantographStateScope,
         *,
+        retire_session: Callable[[], Awaitable[None]],
         max_snapshots: Optional[int] = None,
         make_room: Optional[Callable[[int], Awaitable[None]]] = None,
     ) -> None:
@@ -104,6 +106,7 @@ class SnapshotRegistry:
         ):
             raise ValueError("max_snapshots must be a positive integer.")
         self.scope = scope
+        self.retire_session = retire_session
         self.max_snapshots = max_snapshots
         # Frees capacity (for example by pruning open search nodes) or raises
         # RetentionExceeded; called before every state-producing request.
@@ -181,10 +184,21 @@ class SnapshotRegistry:
                 await self.scope.release(record.state)
                 self.deleted += 1
             self._records.pop(lease.snapshot, None)
-        except BaseException:
-            # Deletion is now uncertain; the client retired the session.
+        except BaseException as exc:
+            # A rolled-back deletion leaves the allocation alive. Retire its
+            # session before forgetting leases or permitting another operation.
             self.invalidate()
-            raise
+            try:
+                await await_cleanup(asyncio.create_task(self.retire_session()))
+            except BaseException as cleanup:
+                exc.add_note(f"Session retirement also failed: {cleanup}")
+            if isinstance(exc, (KeyboardInterrupt, SystemExit)) or not isinstance(exc, Exception):
+                raise
+            raise PantographTransportError(
+                "Snapshot deletion failed; its session was retired.",
+                command=getattr(exc, "command", "goal.delete"),
+                payload=getattr(exc, "payload", None),
+            ) from exc
 
     async def close(self) -> None:
         """Release every remaining lease. Scope exit deletes anything left."""
