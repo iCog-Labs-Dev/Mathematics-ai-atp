@@ -1,3 +1,7 @@
+> Remediation: the forced-PLN-off scope and original lifecycle limitations below
+> are superseded by [the remediation handoff](mcts_api_pln_remediation_handoff.md).
+> The original implementation evidence is preserved here.
+
 # MCTS proving and evaluation service
 
 This adds a FastAPI/Uvicorn service for the MCTS actor-critic prover (issue

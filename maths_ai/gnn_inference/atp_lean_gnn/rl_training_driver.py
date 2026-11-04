@@ -353,6 +353,7 @@ def pantograph_env(cfg: RLTrainingConfig) -> PantographEnv:
     )
 
 
+
 def training_proposals(cfg: RLTrainingConfig, batch: list[TheoremItem], round_idx: int) -> list[ProposalSpec]:
     """Sampled proposals for one collection round, seeded by round and input."""
     return proposal_specs(
@@ -576,6 +577,7 @@ def save_checkpoint(
     graph_representation: GraphRepresentationSpec,
     saved_search_settings: dict[str, object],
     evaluation_contract: dict[str, object],
+    pln_runtime_identity: dict | None,
 ) -> None:
     """Write the resume state (Decision 1.4: optimizer-htps + queues included).
 
@@ -593,6 +595,7 @@ def save_checkpoint(
         # version; a resume refuses statistics recorded under another meaning.
         "search_evidence": SEARCH_EVIDENCE_VERSION,
         "evaluation_contract": evaluation_contract,
+        "pln_runtime": pln_runtime_identity,
         "onpolicy_steps": onpolicy_steps,
         "search_settings": saved_search_settings,
         "torch_rng_state": torch.get_rng_state(),
@@ -821,6 +824,10 @@ async def _run_rl_training_impl(
     else:
         env = None
         reasoner = reasoner_factory(model, node_vocab, tactic_vocab, cfg)
+    pln_runtime_identity = getattr(live_reasoner_pool, "pln_identity", None)
+    if resume_run_dir is not None and live_reasoner_pool is not None and cfg.use_pln:
+        if state.get("pln_runtime") != pln_runtime_identity:
+            raise ValueError("The PLN native/runtime identity changed; start a fresh RL run")
     library = getattr(getattr(reasoner, "candidate_provider", None), "library", None)
     for row in resumed_tactic_rows:
         sample = TacticImitationSample(
@@ -921,6 +928,9 @@ async def _run_rl_training_impl(
         # supervised HTPS updates. Replicas are not read anywhere in this phase.
         imitation_mined = 0
         for result in results:
+            for status, count in result.graph.execution.get("pln_counts", {}).items():
+                key = "pln_" + status
+                metrics[key] = metrics.get(key, 0.0) + float(count)
             critic_queue.extend(
                 extract_critic_samples(
                     result.graph,
@@ -1077,6 +1087,7 @@ async def _run_rl_training_impl(
                 graph_representation=metadata.graph_representation,
                 saved_search_settings=search_settings(cfg),
                 evaluation_contract=cfg.evaluation_settings().contract(),
+                pln_runtime_identity=pln_runtime_identity,
             )
 
         if cfg.eval_every > 0 and (round_idx + 1) % cfg.eval_every == 0 and pool.eval_items:
@@ -1110,6 +1121,7 @@ async def _run_rl_training_impl(
                     graph_representation=metadata.graph_representation,
                     saved_search_settings=search_settings(cfg),
                     evaluation_contract=cfg.evaluation_settings().contract(),
+                    pln_runtime_identity=pln_runtime_identity,
                 )
                 console_print(f"  New best proof rate {best_proof_rate:.3f} → best.pt")
 
@@ -1126,6 +1138,7 @@ async def _run_rl_training_impl(
         graph_representation=metadata.graph_representation,
         saved_search_settings=search_settings(cfg),
         evaluation_contract=cfg.evaluation_settings().contract(),
+        pln_runtime_identity=pln_runtime_identity,
     )
     return last_metrics
 

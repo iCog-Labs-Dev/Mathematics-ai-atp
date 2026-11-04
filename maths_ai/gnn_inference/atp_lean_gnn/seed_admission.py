@@ -18,6 +18,7 @@ record gets the same classification in both.
 from __future__ import annotations
 
 import hashlib
+import asyncio
 import json
 import time
 from collections import Counter
@@ -44,6 +45,7 @@ from maths_ai.lean_replay import (
 )
 
 from .dataset import iter_dataset_rows
+from .admission_rows import AdmissionSource, SourceRows
 
 EXAMPLES_PER_REASON = 20
 # Printed-state size buckets (characters) for coverage reporting.
@@ -70,6 +72,13 @@ class TheoremItem:
     seed: LeanGoalSeed
     tactic_label: str  # ground-truth tactic from the dataset row ("" in file mode)
     size: int
+
+
+@dataclass(frozen=True)
+class AdmissionRow:
+    """One source-row event; an offline rejection still consumes step capacity."""
+
+    item: TheoremItem | None
 
 
 @dataclass
@@ -168,7 +177,7 @@ def _admit_offline(
     return TheoremItem(seed=seed, tactic_label=tactic, size=size)
 
 
-def dataset_candidates(
+def _dataset_row_events(
     *,
     dataset_name: str,
     split: str,
@@ -176,7 +185,7 @@ def dataset_candidates(
     max_scan_rows: int,
     max_state_chars: int | None,
     report: AdmissionReport,
-) -> Iterator[TheoremItem]:
+) -> Iterator[AdmissionRow]:
     """Structured seeds from dataset rows; at most ``max_scan_rows`` are read."""
     report.source = {
         "kind": "dataset",
@@ -196,17 +205,16 @@ def dataset_candidates(
             max_state_chars,
             report,
         )
-        if item is not None:
-            yield item
+        yield AdmissionRow(item)
 
 
-def file_candidates(
+def _file_row_events(
     path: Path,
     *,
     max_scan_rows: int,
     max_state_chars: int | None,
     report: AdmissionReport,
-) -> Iterator[TheoremItem]:
+) -> Iterator[AdmissionRow]:
     """Text seeds from JSONL rows ``{"goal": str, "hypotheses": [str], "tactic"?: str}``.
 
     Each hypothesis is one declaration as Lean prints it (``n m : Nat``,
@@ -219,6 +227,7 @@ def file_candidates(
                 return
             line = line.strip()
             if not line:
+                yield AdmissionRow(None)
                 continue
             row = json.loads(line)
             goal, hypotheses = row["goal"], row.get("hypotheses", [])
@@ -232,8 +241,16 @@ def file_candidates(
                 max_state_chars,
                 report,
             )
-            if item is not None:
-                yield item
+            yield AdmissionRow(item)
+
+
+def dataset_candidates(*, dataset_name, split, revision, max_scan_rows, max_state_chars, report):
+    return AdmissionSource("dataset", dict(dataset_name=dataset_name, split=split, revision=revision,
+        max_scan_rows=max_scan_rows, max_state_chars=max_state_chars))
+
+
+def file_candidates(path, *, max_scan_rows, max_state_chars, report):
+    return AdmissionSource("file", dict(path=path, max_scan_rows=max_scan_rows, max_state_chars=max_state_chars))
 
 
 # Lean preflight --------------------------------------------------------------
@@ -308,7 +325,7 @@ class AdmissionSession:
 
     def __init__(
         self,
-        candidates: Iterable[TheoremItem],
+        candidates: AdmissionSource,
         client_factory: Callable[[], Awaitable[PantographClient]],
         *,
         max_admitted: int,
@@ -317,7 +334,9 @@ class AdmissionSession:
         cache: ValidationCache | None = None,
         max_replay_chars: int | None = None,
     ) -> None:
-        self._candidates = iter(candidates)
+        self._source = candidates
+        self._rows: SourceRows | None = None
+        self._offline_report = AdmissionReport()
         self._client_factory = client_factory
         self.max_admitted = max_admitted
         self.report = report
@@ -330,21 +349,52 @@ class AdmissionSession:
         self._started = time.monotonic()
         self._deadline = self._started + time_budget_s
 
-    async def step(self, max_rows: int) -> list[TheoremItem]:
-        """Admit from at most ``max_rows`` more candidates; return the newly admitted."""
+    @property
+    def has_client(self) -> bool:
+        return self._client is not None
+
+    async def step(self, max_rows: int, *, interval_s: float = 0.25) -> list[TheoremItem]:
+        """Advance bounded source rows; return only after owned work settles."""
+        if max_rows < 1 or interval_s <= 0:
+            raise ValueError("Admission steps require positive bounds")
         if self.done:
             return []
-        newly: list[TheoremItem] = []
-        if self._client is None:
-            self._client = await self._client_factory()
+        newly = []
+        step_deadline = min(self._deadline, time.monotonic() + interval_s)
         try:
             for _ in range(max_rows):
-                item = self._next_candidate()
-                if item is None:
+                if len(self.admitted) >= self.max_admitted:
+                    self.report.stopped_by, self.done = "pool-full", True
                     break
-                admitted = await self._admit(item)
-                if admitted:
-                    newly.append(item)
+                if time.monotonic() >= self._deadline:
+                    self.report.stopped_by, self.done = "time-budget", True
+                    break
+                if time.monotonic() >= step_deadline:
+                    break
+                if self._rows is None:
+                    self._rows = SourceRows(self._source)
+                try:
+                    event, offline = await self._rows.next(step_deadline)
+                except TimeoutError:
+                    if time.monotonic() >= self._deadline:
+                        self.report.stopped_by, self.done = "time-budget", True
+                    break
+                self._merge_offline(offline)
+                if event is None:
+                    self.done = True
+                    break
+                self.rows_seen += 1
+                if event.item is None:
+                    await asyncio.sleep(0)
+                    continue
+                async with asyncio.timeout_at(self._deadline):
+                    if self._client is None:
+                        self._client = await self._client_factory()
+                    if await self._admit(event.item):
+                        newly.append(event.item)
+        except TimeoutError:
+            self.report.stopped_by, self.done = "time-budget", True
+            await self.close()
         except BaseException:
             await self.close()
             raise
@@ -352,21 +402,20 @@ class AdmissionSession:
             await self.close()
         return newly
 
-    def _next_candidate(self) -> TheoremItem | None:
-        if len(self.admitted) >= self.max_admitted:
-            self.report.stopped_by = "pool-full"
-            self.done = True
-            return None
-        if time.monotonic() >= self._deadline:
-            self.report.stopped_by = "time-budget"
-            self.done = True
-            return None
-        item = next(self._candidates, None)
-        if item is None:
-            self.done = True
-        else:
-            self.rows_seen += 1
-        return item
+    def _merge_offline(self, current):
+        previous, report = self._offline_report, self.report
+        report.source = current.source or report.source
+        for name in ("scanned", "candidates"):
+            setattr(report, name, getattr(report, name) + getattr(current, name) - getattr(previous, name))
+        for name in ("skipped", "quarantined"):
+            getattr(report, name).update(getattr(current, name) - getattr(previous, name))
+        for name, counts in current.coverage.items():
+            report.coverage.setdefault(name, Counter()).update(counts - previous.coverage.get(name, Counter()))
+        for reason, examples in current.examples.items():
+            bucket = report.examples.setdefault(reason, [])
+            before = len(previous.examples.get(reason, []))
+            bucket.extend(examples[before:before + max(0, EXAMPLES_PER_REASON-len(bucket))])
+        self._offline_report = current
 
     async def _admit(self, item: TheoremItem) -> bool:
         report, cache = self.report, self.cache
@@ -421,6 +470,15 @@ class AdmissionSession:
 
     async def close(self) -> None:
         """Close the client and record the time spent; safe to call twice."""
+        if self._rows is not None:
+            rows, self._rows = self._rows, None
+            cleanup = asyncio.create_task(rows.close())
+            while not cleanup.done():
+                try:
+                    await asyncio.shield(cleanup)
+                except asyncio.CancelledError:
+                    continue
+            cleanup.result()
         client, self._client = self._client, None
         try:
             if client is not None:
@@ -434,7 +492,7 @@ class AdmissionSession:
 
 
 async def preflight(
-    candidates: Iterable[TheoremItem],
+    candidates: AdmissionSource,
     client_factory: Callable[[], Awaitable[PantographClient]],
     *,
     max_admitted: int,

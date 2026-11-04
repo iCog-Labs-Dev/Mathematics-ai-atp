@@ -98,7 +98,7 @@ class Goal(BaseModel):
 
     ``expression`` is the Lean target formula (the text after ``⊢``);
     ``hypotheses`` are the local context entries available to prove it.
-    ``goal_sexp`` is the target's raw expression, kept for replay only.
+    ``goal_sexp`` is the target's raw expression used for replay and exact PLN translation.
     """
 
     expression: str
@@ -332,7 +332,7 @@ class RankedSubgoal(BaseModel):
     GNN's prior probability for the tactic that produced it."""
 
     goal: Goal
-    stv: STV
+    stv: Optional[STV]
     gnn_probability: float
 
     @property
@@ -341,4 +341,4 @@ class RankedSubgoal(BaseModel):
         section "Open design questions" — a simple, principled default that
         extends the existing strength×confidence convention multiplicatively
         by the policy prior; tune/replace if empirical results call for it)."""
-        return self.gnn_probability * self.stv.score
+        return self.gnn_probability * (self.stv.score if self.stv is not None else 1.0)

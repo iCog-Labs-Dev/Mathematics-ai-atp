@@ -11,11 +11,11 @@
 # baked in: mount them read-only at /artifacts and the service config at
 # /config (see docker/DOCKER.md).
 
-ARG PYTHON_IMAGE=python:3.11-slim-bookworm
+ARG PYTHON_IMAGE=python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f
 ARG LEAN_TOOLCHAIN=leanprover/lean4:v4.10.0-rc1
 # The REPL the pinned client (123nol/Pantograph-Client@955a492) was built against.
 ARG PANTOGRAPH_REPO=https://github.com/123nol/Pantograph.git
-ARG PANTOGRAPH_COMMIT=9ecaaea
+ARG PANTOGRAPH_COMMIT=9ecaaea242f427e534aff29314513c358b4d21ad
 # The Mathlib revision on the same toolchain.
 ARG MATHLIB_COMMIT=29dcec074de168ac2bf835a77ef68bbe069194c5
 
@@ -44,6 +44,7 @@ RUN git init -q . \
     && git remote add origin "${PANTOGRAPH_REPO}" \
     && git fetch -q --depth 1 origin "${PANTOGRAPH_COMMIT}" \
     && git checkout -q FETCH_HEAD \
+    && test "$(git rev-parse HEAD)" = "${PANTOGRAPH_COMMIT}" \
     && test "$(cat lean-toolchain)" = "${LEAN_TOOLCHAIN}" \
     && lake build repl
 
@@ -68,20 +69,38 @@ COPY pyproject.toml uv.lock /workspace/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
 
+# ---------- PLN: build Janus against the same Python used at runtime ----------
+FROM python AS pln
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential cmake ninja-build pkg-config libgmp-dev zlib1g-dev \
+        libssl-dev libarchive-dev libpcre2-dev libedit-dev libreadline-dev \
+        libyaml-dev uuid-dev \
+    && rm -rf /var/lib/apt/lists/*
+COPY maths_ai/ /workspace/maths_ai/
+COPY scripts/provision_pln.sh /workspace/scripts/provision_pln.sh
+ENV PYTHONPATH=/workspace
+RUN bash /workspace/scripts/provision_pln.sh /opt/pln /opt/venv/bin/python
+
 # ---------- runtime ----------
 FROM ${PYTHON_IMAGE} AS runtime
 # coreutils provides GNU stdbuf, which owned Pantograph launches require.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates coreutils git tini \
+        ca-certificates coreutils git tini libgmp10 libarchive13 libpcre2-8-0 \
+        libedit2 libreadline8 libyaml-0-2 libuuid1 libssl3 zlib1g libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=lean /opt/elan /opt/elan
 COPY --from=lean /opt/pantograph/.lake/build/bin/repl /opt/pantograph/repl
 COPY --from=lean /opt/mathlib4 /opt/mathlib4
 COPY --from=python /opt/venv /opt/venv
+COPY --from=pln /opt/pln /opt/pln
 
 ENV ELAN_HOME=/opt/elan \
-    PATH=/opt/venv/bin:/opt/elan/bin:${PATH} \
+    PATH=/opt/pln/bin:/opt/pln/swipl/bin:/opt/venv/bin:/opt/elan/bin:${PATH} \
+    PETTA_BIN=/opt/pln/bin/petta \
+    PETTA_SOURCE_ROOT=/opt/pln/src/PeTTa \
+    PETTACHAINER_ROOT=/opt/pln/src/petta_chainer \
+    SWIPL_BIN=/opt/pln/bin/swipl \
     PYTHONPATH=/workspace \
     PYTHONUNBUFFERED=1 \
     MATHS_AI_SERVICE_CONFIG=/config/service.json \
@@ -91,6 +110,7 @@ ENV ELAN_HOME=/opt/elan \
 WORKDIR /workspace
 COPY maths_ai/ /workspace/maths_ai/
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY scripts/provision_pln.sh /workspace/scripts/provision_pln.sh
 
 RUN useradd --create-home --uid 1000 maths_ai \
     && mkdir -p /state /config /artifacts \

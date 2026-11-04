@@ -45,6 +45,7 @@ def test_dataset_profiles_must_be_pinned():
 def test_config_resolves_paths_against_its_file_and_rejects_unknown_fields(tmp_path):
     config = ServiceConfig.from_json(write_config(tmp_path))
     assert config.rl_config == tmp_path / "rl.json"
+    assert config.dataset_profiles["smoke"].theorem_file == str(tmp_path / "theorems.jsonl")
     assert set(config.search_profiles) == {"puct", "best_first"}
     with pytest.raises(ValueError, match="Unknown"):
         ServiceConfig.from_json(write_config(tmp_path, checkpoint_upload="x"))
@@ -52,3 +53,15 @@ def test_config_resolves_paths_against_its_file_and_rejects_unknown_fields(tmp_p
         ServiceConfig.from_json(write_config(tmp_path, default_search_profile="none"))
     with pytest.raises(ValueError):
         ServiceLimits(default_timeout_s=100.0, max_timeout_s=10.0)
+
+
+def test_pln_profile_requires_native_configuration_and_is_not_a_request_override(tmp_path):
+    profiles = {"pln": {"selection_policy": "legacy", "top_k_tactics": 4,
+                        "max_depth": 8, "max_nodes": 64, "use_pln": True}}
+    with pytest.raises(ValueError, match="PLN profiles"):
+        ServiceConfig.from_json(write_config(tmp_path, search_profiles=profiles,
+                                            default_search_profile="pln"))
+    with pytest.raises(ValueError, match="boolean"):
+        SearchProfile("legacy", 4, 8, 64, use_pln="true")
+    with pytest.raises(ValueError, match="cannot be overridden"):
+        BEST_FIRST.with_overrides({"use_pln": True})

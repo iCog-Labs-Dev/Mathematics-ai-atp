@@ -114,13 +114,35 @@ def _free_port() -> int:
 
 
 @pytest.mark.pantograph_live
-def test_http_proving_and_evaluation_over_the_custom_repl(tmp_path, request):
+@pytest.mark.parametrize("pln_enabled", [False, True])
+def test_http_proving_and_evaluation_over_the_custom_repl(tmp_path, request, pln_enabled):
     source, repl = os.environ.get("PANTOGRAPH_TEST_SOURCE_ROOT"), os.environ.get("PANTOGRAPH_TEST_REPL")
     if not source or not repl:
         if request.config.getoption("--run-pantograph-live", default=False):
             pytest.fail("Required live run needs PANTOGRAPH_TEST_SOURCE_ROOT and PANTOGRAPH_TEST_REPL.")
         pytest.skip("Explicit live paths not configured.")
+    if pln_enabled and not os.environ.get("PETTA_SOURCE_ROOT"):
+        pytest.skip("PLN HTTP verification requires the explicit native deployment environment")
     config = _bundle(tmp_path, source, repl)
+    if pln_enabled:
+        from dataclasses import asdict
+        from maths_ai.pln_inference.runtime import PLNRuntimeSpec
+        payload = json.loads(config.read_text())
+        payload["pln"] = asdict(PLNRuntimeSpec.from_environment())
+        for profile in payload["search_profiles"].values():
+            profile["use_pln"] = True
+        config.write_text(json.dumps(payload))
+        # Force a known no-argument constructor policy to expose AND children.
+        checkpoint = tmp_path / "policy.pt"
+        state = torch.load(checkpoint, weights_only=False)
+        weights = state["model_state_dict"]
+        weights["actor.base.weight"].zero_()
+        weights["actor.base.bias"].zero_()
+        weights["actor.base.bias"][TACTICS["constructor"]] = 20
+        weights["decoder.arg_count_head.weight"].zero_()
+        weights["decoder.arg_count_head.bias"].zero_()
+        weights["decoder.arg_count_head.bias"][0] = 20
+        torch.save(state, checkpoint)
     port = _free_port()
     server = subprocess.Popen(
         [sys.executable, "-m", "maths_ai.api", "--config", str(config), "--port", str(port)],
@@ -164,6 +186,15 @@ def test_http_proving_and_evaluation_over_the_custom_repl(tmp_path, request):
                         assert body["end_reason"] != "root_certified"
                     certified.append(body["certified"])
             assert all(certified), certified
+            if pln_enabled:
+                scored = client.post("/prove", json={
+                    "goal": "Q ∧ Q", "hypotheses": ["P Q : Prop", "hP : P", "hPQ : P → Q"],
+                    "search_profile": "best_first", "proposal_mode": "greedy", "timeout_s": 120,
+                })
+                assert scored.status_code == 200, scored.text
+                scored = scored.json()
+                assert scored["execution"]["pln_counts"].get("ok", 0) >= 1, scored
+                assert scored["runtime"]["provenance"]["pln"]["translation"]
 
             bad = client.post("/prove", json={"goal": "undefined_name_xyz", "timeout_s": 60})
             assert bad.status_code == 422 and bad.json()["category"].startswith("input:")

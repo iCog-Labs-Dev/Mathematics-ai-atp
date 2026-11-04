@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .state import ProofState, parse_state
-from maths_ai.pln_inference.metta.translator.translator_modules.parser import (
+from maths_ai.lean_replay.sexp import (
     parse_sexp_string,
 )
 

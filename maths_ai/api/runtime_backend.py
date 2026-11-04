@@ -31,7 +31,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.seed_admission import (
     file_candidates,
 )
 from maths_ai.hybrid_reasoner.pantograph_model_sexpr import create_model_sexpr_client
-from maths_ai.hybrid_reasoner.proposal import proposal_specs
+from maths_ai.hybrid_reasoner.proposal import proposal_specs, input_identity
 from maths_ai.lean_replay import ReplayInputError, seed_from_text
 
 from .config import DatasetProfile, SearchProfile, ServiceConfig
@@ -79,7 +79,8 @@ class LiveBackend:
     async def start(self) -> dict[str, Any]:
         default = self.config.search_profiles[self.config.default_search_profile]
         self.runtime = await open_live_runtime(
-            self.cfg, checkpoint=self.config.checkpoint, search_kwargs=default.search_kwargs()
+            self.cfg, checkpoint=self.config.checkpoint, search_kwargs=default.search_kwargs(),
+            pln_spec=self.config.pln, enable_pln=any(p.use_pln for p in self.config.search_profiles.values())
         )
         return self.provenance()
 
@@ -89,6 +90,7 @@ class LiveBackend:
         return plain(
             {
                 "checkpoint": str(policy.checkpoint),
+                "checkpoint_sha256": policy.checkpoint_sha256,
                 "model": {
                     "architecture": getattr(policy.model_spec, "architecture", None),
                     "retrieval_binding": getattr(policy.model_spec, "retrieval_binding", None),
@@ -97,6 +99,7 @@ class LiveBackend:
                 "graph_representation": policy.graph_representation.to_dict(),
                 "environment": environment_identity(runtime.env),
                 "workers": len(runtime.pool.active_workers),
+                "pln": runtime.pool.pln_identity,
                 "devices": [str(device) for device in runtime.plan.collection_devices],
             }
         )
@@ -104,7 +107,7 @@ class LiveBackend:
     def status(self) -> dict[str, Any]:
         runtime = self.runtime
         workers = 0 if runtime is None else len(runtime.pool.active_workers)
-        admitting = sum(1 for job in self.jobs.values() if job.items is None)
+        admitting = sum(1 for job in self.jobs.values() if job.session.has_client)
         return {
             "workers": workers,
             "usable_workers": 0 if runtime is None else sum(
@@ -112,6 +115,7 @@ class LiveBackend:
             ),
             "admission_clients": admitting,
             "live_clients": workers + admitting,
+            "configured_clients": workers + bool(self.config.dataset_profiles),
             "resident_jobs": len(self.jobs),
         }
 
@@ -138,6 +142,7 @@ class LiveBackend:
         (record,) = collected.records
         view = record_view(record, proposal=proposal)
         view["search_settings"] = profile.search_kwargs()
+        view["pln_runtime"] = self.runtime.pool.pln_identity
         view["input_identity"] = subset_identity([item])
         return view
 
@@ -151,9 +156,11 @@ class LiveBackend:
         newly = await job.session.step(int(payload["rows"]))
         progress = {
             "rows_seen": job.session.rows_seen,
+            "scanned": job.report.scanned,
             "admitted": len(job.session.admitted),
             "newly_admitted": len(newly),
             "done": job.session.done,
+            "admission": plain(job.report.as_dict()),
         }
         if job.session.done:
             await job.session.close()
@@ -166,6 +173,8 @@ class LiveBackend:
             job.items = pool.eval_items
             settings = EvaluationSettings(**payload["evaluation"])
             progress.update(
+                input_records=[{"identity": input_identity(item.seed), "source": plain(item.seed.source_dict)} for item in job.items],
+                proposal_records=[[spec.as_dict() for spec in settings.proposals(job.items, repeat)] for repeat in range(settings.repeats)],
                 eval_items=len(job.items),
                 eval_subset_sha256=subset_identity(job.items) if job.items else None,
                 proposal_seeds_sha256=[
@@ -178,6 +187,8 @@ class LiveBackend:
 
     def _open_admission(self, job_id: str, profile: DatasetProfile, seed: int) -> _EvaluationJob:
         cfg = replace(self.cfg, **profile.rl_overrides())
+        if len(self.runtime.pool.active_workers) + 2 > self.runtime.plan.usable_cpu_count:
+            raise BackendError("resources", "Admission needs capacity for its decoder process and Lean client")
         report = AdmissionReport()
         report.environment = environment_identity(self.runtime.env)
         if cfg.data_source == "file":
@@ -226,6 +237,8 @@ class LiveBackend:
         attempts = []
         for index, (record, proposal) in enumerate(zip(collected.records, proposals)):
             view = record_view(record, proposal=proposal, include_trace=False)
+            view["input_identity"] = input_identity(items[index].seed)
+            view["source"] = plain(items[index].seed.source_dict)
             view["index"] = start + index
             view["repeat"] = repeat
             attempts.append(view)

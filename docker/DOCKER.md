@@ -8,6 +8,7 @@ which holds the model, the Lean clients and the search. The image contains:
 | Lean | `leanprover/lean4:v4.10.0-rc1` under `/opt/elan` |
 | REPL | `123nol/Pantograph@9ecaaea` at `/opt/pantograph/repl`, the companion of client `955a492` |
 | Mathlib | `29dcec07` built at `/opt/mathlib4`, the REPL's `source_root` |
+| PLN | pinned PeTTa/chainer, SWI-Prolog 9.3.31 with Python 3.13 Janus |
 | Python | `uv sync --frozen --no-dev` from `uv.lock` in `/opt/venv` |
 | `stdbuf` | GNU coreutils, which owned Pantograph launches require |
 
@@ -83,3 +84,23 @@ stop grace period for this. When the service starts again, every job that
 had not finished is marked `interrupted` with its partial result. Jobs are
 never resumed: submit the job again to rerun it. Run one container per state
 volume. A second service on the same `/state` exits at startup.
+
+## PLN-enabled search
+
+The image builds the native PLN runtime explicitly through
+`scripts/provision_pln.sh`. It uses Python 3.13.13 for the application and
+Janus embedding. No runtime Git imports or startup package installs are needed.
+Choose `puct_pln` or `best_first_pln` in the supplied service configuration.
+The `pln` configuration owns source paths and process bounds. Readiness verifies
+the native installation and an actual target-matching rule-proof/STV response.
+
+For CLI training or evaluation in the image, set `use_pln: true` in the RL
+configuration. The image defines the native executable/source environment.
+The same read-only model/index/config mounts and writable state/cache locations
+are required. Follow the deployment binding procedures before reusing model
+artifacts generated against another executable or Mathlib installation.
+
+Source build and native host checks have been exercised separately. A full
+Docker build/container smoke remains required on a host with a working Docker
+daemon; the local WSL host did not provide one. See
+`maths_ai/gnn_inference/docs/mcts_api_pln_remediation_handoff.md`.

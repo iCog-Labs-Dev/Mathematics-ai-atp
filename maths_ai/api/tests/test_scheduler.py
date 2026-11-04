@@ -31,7 +31,7 @@ class _Runtime:
         if op == "prove":
             return {"outcome": "solved", "certified": True}
         if op == "admit":
-            return {"rows_seen": 2, "admitted": 2, "newly_admitted": 2, "done": True, "eval_items": 2,
+            return {"input_records": [{"identity": "fake-0"}, {"identity": "fake-1"}], "proposal_records": [[]], "rows_seen": 2, "admitted": 2, "newly_admitted": 2, "done": True, "eval_items": 2,
                     "eval_subset_sha256": "s", "proposal_seeds_sha256": ["a"], "admission": {}}
         if op == "evaluate":
             count = payload["count"]

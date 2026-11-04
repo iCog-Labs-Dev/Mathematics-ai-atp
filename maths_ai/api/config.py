@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from maths_ai.pln_inference.runtime import PLNRuntimeSpec
 from maths_ai.hybrid_reasoner.selection_policy import (
     WIDENING_FIELDS,
     resolve_search_params,
@@ -45,13 +46,14 @@ class SearchProfile:
     ``selection_policy`` is ``"puct"`` or ``"legacy"`` (best-first). The
     resolvers that validate a training config validate a profile, so a
     best-first profile with a simulation budget or widening bound is refused.
-    PLN stays off in served profiles.
+    PLN is enabled only by a server-owned profile.
     """
 
     selection_policy: str
     top_k_tactics: int
     max_depth: int
     max_nodes: int
+    use_pln: bool = False
     num_simulations: int | None = None
     sim_batch_size: int | None = None
     puct_c: float | None = None
@@ -62,6 +64,8 @@ class SearchProfile:
     widening_max_draws: int | None = None
 
     def __post_init__(self) -> None:
+        if type(self.use_pln) is not bool:
+            raise ValueError("use_pln must be boolean")
         for name in REDUCIBLE_BUDGETS:
             _positive_int(name, getattr(self, name))
         resolve_search_params(
@@ -84,7 +88,7 @@ class SearchProfile:
             "sim_batch_size": self.sim_batch_size,
             "puct_c": self.puct_c,
             **{name: getattr(self, name) for name in WIDENING_FIELDS},
-            "use_pln": False,
+            "use_pln": self.use_pln,
         }
 
     def with_overrides(self, overrides: dict[str, Any]) -> "SearchProfile":
@@ -203,8 +207,11 @@ class ServiceConfig:
     dataset_profiles: dict[str, DatasetProfile] = field(default_factory=dict)
     checkpoint: Path | None = None
     limits: ServiceLimits = field(default_factory=ServiceLimits)
+    pln: PLNRuntimeSpec | None = None
 
     def __post_init__(self) -> None:
+        if any(p.use_pln for p in self.search_profiles.values()) and self.pln is None:
+            raise ValueError("PLN profiles require a pln runtime specification")
         if not self.search_profiles:
             raise ValueError("At least one search profile is required")
         if self.default_search_profile not in self.search_profiles:
@@ -223,7 +230,7 @@ class ServiceConfig:
             return candidate if candidate.is_absolute() else base / candidate
 
         known = {"rl_config", "state_dir", "search_profiles", "default_search_profile",
-                 "dataset_profiles", "checkpoint", "limits"}
+                 "dataset_profiles", "checkpoint", "limits", "pln"}
         unknown = sorted(set(payload) - known)
         if unknown:
             raise ValueError(f"Unknown service configuration fields: {unknown}")
@@ -236,11 +243,15 @@ class ServiceConfig:
             },
             default_search_profile=payload["default_search_profile"],
             dataset_profiles={
-                name: DatasetProfile(**profile)
+                name: DatasetProfile(**{**profile, **({"theorem_file": str(path(profile["theorem_file"]))} if profile.get("theorem_file") else {})})
                 for name, profile in payload.get("dataset_profiles", {}).items()
             },
             checkpoint=path(payload.get("checkpoint")),
             limits=ServiceLimits(**payload.get("limits", {})),
+            pln=None if payload.get("pln") is None else PLNRuntimeSpec(**{
+                key: str(path(value)) if key in ("petta_bin", "chainer_root", "petta_source_root", "temp_dir") and value is not None else value
+                for key, value in payload["pln"].items()
+            }),
         )
 
     @classmethod

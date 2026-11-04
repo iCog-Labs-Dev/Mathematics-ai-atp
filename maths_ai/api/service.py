@@ -16,6 +16,7 @@ import fcntl
 import logging
 import os
 import time
+from dataclasses import asdict
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -43,6 +44,8 @@ from .job_store import (
     RUNNING,
     TERMINAL_STATES,
     JobStore,
+    JobCapacityError,
+    ResultStorageError,
 )
 from .runtime_supervisor import (
     OperationFailed,
@@ -106,6 +109,7 @@ class _Proof:
     queue_deadline: float
     future: asyncio.Future
     started: bool = False
+    queue_timer: Any = None
 
 
 @dataclass
@@ -123,6 +127,9 @@ class _ActiveJob:
     cancel_requested: bool = False
     deadline: float = 0.0
     attempts_done: int = 0
+    expired: bool = False
+    input_records: list = field(default_factory=list)
+    proposal_records: list = field(default_factory=list)
 
 
 def _map_failure(exc: OperationFailed) -> ServiceError:
@@ -151,6 +158,8 @@ class ProvingService:
         self._step: asyncio.Task | None = None
         self._lock_file = None
         self._stopping = False
+        self._submissions: set[asyncio.Task] = set()
+        self._job_timers: dict[str, asyncio.TimerHandle] = {}
 
     # Lifecycle -----------------------------------------------------------
 
@@ -179,13 +188,18 @@ class ProvingService:
 
     async def stop(self) -> None:
         self._stopping = True
+        await asyncio.gather(*self._submissions, return_exceptions=True)
+        for timer in self._job_timers.values():
+            timer.cancel()
+        active_step = self._step
         if self._dispatcher is not None:
             self._dispatcher.cancel()
             await asyncio.gather(self._dispatcher, return_exceptions=True)
-        if self._step is not None:
-            self._step.cancel()
-            await asyncio.gather(self._step, return_exceptions=True)
+        if active_step is not None:
+            active_step.cancel()
+            await asyncio.gather(active_step, return_exceptions=True)
         for proof in self._proofs:
+            proof.queue_timer.cancel()
             if not proof.future.done():
                 proof.future.set_exception(Unavailable("The service is shutting down"))
         await self.supervisor.stop()
@@ -278,21 +292,37 @@ class ProvingService:
             queue_deadline=admitted_at + payload["queue_timeout_s"],
             future=asyncio.get_running_loop().create_future(),
         )
+        def expire_queue():
+            if not proof.started and proof in self._proofs:
+                self._proofs.remove(proof)
+                self._fail(proof, DeadlineExceeded("The queue deadline expired", category="queue-timeout"))
+        proof.queue_timer = asyncio.get_running_loop().call_at(proof.queue_deadline, expire_queue)
         self._proofs.append(proof)
         self._wakeup.set()
         try:
-            return await asyncio.shield(proof.future)
+            async with asyncio.timeout_at(proof.deadline):
+                return await asyncio.shield(proof.future)
+        except TimeoutError:
+            if not proof.started and proof in self._proofs:
+                self._proofs.remove(proof)
+            elif self._step is not None and getattr(self._step, "proof", None) is proof:
+                self._step.cancel()
+            proof.future.cancel()
+            raise DeadlineExceeded("The request deadline expired")
         except asyncio.CancelledError:
             # The client went away: drop a queued proof, cancel a running one.
             if not proof.started and proof in self._proofs:
                 self._proofs.remove(proof)
             elif self._step is not None and getattr(self._step, "proof", None) is proof:
                 self._step.cancel()
+            proof.future.cancel()
             raise
+        finally:
+            proof.queue_timer.cancel()
 
     async def _run_proof(self, proof: _Proof) -> None:
         proof.started = True
-        self._active_proofs += 1
+        proof.queue_timer.cancel()
         now = time.monotonic()
         try:
             queue_wait = now - proof.admitted_at
@@ -300,7 +330,9 @@ class ProvingService:
             payload = dict(proof.payload)
             # The search stops cooperatively before the response deadline, so
             # replay, certification and the reply fit inside it.
-            payload["timeout_s"] = max(remaining * 0.8, 0.1)
+            if remaining <= 0:
+                raise DeadlineExceeded("The request deadline expired before dispatch")
+            payload["timeout_s"] = remaining * 0.8
             started = time.monotonic()
             result = await self.supervisor.run("prove", payload, timeout=remaining)
             outcome = result.get("outcome")
@@ -342,8 +374,9 @@ class ProvingService:
         except asyncio.CancelledError:
             self._fail(proof, DeadlineExceeded("The request was cancelled", category="cancelled"))
             raise
-        finally:
-            self._active_proofs -= 1
+        except Exception as exc:
+            logger.exception("proof operation failed")
+            self._fail(proof, ServiceError(str(exc), category="internal"))
 
     @staticmethod
     def _fail(proof: _Proof, error: ServiceError) -> None:
@@ -353,6 +386,16 @@ class ProvingService:
     # Evaluation jobs -----------------------------------------------------
 
     async def submit_evaluation(self, request: dict[str, Any]) -> dict[str, Any]:
+        # Once admitted, a dataset job is independent of the submitting connection.
+        if len(self._submissions) >= self.limits.max_pending_jobs:
+            raise QueueFull("The evaluation admission queue is full")
+        task = asyncio.create_task(self._submit_evaluation(request))
+        self._submissions.add(task)
+        task.add_done_callback(self._submissions.discard)
+        task.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+        return await asyncio.shield(task)
+
+    async def _submit_evaluation(self, request: dict[str, Any]) -> dict[str, Any]:
         limits = self.limits
         dataset = self.config.dataset_profiles.get(request["dataset_profile"])
         if dataset is None:
@@ -375,8 +418,6 @@ class ProvingService:
             )
         except ValueError as exc:
             raise InputRejected(str(exc), category="input:budget") from exc
-        if await self.store.count_active() >= limits.max_pending_jobs:
-            raise QueueFull("The evaluation queue is full; retry later")
         settings = {
             "search_profile": name,
             "profile": profile,
@@ -386,13 +427,36 @@ class ProvingService:
             "evaluation_contract": evaluation.contract(),
             "timeout_s": float(timeout),
             "deadline_s": float(deadline),
+            "deadline_at": time.time() + float(deadline),
             "chunk_size": limits.eval_chunk_size,
             "metric": EVAL_METRIC_VERSION,
+            "pln_runtime": asdict(self.config.pln) if profile["use_pln"] else None,
         }
-        job_id = await self.store.create(dict(request), settings)
+        try:
+            job_id = await self.store.create(dict(request), settings, capacity=limits.max_pending_jobs)
+        except JobCapacityError as exc:
+            raise QueueFull(str(exc)) from exc
+        self._job_timers[job_id] = asyncio.get_running_loop().call_later(
+            max(settings["deadline_at"] - time.time(), 0),
+            lambda: asyncio.create_task(self._expire_job(job_id)),
+        )
         self._jobs.append(job_id)
         self._wakeup.set()
         return await self.store.get(job_id)
+
+    async def _expire_job(self, job_id):
+        job = await self.store.get(job_id)
+        if job is None or job["state"] in TERMINAL_STATES:
+            return
+        if job_id in self._jobs:
+            self._jobs.remove(job_id)
+            await self._finish(job_id, FAILED, None, error=("deadline", "The queued job expired"))
+        elif self._active is not None and self._active.job_id == job_id:
+            self._active.expired = self._active.cancel_requested = True
+            await self.store.transition(job_id, CANCELLING, phase="deadline-cleanup")
+            if self._step is not None and getattr(self._step, "job_id", None) == job_id:
+                self._step.cancel()
+        self._wakeup.set()
 
     async def job(self, job_id: str) -> dict[str, Any]:
         job = await self.store.get(job_id)
@@ -404,7 +468,10 @@ class ProvingService:
         job = await self.job(job_id)
         if job["state"] not in TERMINAL_STATES:
             raise NotFinished(f"job {job_id} is {job['state']}")
-        result = await self.store.result(job_id)
+        try:
+            result = await self.store.result(job_id)
+        except ResultStorageError as exc:
+            raise ServiceError(str(exc), category="result-storage") from exc
         if result is None:
             raise NotFinished(f"job {job_id} has no published result", category="no-result")
         return result
@@ -441,12 +508,17 @@ class ProvingService:
             if not self.supervisor.ready:
                 await asyncio.sleep(0.2)
                 continue
+            job_work = self._active is not None or bool(self._jobs)
+            proof_work = bool(self._proofs)
+            if not job_work and not proof_work:
+                continue
             take_proof = proof_work and (
                 not job_work or self._served_since_chunk < self.limits.interactive_per_chunk
             )
             if take_proof:
                 proof = self._proofs.popleft()
                 self._served_since_chunk += 1
+                self._active_proofs += 1
                 self._step = asyncio.create_task(self._run_proof(proof))
                 self._step.proof = proof
             else:
@@ -461,6 +533,8 @@ class ProvingService:
             except Exception:  # noqa: BLE001 — one failed step does not stop the service
                 logger.exception("service step failed")
             finally:
+                if getattr(self._step, "proof", None) is not None:
+                    self._active_proofs -= 1
                 self._step = None
 
     def _expire_queued_proofs(self) -> None:
@@ -478,14 +552,18 @@ class ProvingService:
             if job is None or job["state"] != QUEUED:
                 return
             self._active = _ActiveJob(
-                job_id, job["settings"], deadline=time.monotonic() + job["settings"]["deadline_s"]
+                job_id, job["settings"], deadline=time.monotonic() + (job["deadline_at"] - time.time())
             )
+            if time.monotonic() >= self._active.deadline:
+                await self._close_active(FAILED, ("deadline", "The queued job expired"))
+                return
             await self.store.transition(job_id, ADMITTING, phase="admitting",
                                         runtime_generation=self.supervisor.generation,
                                         provenance=self.supervisor.provenance)
         active = self._active
         if active.cancel_requested:
-            await self._close_active(CANCELLED, ("cancelled", "Cancelled by request"))
+            await self._close_active(FAILED if active.expired else CANCELLED,
+                                     ("deadline" if active.expired else "cancelled", "Execution stopped by request"))
             return
         if time.monotonic() >= active.deadline:
             await self._close_active(FAILED, ("deadline", "The job exceeded its deadline"))
@@ -497,7 +575,8 @@ class ProvingService:
                 await self._evaluate_step(active)
         except asyncio.CancelledError:
             if active.cancel_requested:
-                await self._close_active(CANCELLED, ("cancelled", "Cancelled by request"))
+                await self._close_active(FAILED if active.expired else CANCELLED,
+                                     ("deadline" if active.expired else "cancelled", "Execution stopped by request"))
                 return
             raise
         except OperationTimeout as exc:
@@ -507,6 +586,9 @@ class ProvingService:
         except (RuntimeUnavailable, OperationInterrupted) as exc:
             category = "service-shutdown" if self._stopping else "runtime-interrupted"
             await self._close_active(INTERRUPTED, (category, str(exc)))
+        except Exception as exc:
+            logger.exception("evaluation operation failed")
+            await self._close_active(FAILED, ("internal", str(exc)))
 
     async def _admit_step(self, active: _ActiveJob) -> None:
         settings = active.settings
@@ -520,15 +602,18 @@ class ProvingService:
                 "seed": settings["evaluation"]["seed"],
                 "evaluation": settings["evaluation"],
             },
-            timeout=max(min(remaining, settings["dataset"]["admission_time_budget_s"] + 60.0), 1.0),
+            timeout=min(remaining, settings["dataset"]["admission_time_budget_s"]),
         )
         if not progress["done"]:
-            await self.store.transition(active.job_id, ADMITTING, progress={"admission": progress})
+            await self.store.transition(active.job_id, ADMITTING, progress={"phase": "admitting", "admission": progress["admission"],
+                                                  "rows_seen": progress["rows_seen"], "admitted": progress["admitted"]})
             return
         active.subset_size = int(progress["eval_items"])
         active.subset_sha256 = progress["eval_subset_sha256"]
         active.seeds = list(progress["proposal_seeds_sha256"])
         active.admission = progress.get("admission")
+        active.input_records = progress["input_records"]
+        active.proposal_records = progress["proposal_records"]
         if active.subset_size == 0:
             await self._close_active(FAILED, ("no-admitted-inputs", "No seed passed Lean admission"))
             return
@@ -557,7 +642,7 @@ class ProvingService:
                 "count": count,
                 "timeout_s": per_search,
             },
-            timeout=max(min(remaining, per_search * 1.25 * count + 60.0), 1.0),
+            timeout=min(remaining, per_search * 1.25 * count + 60.0),
         )
         merge_stats(active.repeat_stats.setdefault(active.repeat, {}), result["stats"])
         active.attempts_done += len(result["attempts"])
@@ -577,6 +662,10 @@ class ProvingService:
         return {
             "phase": "evaluating" if active.phase == RUNNING else "admitting",
             "subset_size": active.subset_size,
+            "proposal_seeds_sha256": active.seeds,
+            "admission": active.admission,
+            "input_records": active.input_records,
+            "proposal_records": active.proposal_records,
             "subset_sha256": active.subset_sha256,
             "repeats": repeats,
             "repeats_completed": min(active.repeat, repeats),
@@ -603,34 +692,15 @@ class ProvingService:
             return job
         attempts, stats = await self.store.attempts(job_id)
         settings = job["settings"]
-        evaluation = EvaluationSettings(**settings["evaluation"])
-        complete = state == COMPLETED
-        result: dict[str, Any] = {
-            "kind": "mcts-evaluation-result",
-            "version": SERVICE_RESULT_VERSION,
-            "job_id": job_id,
-            "state": state,
-            "complete": complete,
-            "partial": not complete,
-            "settings": settings,
-            "provenance": job["provenance"],
-            "admission": None if active is None else active.admission,
-            "attempts": attempts,
-        }
-        if active is not None and active.subset_sha256 is not None:
-            rows = [
-                repeat_row_for_seeds(repeat, active.seeds[repeat], stats[repeat])
-                for repeat in sorted(stats)
-            ]
-            summary = summarize_rows(evaluation, active.subset_size, active.subset_sha256, rows)
-            # A partial job is not a benchmark: its rows say which repeats finished.
-            result["summary" if complete else "partial_summary"] = summary
-            if not complete:
-                result["repeats_completed"] = active.repeat
+        from .evaluation_results import evaluation_result
+        result = evaluation_result(job, state, attempts, stats)
+        timer = self._job_timers.pop(job_id, None)
+        if timer is not None:
+            timer.cancel()
         fields: dict[str, Any] = {"phase": state}
         if error is not None:
             fields["error_category"], fields["error_detail"] = error
-        return await self.store.finish(job_id, state, result, partial=not complete, **fields)
+        return await self.store.finish(job_id, state, result, partial=state != COMPLETED, **fields)
 
     async def _runtime_restarted(self, generation: int) -> None:
         """A runtime generation ended: its active job is interrupted, queued work waits."""

@@ -13,12 +13,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 import torch
+import hashlib
+import io
 
 from maths_ai.hybrid_reasoner.execution_limits import ResidentMemoryMonitor, RetentionLimits
 from maths_ai.hybrid_reasoner.hypergraph import SearchEndReason
 from maths_ai.hybrid_reasoner.pantograph_model_sexpr import create_model_sexpr_client
 from pantograph_async import PantographEnv
 
+from maths_ai.pln_inference.runtime import PLNRuntimeSpec
 from .actor_critic import ActorCriticWithArgsClassifier
 from .checkpointing import build_model_from_checkpoint
 from .graph_contract import require_graph_representation
@@ -48,6 +51,7 @@ class LoadedPolicy:
     graph_representation: Any
     checkpoint: Path
     parameter_bytes: int
+    checkpoint_sha256: str
 
 
 def load_policy(cfg: "RLTrainingConfig", *, device: torch.device, checkpoint: Path | None = None) -> LoadedPolicy:
@@ -59,7 +63,8 @@ def load_policy(cfg: "RLTrainingConfig", *, device: torch.device, checkpoint: Pa
     path = Path(checkpoint or cfg.warmstart_checkpoint)
     metadata = load_prepared_metadata(cfg.prepared_root, splits=())
     require_graph_representation(metadata.graph_representation)
-    state = torch.load(path, map_location=device, weights_only=False)
+    checkpoint_data = path.read_bytes()
+    state = torch.load(io.BytesIO(checkpoint_data), map_location=device, weights_only=False)
     model, _manifest, model_spec = build_model_from_checkpoint(
         state,
         node_vocab=metadata.node_vocab,
@@ -75,6 +80,7 @@ def load_policy(cfg: "RLTrainingConfig", *, device: torch.device, checkpoint: Pa
         tactic_vocab=metadata.tactic_vocab,
         graph_representation=metadata.graph_representation,
         checkpoint=path,
+        checkpoint_sha256=hashlib.sha256(checkpoint_data).hexdigest(),
         parameter_bytes=sum(p.numel() * p.element_size() for p in model.parameters()),
     )
 
@@ -93,6 +99,7 @@ class ReasonerBinding:
     retention: RetentionLimits
     certify_heartbeats: int | None
     collection_memory: ResidentMemoryMonitor
+    pln: Any = None
 
     def factory(self, search_kwargs: dict[str, Any]) -> ReasonerFactory:
         from maths_ai.hybrid_reasoner.joint_inference import PantographExecutor
@@ -109,6 +116,7 @@ class ReasonerBinding:
                 executor=PantographExecutor(server),
                 device=device,
                 **settings,
+                pln_inference=self.pln,
                 retention=self.retention,
                 certify_heartbeats=self.certify_heartbeats,
                 collection_memory=self.collection_memory,
@@ -149,6 +157,8 @@ async def create_live_reasoner_pool(
     plan: ResourcePlan,
     model_generation: int = 0,
     search_kwargs: dict[str, Any] | None = None,
+    pln_spec: PLNRuntimeSpec | None = None,
+    enable_pln: bool = False,
 ) -> LiveReasonerPool:
     """Create workers whose reasoners preserve the complete MCTS configuration.
 
@@ -156,6 +166,14 @@ async def create_live_reasoner_pool(
     keeps its ``binding`` so ``LiveReasonerPool.rebind`` can switch profiles.
     """
     provider = await open_candidate_provider(cfg, model, env, plan)
+    settings = dict(cfg.search_kwargs() if search_kwargs is None else search_kwargs)
+    scorer, pln_identity = None, None
+    try:
+        if enable_pln or settings.get("use_pln"):
+            scorer, pln_identity = await (pln_spec or PLNRuntimeSpec.from_environment()).open()
+    except BaseException:
+        await provider.aclose()
+        raise
 
     async def server_factory(_worker_id: int):
         return await create_model_sexpr_client(env)
@@ -169,6 +187,7 @@ async def create_live_reasoner_pool(
         retention=retention,
         certify_heartbeats=cfg.certify_heartbeats,
         collection_memory=ResidentMemoryMonitor(retention.max_collection_rss_growth_mb),
+        pln=scorer,
     )
     settings = dict(cfg.search_kwargs() if search_kwargs is None else search_kwargs)
 
@@ -195,8 +214,13 @@ async def create_live_reasoner_pool(
         )
     except BaseException:
         await provider.aclose()
+        if scorer is not None:
+            await scorer.aclose()
         raise
     result.close_callbacks.append(provider.aclose)
+    if scorer is not None:
+        result.close_callbacks.append(scorer.aclose)
+    result.pln_identity = pln_identity
     result.binding = binding
     result.search_kwargs = settings
     return result
@@ -223,6 +247,8 @@ class LiveRuntime:
         settings = dict(search_kwargs)
         if settings == self.pool.search_kwargs:
             return
+        if settings.get("use_pln") and self.pool.binding.pln is None:
+            raise ValueError("PLN profile was not provisioned at runtime startup")
         self.pool.rebind(self.pool.binding.factory(settings))
         self.pool.search_kwargs = settings
 
@@ -244,6 +270,8 @@ async def open_live_runtime(
     checkpoint: Path | None = None,
     search_kwargs: dict[str, Any] | None = None,
     model_generation: int = 0,
+    pln_spec: PLNRuntimeSpec | None = None,
+    enable_pln: bool = False,
 ) -> LiveRuntime:
     """Verify the environment, load the policy for inference and start the pool."""
     env_cfg = _pantograph_env(cfg)
@@ -262,6 +290,7 @@ async def open_live_runtime(
         plan=plan,
         model_generation=model_generation,
         search_kwargs=search_kwargs,
+        pln_spec=pln_spec, enable_pln=enable_pln,
     )
     return LiveRuntime(cfg, env_cfg, plan, policy, pool, model_generation)
 

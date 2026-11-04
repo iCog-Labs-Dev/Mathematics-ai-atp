@@ -10,7 +10,7 @@ ProposalMode = Literal["sample", "greedy"]
 
 
 class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
 class ProveRequest(_Strict):

@@ -1,5 +1,8 @@
 # Dockerized FastAPI service for MCTS actor–critic proving and evaluation
 
+> The follow-up plan `mcts_api_service_remediation_and_pln_deployment.md`
+> expands served profiles to PLN and repairs lifecycle/admission guarantees.
+
 ## Objective and agreed scope
 
 Expose the existing source-aware `MCTS-AC-branch` proof-search engine through FastAPI/Uvicorn and Docker. Support both PUCT and best-first search, with independently selectable sampled or greedy action proposals. Reuse main's API organization without importing its older client, model, or Lean environment assumptions.

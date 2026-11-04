@@ -1,0 +1,474 @@
+[
+  {
+    "name": "implication",
+    "expression": "∀ (P Q : Prop), P → (P → Q) → Q",
+    "tactic": "intro P Q hP hPQ",
+    "goal": {
+      "goal_name": "_uniq.93",
+      "case_tag": null,
+      "is_conversion": false,
+      "fragment": "tactic",
+      "target": {
+        "pp": "Q",
+        "sexp": "(:fv _uniq.86)",
+        "model_sexp": "(:fv FV1)",
+        "model_sexp_version": 1
+      },
+      "locals": [
+        {
+          "internal_name": "_uniq.83",
+          "user_name": "P",
+          "context_index": 0,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "Prop",
+            "sexp": "(:sort 0)",
+            "model_sexp": "(:sort Prop)",
+            "model_sexp_version": 1
+          },
+          "value": null
+        },
+        {
+          "internal_name": "_uniq.86",
+          "user_name": "Q",
+          "context_index": 1,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "Prop",
+            "sexp": "(:sort 0)",
+            "model_sexp": "(:sort Prop)",
+            "model_sexp_version": 1
+          },
+          "value": null
+        },
+        {
+          "internal_name": "_uniq.89",
+          "user_name": "hP",
+          "context_index": 2,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "P",
+            "sexp": "(:fv _uniq.83)",
+            "model_sexp": "(:fv FV0)",
+            "model_sexp_version": 1
+          },
+          "value": null
+        },
+        {
+          "internal_name": "_uniq.92",
+          "user_name": "hPQ",
+          "context_index": 3,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "P → Q",
+            "sexp": "(:forall _ (:fv _uniq.83) (:fv _uniq.86))",
+            "model_sexp": "(:forall _ :explicit (:fv FV0) (:fv FV1))",
+            "model_sexp_version": 1
+          },
+          "value": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "and_arrow",
+    "expression": "∀ (P Q : Prop), (P ∧ Q → P)",
+    "tactic": "intro P Q",
+    "goal": {
+      "goal_name": "_uniq.110",
+      "case_tag": null,
+      "is_conversion": false,
+      "fragment": "tactic",
+      "target": {
+        "pp": "P ∧ Q → P",
+        "sexp": "(:forall _ ((:c And) (:fv _uniq.106) (:fv _uniq.109)) (:fv _uniq.106))",
+        "model_sexp": "(:forall _ :explicit (:app (:c And) (:arg :explicit 0 (:fv FV0)) (:arg :explicit 1 (:fv FV1))) (:fv FV0))",
+        "model_sexp_version": 1
+      },
+      "locals": [
+        {
+          "internal_name": "_uniq.106",
+          "user_name": "P",
+          "context_index": 0,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "Prop",
+            "sexp": "(:sort 0)",
+            "model_sexp": "(:sort Prop)",
+            "model_sexp_version": 1
+          },
+          "value": null
+        },
+        {
+          "internal_name": "_uniq.109",
+          "user_name": "Q",
+          "context_index": 1,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "Prop",
+            "sexp": "(:sort 0)",
+            "model_sexp": "(:sort Prop)",
+            "model_sexp_version": 1
+          },
+          "value": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "negation",
+    "expression": "∀ (P Q : Prop), (¬P ∧ Q) → ¬P",
+    "tactic": "intro P Q h",
+    "goal": {
+      "goal_name": "_uniq.132",
+      "case_tag": null,
+      "is_conversion": false,
+      "fragment": "tactic",
+      "target": {
+        "pp": "¬P",
+        "sexp": "((:c Not) (:fv _uniq.125))",
+        "model_sexp": "(:app (:c Not) (:arg :explicit 0 (:fv FV0)))",
+        "model_sexp_version": 1
+      },
+      "locals": [
+        {
+          "internal_name": "_uniq.125",
+          "user_name": "P",
+          "context_index": 0,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "Prop",
+            "sexp": "(:sort 0)",
+            "model_sexp": "(:sort Prop)",
+            "model_sexp_version": 1
+          },
+          "value": null
+        },
+        {
+          "internal_name": "_uniq.128",
+          "user_name": "Q",
+          "context_index": 1,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "Prop",
+            "sexp": "(:sort 0)",
+            "model_sexp": "(:sort Prop)",
+            "model_sexp_version": 1
+          },
+          "value": null
+        },
+        {
+          "internal_name": "_uniq.131",
+          "user_name": "h",
+          "context_index": 2,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "¬P ∧ Q",
+            "sexp": "((:c And) ((:c Not) (:fv _uniq.125)) (:fv _uniq.128))",
+            "model_sexp": "(:app (:c And) (:arg :explicit 0 (:app (:c Not) (:arg :explicit 0 (:fv FV0)))) (:arg :explicit 1 (:fv FV1)))",
+            "model_sexp_version": 1
+          },
+          "value": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "parentheses",
+    "expression": "∀ (P Q : Prop), P → Q → (P ∧ Q)",
+    "tactic": "intro P Q hP hQ",
+    "goal": {
+      "goal_name": "_uniq.158",
+      "case_tag": null,
+      "is_conversion": false,
+      "fragment": "tactic",
+      "target": {
+        "pp": "P ∧ Q",
+        "sexp": "((:c And) (:fv _uniq.148) (:fv _uniq.151))",
+        "model_sexp": "(:app (:c And) (:arg :explicit 0 (:fv FV0)) (:arg :explicit 1 (:fv FV1)))",
+        "model_sexp_version": 1
+      },
+      "locals": [
+        {
+          "internal_name": "_uniq.148",
+          "user_name": "P",
+          "context_index": 0,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "Prop",
+            "sexp": "(:sort 0)",
+            "model_sexp": "(:sort Prop)",
+            "model_sexp_version": 1
+          },
+          "value": null
+        },
+        {
+          "internal_name": "_uniq.151",
+          "user_name": "Q",
+          "context_index": 1,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "Prop",
+            "sexp": "(:sort 0)",
+            "model_sexp": "(:sort Prop)",
+            "model_sexp_version": 1
+          },
+          "value": null
+        },
+        {
+          "internal_name": "_uniq.154",
+          "user_name": "hP",
+          "context_index": 2,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "P",
+            "sexp": "(:fv _uniq.148)",
+            "model_sexp": "(:fv FV0)",
+            "model_sexp_version": 1
+          },
+          "value": null
+        },
+        {
+          "internal_name": "_uniq.157",
+          "user_name": "hQ",
+          "context_index": 3,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "Q",
+            "sexp": "(:fv _uniq.151)",
+            "model_sexp": "(:fv FV1)",
+            "model_sexp_version": 1
+          },
+          "value": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "equality",
+    "expression": "∀ (x : Nat), x = x",
+    "tactic": "intro x",
+    "goal": {
+      "goal_name": "_uniq.170",
+      "case_tag": null,
+      "is_conversion": false,
+      "fragment": "tactic",
+      "target": {
+        "pp": "x = x",
+        "sexp": "((:c Eq) (:c Nat) (:fv _uniq.169) (:fv _uniq.169))",
+        "model_sexp": "(:app (:c Eq) (:arg :implicit-type 0 (:c Nat)) (:arg :explicit 1 (:fv FV0)) (:arg :explicit 2 (:fv FV0)))",
+        "model_sexp_version": 1
+      },
+      "locals": [
+        {
+          "internal_name": "_uniq.169",
+          "user_name": "x",
+          "context_index": 0,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "ℕ",
+            "sexp": "(:c Nat)",
+            "model_sexp": "(:c Nat)",
+            "model_sexp_version": 1
+          },
+          "value": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "shadowing",
+    "expression": "∀ (x : Nat), ∀ (x : Nat), x = x",
+    "tactic": "intro x x",
+    "goal": {
+      "goal_name": "_uniq.189",
+      "case_tag": null,
+      "is_conversion": false,
+      "fragment": "tactic",
+      "target": {
+        "pp": "x = x",
+        "sexp": "((:c Eq) (:c Nat) (:fv _uniq.188) (:fv _uniq.188))",
+        "model_sexp": "(:app (:c Eq) (:arg :implicit-type 0 (:c Nat)) (:arg :explicit 1 (:fv FV1)) (:arg :explicit 2 (:fv FV1)))",
+        "model_sexp_version": 1
+      },
+      "locals": [
+        {
+          "internal_name": "_uniq.185",
+          "user_name": "x✝",
+          "context_index": 0,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": true,
+          "type": {
+            "pp": "ℕ",
+            "sexp": "(:c Nat)",
+            "model_sexp": "(:c Nat)",
+            "model_sexp_version": 1
+          },
+          "value": null
+        },
+        {
+          "internal_name": "_uniq.188",
+          "user_name": "x",
+          "context_index": 1,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "ℕ",
+            "sexp": "(:c Nat)",
+            "model_sexp": "(:c Nat)",
+            "model_sexp_version": 1
+          },
+          "value": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "data_context",
+    "expression": "∀ (x : Nat) (P : Prop), P → P",
+    "tactic": "intro x P hP",
+    "goal": {
+      "goal_name": "_uniq.210",
+      "case_tag": null,
+      "is_conversion": false,
+      "fragment": "tactic",
+      "target": {
+        "pp": "P",
+        "sexp": "(:fv _uniq.206)",
+        "model_sexp": "(:fv FV1)",
+        "model_sexp_version": 1
+      },
+      "locals": [
+        {
+          "internal_name": "_uniq.203",
+          "user_name": "x",
+          "context_index": 0,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "ℕ",
+            "sexp": "(:c Nat)",
+            "model_sexp": "(:c Nat)",
+            "model_sexp_version": 1
+          },
+          "value": null
+        },
+        {
+          "internal_name": "_uniq.206",
+          "user_name": "P",
+          "context_index": 1,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "Prop",
+            "sexp": "(:sort 0)",
+            "model_sexp": "(:sort Prop)",
+            "model_sexp_version": 1
+          },
+          "value": null
+        },
+        {
+          "internal_name": "_uniq.209",
+          "user_name": "hP",
+          "context_index": 2,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "P",
+            "sexp": "(:fv _uniq.206)",
+            "model_sexp": "(:fv FV1)",
+            "model_sexp_version": 1
+          },
+          "value": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "dependent",
+    "expression": "∀ (P : Prop), (h : P) → h = h",
+    "tactic": "intro P",
+    "goal": {
+      "goal_name": "_uniq.223",
+      "case_tag": null,
+      "is_conversion": false,
+      "fragment": "tactic",
+      "target": {
+        "pp": "∀ (h : P), h = h",
+        "sexp": "(:forall h (:fv _uniq.222) ((:c Eq) (:fv _uniq.222) 0 0))",
+        "model_sexp": "(:forall h :explicit (:fv FV0) (:app (:c Eq) (:arg :implicit-type 0 (:fv FV0)) (:arg :proof 1 (:proof-of (:fv FV0))) (:arg :proof 2 (:proof-of (:fv FV0)))))",
+        "model_sexp_version": 1
+      },
+      "locals": [
+        {
+          "internal_name": "_uniq.222",
+          "user_name": "P",
+          "context_index": 0,
+          "binder_role": ":explicit",
+          "is_instance": false,
+          "is_let": false,
+          "is_inaccessible": false,
+          "type": {
+            "pp": "Prop",
+            "sexp": "(:sort 0)",
+            "model_sexp": "(:sort Prop)",
+            "model_sexp_version": 1
+          },
+          "value": null
+        }
+      ]
+    }
+  }
+]

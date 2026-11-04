@@ -15,12 +15,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import signal
 import sys
 import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from .process_guardian import GuardedRuntime
 from .config import ServiceConfig
 from .ipc import IPCError, read_message, send_message
 
@@ -73,14 +73,6 @@ def descendants(pid: int) -> list[int]:
     return found
 
 
-def _signal_group(pid: int, sig: int) -> None:
-    try:
-        os.killpg(pid, sig)
-    except (ProcessLookupError, PermissionError):
-        try:
-            os.kill(pid, sig)
-        except (ProcessLookupError, PermissionError):
-            pass
 
 
 class RuntimeSupervisor:
@@ -105,7 +97,7 @@ class RuntimeSupervisor:
         self.generation = 0
         self.provenance: dict[str, Any] | None = None
         self.status: dict[str, Any] = {}
-        self.process: asyncio.subprocess.Process | None = None
+        self.process: GuardedRuntime | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._pending: dict[str, asyncio.Future] = {}
         self._connected: asyncio.Future | None = None
@@ -153,7 +145,12 @@ class RuntimeSupervisor:
         ]
         if self.backend:
             command += ["--backend", self.backend]
-        self.process = await asyncio.create_subprocess_exec(*command, start_new_session=True)
+        try:
+            self.process = await GuardedRuntime.start(command, self.limits.runtime_start_timeout_s)
+        except Exception as exc:
+            self.state, self.error = FAILED, f"generation ownership failed: {exc}"
+            self._server.close()
+            return
         self._spawn_task(self._watch_exit(self.process, generation))
         try:
             async with asyncio.timeout(self.limits.runtime_start_timeout_s):
@@ -215,6 +212,9 @@ class RuntimeSupervisor:
             await asyncio.sleep(self.restart_delay_s)
             if not self._stopping:
                 await self._start_generation()
+        except Exception as exc:
+            self.state, self.error = FAILED, f"generation cleanup failed: {exc}"
+            logger.exception(self.error)
         finally:
             self._restarting = False
 
@@ -238,26 +238,10 @@ class RuntimeSupervisor:
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
 
-    async def _kill(self, process: asyncio.subprocess.Process | None) -> None:
-        """Terminate the runtime's group and every Lean process group it owns, then reap."""
-        if process is None or process.returncode is not None:
-            return
-        owned = descendants(process.pid)
-        for sig in (signal.SIGTERM, signal.SIGKILL):
-            _signal_group(process.pid, sig)
-            for pid in owned:
-                _signal_group(pid, sig)
-            try:
-                async with asyncio.timeout(5.0 if sig == signal.SIGTERM else 30.0):
-                    await process.wait()
-                break
-            except TimeoutError:
-                continue
-        for pid in owned:
-            try:
-                os.waitpid(pid, os.WNOHANG)
-            except ChildProcessError:
-                pass
+    async def _kill(self, process: GuardedRuntime | None) -> None:
+        """The guardian owns descendants even after the compute parent dies."""
+        if process is not None:
+            await process.close()
 
     # Operations ----------------------------------------------------------
 
@@ -268,7 +252,12 @@ class RuntimeSupervisor:
 
     async def run(self, op: str, payload: dict[str, Any], *, timeout: float) -> dict[str, Any]:
         """Run one operation; a timeout or caller cancellation starts its cleanup."""
-        await self.settled()
+        deadline = asyncio.get_running_loop().time() + timeout
+        try:
+            async with asyncio.timeout_at(deadline):
+                await self.settled()
+        except TimeoutError as exc:
+            raise OperationTimeout("Deadline expired waiting for runtime cleanup") from exc
         if self.state != READY or self._writer is None:
             raise RuntimeUnavailable(self.error or f"runtime is {self.state}")
         op_id = uuid.uuid4().hex
@@ -276,12 +265,12 @@ class RuntimeSupervisor:
         self._pending[op_id] = future
         generation = self.generation
         try:
-            await send_message(
-                self._writer,
-                {"type": "run", "generation": generation, "op_id": op_id, "op": op, "payload": payload},
-                limit=self.limit,
-            )
-            async with asyncio.timeout(timeout):
+            async with asyncio.timeout_at(deadline):
+                await send_message(
+                    self._writer,
+                    {"type": "run", "generation": generation, "op_id": op_id, "op": op, "payload": payload},
+                    limit=self.limit,
+                )
                 return await asyncio.shield(future)
         except TimeoutError as exc:
             self._begin_cleanup(op_id, future, generation)

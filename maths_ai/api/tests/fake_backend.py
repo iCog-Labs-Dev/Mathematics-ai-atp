@@ -64,9 +64,9 @@ class FakeBackend:
         done = self.admit_steps >= 2
         repeats = payload["evaluation"]["repeats"]
         progress = {"rows_seen": 2 * self.admit_steps, "admitted": 2 * self.admit_steps,
-                    "newly_admitted": 2, "done": done}
+                    "newly_admitted": 2, "done": done, "admission": {"admitted": 2 * self.admit_steps}}
         if done:
-            progress.update(eval_items=2, eval_subset_sha256="fake-subset",
+            progress.update(input_records=[{"identity": "fake-0"}, {"identity": "fake-1"}], proposal_records=[[] for _ in range(repeats)], eval_items=2, eval_subset_sha256="fake-subset",
                             proposal_seeds_sha256=[f"seeds-{r}" for r in range(repeats)],
                             admission={"admitted": 4})
         return progress

@@ -10,13 +10,32 @@
       "max_nodes": 512,
       "num_simulations": 64,
       "sim_batch_size": 8,
-      "puct_c": 1.0
+      "puct_c": 1.0,
+      "use_pln": false
     },
     "best_first": {
       "selection_policy": "legacy",
       "top_k_tactics": 8,
       "max_depth": 16,
-      "max_nodes": 512
+      "max_nodes": 512,
+      "use_pln": false
+    },
+    "puct_pln": {
+      "selection_policy": "puct",
+      "top_k_tactics": 8,
+      "max_depth": 16,
+      "max_nodes": 512,
+      "num_simulations": 64,
+      "sim_batch_size": 8,
+      "puct_c": 1.0,
+      "use_pln": true
+    },
+    "best_first_pln": {
+      "selection_policy": "legacy",
+      "top_k_tactics": 8,
+      "max_depth": 16,
+      "max_nodes": 512,
+      "use_pln": true
     }
   },
   "dataset_profiles": {
@@ -40,5 +59,14 @@
     "max_repeats": 8,
     "eval_chunk_size": 4,
     "runtime_start_timeout_s": 900
+  },
+  "pln": {
+    "petta_bin": "/opt/pln/bin/petta",
+    "petta_source_root": "/opt/pln/src/PeTTa",
+    "chainer_root": "/opt/pln/src/petta_chainer",
+    "swipl_bin": "/opt/pln/bin/swipl",
+    "max_concurrency": 2,
+    "max_pending": 32,
+    "timeout_s": 10.0
   }
 }

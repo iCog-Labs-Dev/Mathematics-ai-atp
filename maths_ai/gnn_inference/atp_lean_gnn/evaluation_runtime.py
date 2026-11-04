@@ -10,6 +10,7 @@ an optimizer or changes model weights.
 from __future__ import annotations
 
 import asyncio
+from maths_ai.pln_inference.compiler import TRANSLATION_VERSION
 import hashlib
 import json
 import time
@@ -54,6 +55,7 @@ def search_settings(cfg: RLTrainingConfig) -> dict[str, object]:
         "sim_batch_size": cfg.sim_batch_size,
         "puct_c": cfg.puct_c,
         "use_pln": cfg.use_pln,
+        "pln_translation": TRANSLATION_VERSION if cfg.use_pln else None,
         "visit_threshold": cfg.visit_threshold,
         "widening": None if cfg.widening() is None else cfg.widening().as_dict(),
         "proposal": {
@@ -115,6 +117,7 @@ class EvaluationSettings:
         """What a stored best proof rate was measured under."""
         return {
             "metric": EVAL_METRIC_VERSION,
+            "pln_translation": TRANSLATION_VERSION,
             "mode": self.mode,
             "seed": self.seed,
             "repeats": self.repeats,
@@ -259,6 +262,9 @@ def search_counters(results: list[RLSearchResult]) -> dict[str, float]:
             continue
         for key, value in result.graph.search_counters().items():
             totals[key] = totals.get(key, 0.0) + value
+        for status, value in result.graph.execution.get("pln_counts", {}).items():
+            key = "pln_" + status
+            totals[key] = totals.get(key, 0.0) + float(value)
         totals["settled_draws"] += float(result.draws())
         totals["observations"] += float(len(result.observations))
     return totals
@@ -285,7 +291,7 @@ ADDITIVE_ROUND_STATS = (
 def chunk_stats(stats: dict[str, float]) -> dict[str, float]:
     """The additive part of a round's stats: outcome counts and search counters."""
     keys = (*ADDITIVE_ROUND_STATS, *search_counters([]))
-    return {key: float(stats.get(key, 0.0)) for key in keys}
+    return {key: float(value) for key, value in stats.items() if key in keys or key.startswith("pln_")}
 
 
 def merge_stats(total: dict[str, float], stats: dict[str, float]) -> dict[str, float]:
@@ -353,7 +359,7 @@ def summarize_rows(
         "searches_hard_timed_out": total("searches_hard_timed_out"),
         "searches_cooperative_deadline": total("searches_cooperative_deadline"),
         "seeds_inadmissible": total("seeds_inadmissible"),
-        **{key: total(key) for key in search_counters([])},
+        **{key: total(key) for key in set(search_counters([])).union(key for row in repeats for key in row if key.startswith("pln_"))},
         "evaluation": settings.contract(),
         "eval_subset_size": subset_size,
         "eval_subset_sha256": subset_sha256,
@@ -400,7 +406,9 @@ async def evaluate_proof_rate(
     finally:
         if was_training:
             reasoner.model.train()
-    return summarize_evaluation(settings, eval_items, repeats)
+    report = summarize_evaluation(settings, eval_items, repeats)
+    report["pln_runtime"] = getattr(reasoner_pool, "pln_identity", None)
+    return report
 
 
 def evaluation_report(

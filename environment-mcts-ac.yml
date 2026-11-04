@@ -1,0 +1,28 @@
+# Linux JupyterHub environment. Run Conda from the repository root so pip can
+# find requirements-mcts-ac.txt. Check library(janus) after creation; see the
+# setup guide: scripts/provision_pln.sh builds the pinned SWI-Prolog/Janus.
+name: atp
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.13
+  - pip
+  - git
+  - coreutils
+  # Build tools and headers for a Python-bound SWI-Prolog/Janus build.
+  - cmake>=3.16,<4
+  - ninja
+  - pkg-config
+  - c-compiler
+  - cxx-compiler
+  - gmp
+  - zlib
+  - libarchive
+  - libedit
+  - libuuid
+  - openssl
+  - pcre2
+  - yaml
+  - pip:
+      - -r requirements-mcts-ac.txt
