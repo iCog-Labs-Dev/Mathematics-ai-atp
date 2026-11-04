@@ -10,8 +10,8 @@
 # Usage:
 #   docker compose up                                   # fetch assets, then start the API server
 #   docker compose up api                               # start only the API server
-#   curl http://localhost:8000/health                    # check API health
-#   curl -X POST http://localhost:8000/prove -H 'Content-Type: application/json' -d '{"goal": "..."}'
+#   curl http://localhost:${MATHS_AI_API_HOST_PORT:-8000}/health
+#   curl -X POST http://localhost:${MATHS_AI_API_HOST_PORT:-8000}/prove -H 'Content-Type: application/json' -d '{"goal": "..."}'
 #   docker compose --profile experimental up experimental
 #   docker compose --profile batch run --rm core --goal_statement '...'
 #
@@ -51,7 +51,7 @@ services:
       asset-fetch:
         condition: service_completed_successfully
     ports:
-      - "${MATHS_AI_API_PORT:-8000}:8000"
+      - "${MATHS_AI_API_HOST_PORT:-8000}:8000"
     volumes:
       - models-corpus-cache:/data:ro
     environment:

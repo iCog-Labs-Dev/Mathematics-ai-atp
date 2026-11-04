@@ -89,14 +89,27 @@ curl -X POST http://localhost:8000/prove -H 'Content-Type: application/json' \
   -d '{"goal": "∀ (n : Nat), n + 0 = n"}'
 ```
 
+Use a different local port either with an environment variable or a
+command-line option:
+
+```bash
+MATHS_AI_API_PORT=8001 uv run python -m maths_ai.api
+# or
+uv run python -m maths_ai.api --port 8001
+curl http://localhost:8001/health
+```
+
 ### Docker (API server)
 
 ```bash
-docker compose up
-curl http://localhost:8000/health
-curl -X POST http://localhost:8000/prove -H 'Content-Type: application/json' \
+MATHS_AI_API_HOST_PORT=8001 docker compose up
+curl http://localhost:8001/health
+curl -X POST http://localhost:8001/prove -H 'Content-Type: application/json' \
   -d '{"goal": "∀ (n : Nat), n + 0 = n"}'
 ```
+
+`MATHS_AI_API_HOST_PORT` changes only the host port; the API continues to
+listen on port 8000 inside the container.
 
 See `docker-compose.yml` for all services and profiles.
 

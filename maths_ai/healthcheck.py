@@ -4,6 +4,7 @@ Checks that the Lean project is present and that the HTTP readiness endpoint
 reports the application is up and ready.
 """
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -21,7 +22,9 @@ def _check() -> bool:
         return False
 
     try:
-        with urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=5) as response:
+        host = os.getenv("MATHS_AI_API_HEALTH_HOST", "127.0.0.1")
+        port = os.getenv("MATHS_AI_API_PORT", "8000")
+        with urllib.request.urlopen(f"http://{host}:{port}/health", timeout=5) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, TimeoutError, ValueError) as exc:
         print(f"FAIL: /health is not reachable: {exc}", file=sys.stderr)
