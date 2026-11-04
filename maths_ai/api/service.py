@@ -194,7 +194,7 @@ async def build_default_service(
     corpus_path = corpus_path if corpus_path is not None else settings.lemma_corpus_path
     bundle_path = bundle_path if bundle_path is not None else settings.gnn_bundle_path
 
-    server = await Server.create()
+    server = await Server.create(project_path=str(settings.lean_project_path))
     try:
         dts_input = settings.dts_state_file
         dts_sampler = None

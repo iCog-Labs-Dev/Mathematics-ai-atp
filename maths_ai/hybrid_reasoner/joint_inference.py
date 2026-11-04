@@ -467,7 +467,7 @@ async def main(
     top_k_subgoals: int = 3,
 
 ) -> None:
-    server = await Server.create()
+    server = await Server.create(project_path=str(settings.lean_project_path))
     
     # Auto-load DTS state from default location if not specified
     if dts_state_input is None and settings.dts_state_file.exists():

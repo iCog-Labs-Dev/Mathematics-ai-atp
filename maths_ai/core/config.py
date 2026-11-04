@@ -80,6 +80,7 @@ class Settings:
     data_dir: Path = DATA_DIR
     models_dir: Path = MODELS_DIR
     logs_dir: Path = LOGS_DIR
+    lean_project_path: Path = LEAN_PROJECT_PATH
     proof_depth: int = 20
     gnn_config_path: Path = GNN_CONFIG_PATH
     gnn_bundle_path: Path = GNN_BUNDLE_PATH

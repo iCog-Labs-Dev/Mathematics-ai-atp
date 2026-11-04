@@ -62,7 +62,7 @@ services:
       - MATHS_AI_API_HOST=0.0.0.0
       - MATHS_AI_API_PORT=8000
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-m", "maths_ai.healthcheck"]
       interval: 30s
       timeout: 10s
       retries: 3

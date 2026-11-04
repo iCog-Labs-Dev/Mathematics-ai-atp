@@ -159,9 +159,17 @@ docker run --rm maths_ai-core \
 
 ## Health Check
 
+The container health check calls the HTTP `/health` endpoint and fails unless it
+reports `{"ready": true}`. This catches startup regressions where the API is
+responding but the Lean/Pantograph backend is still not ready.
+
 ```bash
 python -m maths_ai.healthcheck
 ```
+
+The image builds the Lean Pantograph executable from
+[jajos12/Pantograph](https://github.com/jajos12/Pantograph) and installs it
+alongside the Python Pantograph client used by the API.
 
 ## GPU Support (training target)
 
