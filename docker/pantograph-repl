@@ -1,0 +1,4 @@
+#!/bin/sh
+# Lean's stdout is block-buffered when Pantograph is launched through a pipe.
+# The Python client waits for the ready line before sending its first request.
+exec stdbuf -oL "$(dirname "$0")/pantograph-repl.bin" "$@"

@@ -74,12 +74,17 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # The Python package supplies the client API used by this project; its bundled
 # executable is replaced with this build so the client and Lean backend stay
 # wired together.
-ARG PANTOGRAPH_REF=main
-RUN git clone --depth 1 --branch ${PANTOGRAPH_REF} https://github.com/jajos12/Pantograph.git /opt/pantograph && \
+ARG PANTOGRAPH_REF=06fdf7e678c1ce2e7a2bb5fe26962c6d89715e22
+COPY docker/pantograph-repl /tmp/pantograph-repl-wrapper
+RUN git init /opt/pantograph && \
+    git -C /opt/pantograph remote add origin https://github.com/jajos12/Pantograph.git && \
+    git -C /opt/pantograph fetch --depth 1 origin ${PANTOGRAPH_REF} && \
+    git -C /opt/pantograph checkout --detach FETCH_HEAD && \
     cd /opt/pantograph && \
     lake build && \
     pantograph_package=$(/opt/venv/bin/python -c 'import pathlib, pantograph; print(pathlib.Path(pantograph.__file__).parent)') && \
-    install -m 0755 /opt/pantograph/.lake/build/bin/pantograph-repl "${pantograph_package}/pantograph-repl"
+    install -m 0755 /opt/pantograph/.lake/build/bin/repl "${pantograph_package}/pantograph-repl.bin" && \
+    install -m 0755 /tmp/pantograph-repl-wrapper "${pantograph_package}/pantograph-repl"
 
 # Install petta into the project virtualenv, not the system Python
 ARG PETTA_REF=v1.0.3
