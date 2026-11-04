@@ -6,6 +6,7 @@ no torch/pantograph stack (or model checkpoints) is needed.
 
 from __future__ import annotations
 
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -111,6 +112,15 @@ class FakeDtsSampler:
 
 
 # Helpers ---------------------------------------------------------------------
+
+
+def test_project_core_dependencies_do_not_require_pantograph():
+    pyproject_path = Path(__file__).resolve().parents[3] / "pyproject.toml"
+    with pyproject_path.open("rb") as fh:
+        metadata = tomllib.load(fh)
+
+    dependency_names = [d.split(";", 1)[0].split("@", 1)[0].strip() for d in metadata["project"]["dependencies"]]
+    assert "pantograph" not in dependency_names
 
 
 @pytest.fixture

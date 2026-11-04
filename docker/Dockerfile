@@ -59,16 +59,19 @@ ENV MATHS_AI_LEAN_PROJECT=/opt/lean_project
 ENV MATHS_AI_DATA_ROOT=/data
 ENV HOME=/home/maths_ai
 
-# Set up workspace and install Python dependencies
-# UV_PROJECT_ENVIRONMENT makes `uv sync` install into /opt/venv instead of
-# creating a separate /workspace/.venv that nothing on PATH would use.
+# Set up workspace and install Python dependencies.
+# This image is CPU-only, so we must resolve PyTorch from the CPU wheel index.
+# The default torch package on PyPI brings in CUDA wheel metadata and tries to
+# fetch the nvidia packages that fail in constrained Docker builds.
 WORKDIR /workspace
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+ENV UV_HTTP_TIMEOUT=300
+ENV UV_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
 COPY pyproject.toml uv.lock /workspace/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv --seed /opt/venv && \
-    uv sync --no-dev --inexact --no-install-project && \
-    uv pip install --python /opt/venv/bin/python -e . --no-deps
+    uv sync --no-dev --inexact --no-install-project --extra-index-url https://download.pytorch.org/whl/cpu && \
+    uv pip install --python /opt/venv/bin/python --extra-index-url https://download.pytorch.org/whl/cpu -e . --no-deps
 
 # Build the Lean Pantograph executable from the requested implementation.
 # The Python package supplies the client API used by this project; its bundled
@@ -79,7 +82,7 @@ RUN git clone --depth 1 --branch ${PANTOGRAPH_REF} https://github.com/jajos12/Pa
     cd /opt/pantograph && \
     lake build && \
     pantograph_package=$(/opt/venv/bin/python -c 'import pathlib, pantograph; print(pathlib.Path(pantograph.__file__).parent)') && \
-    install -m 0755 /opt/pantograph/.lake/build/bin/pantograph-repl "${pantograph_package}/pantograph-repl"
+    install -m 0755 /opt/pantograph/.lake/build/bin/repl "${pantograph_package}/pantograph-repl"
 
 # Install petta into the project virtualenv, not the system Python
 ARG PETTA_REF=v1.0.3
