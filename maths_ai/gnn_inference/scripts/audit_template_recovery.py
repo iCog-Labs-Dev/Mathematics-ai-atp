@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from pathlib import Path
 
 from maths_ai.gnn_inference.atp_lean_gnn import tactic_templates
@@ -14,6 +14,25 @@ from maths_ai.gnn_inference.atp_lean_gnn.intro_templates import INTRO_TEMPLATE_S
 from maths_ai.gnn_inference.atp_lean_gnn import recursive_templates
 from maths_ai.gnn_inference.atp_lean_gnn.bundle import file_sha256
 from maths_ai.gnn_inference.scripts.audit_unsupported_actions import _rows, read_snapshot, verify_coverage
+
+
+def select_native_pilot(pilot_groups, limit):
+    """Round-robin families first so numerous application shapes cannot starve rules."""
+    by_family = defaultdict(list)
+    for (family, _), values in sorted(pilot_groups.items()):
+        if values:
+            by_family[family].append(deque(sorted(values)))
+    families = deque(deque(groups) for _, groups in sorted(by_family.items()))
+    chosen = []
+    while families and len(chosen) < limit:
+        groups = families.popleft()
+        group = groups.popleft()
+        chosen.append(group.popleft()[1])
+        if group:
+            groups.append(group)
+        if groups:
+            families.append(groups)
+    return sorted(chosen)
 
 
 def _new_stats():
@@ -236,20 +255,10 @@ def main(argv=None):
             raise ValueError("recovery cohort differs from baseline")
     report.update(complete=True, row_records_sha256=rows_digest.hexdigest())
     if args.renderer == "template-v4":
-        groups = [sorted(values) for _, values in sorted(pilot_groups.items())]
-        chosen = []
-        while groups and len(chosen) < args.pilot_actions:
-            remaining = []
-            for group in groups:
-                if len(chosen) == args.pilot_actions:
-                    break
-                chosen.append(group[0][1])
-                if len(group) > 1:
-                    remaining.append(group[1:])
-            groups = remaining
+        chosen = select_native_pilot(pilot_groups, args.pilot_actions)
         (output / "new_val_pilot_rows.json").write_text(json.dumps(sorted(chosen)), encoding="utf-8")
         report["native_pilot"] = {"split": "val", "selected_steps": len(chosen), "candidate_groups": len(pilot_groups),
-                                  "row_indices_file": "new_val_pilot_rows.json", "policy": "round_robin_family_features_lowest_sha_v1"}
+                                  "row_indices_file": "new_val_pilot_rows.json", "policy": "round_robin_family_then_features_lowest_sha_v2"}
     checkpoint()
     print(json.dumps({split: dict(stats) for split, stats in totals.items()}, indent=2), flush=True)
     print(f"Report: {output / 'report.json'}", flush=True)

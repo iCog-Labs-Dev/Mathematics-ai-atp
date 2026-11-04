@@ -182,3 +182,12 @@ def test_v4_recovery_measures_recursive_gains_and_selects_only_new_exact_val_pil
     after = _snapshot(tmp_path)
     assert all(after[path] == digest for path, digest in before.items())
     assert all(path in before or path.startswith("v4/") for path in after)
+
+
+def test_native_pilot_does_not_starve_rules_when_application_forms_dominate():
+    groups = {("exact", (f"feature{i:02d}",)): [(f"rank{i:02d}", i)] for i in range(30)}
+    groups[("rw", ("application", "reference"))] = [("rank", 100)]
+    groups[("simp", ("application", "reference"))] = [("rank", 101)]
+    selected = recovery.select_native_pilot(groups, 6)
+    assert len(selected) == 6 and {100, 101}.issubset(selected)
+    assert selected == recovery.select_native_pilot(dict(reversed(list(groups.items()))), 6)
