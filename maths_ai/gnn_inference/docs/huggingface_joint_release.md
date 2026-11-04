@@ -136,5 +136,24 @@ cases using a real tiny BERT/tokenizer, FAISS index and joint policy without
 downloads. Tests cover independent loading after source removal, prediction
 without gold labels, optional cues, Hub symlinks, wrong epoch/checkpoint/vocab/
 head/vector bindings, tampering, clean-tree replacement and immutable tags.
-Actual server export, independent verification and authenticated HF publication
-remain pending; local tests do not claim the remote model was updated.
+
+## Published release
+
+Server export and independent offline verification completed successfully:
+22 hash-bound component files, **3,869,544 policy parameters**, **45,426,432
+retriever parameters**, and **318,953 indexed lemmas**. The package's source
+code revision is `d9e09cc31682ee6da9a032b1e3f788a343954b9a`.
+
+Published and remotely verified:
+
+- `v2.0.0`: `8aba62625dfeb833e4591498700f351f3bc60af9`.
+- `v1.0.0`: `700c48cf1b741e59d39fa29d105cd2d2f77fdb9f` (previous model).
+- Release: https://huggingface.co/iCogLabs-Dev/Mathlib-Sexpr-GNN/tree/v2.0.0
+- Commit: https://huggingface.co/iCogLabs-Dev/Mathlib-Sexpr-GNN/commit/8aba62625dfeb833e4591498700f351f3bc60af9
+
+Remote API confirms clean-root files and preserved old-tag contents. Large-file
+SHA256 metadata for policy/retriever weights, corpus, FAISS index, vectors and
+lemma names matches `bundle.json`. Published provenance confirms joint epoch 3,
+local refinement epoch 8 and matched retrieval epoch 5. These remote checks
+plus the server load-back do not claim a separate fresh-download inference
+test or new whole-proof performance evaluation.
