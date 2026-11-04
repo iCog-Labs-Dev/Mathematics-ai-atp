@@ -43,7 +43,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver import (
     write_evaluation_report,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.rl_live_collection import LiveReasonerPool
-from maths_ai.gnn_inference.atp_lean_gnn import rl_training_driver
+from maths_ai.gnn_inference.atp_lean_gnn import live_runtime, rl_training_driver
 from maths_ai.hybrid_reasoner.proposal import ProposalSpec
 from maths_ai.gnn_inference.atp_lean_gnn.rl_resources import ResourcePlan
 from pantograph_async import (
@@ -128,7 +128,7 @@ def _RejectExecutor():
 
 
 class _StubPLN:
-    async def evaluate_async(self, expression, hypotheses=None, **kwargs):
+    async def evaluate_async(self, goal, **kwargs):
         return PLNResult(stv=STV(strength=0.1, confidence=1.0), status="ok", is_fallback=False)
 
 
@@ -347,12 +347,12 @@ class ConfigTests(unittest.TestCase):
             )
             with (
                 patch(
-                    "maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver."
+                    "maths_ai.gnn_inference.atp_lean_gnn.live_runtime."
                     "create_model_sexpr_client",
                     new=create_server,
                 ),
                 patch(
-                    "maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver."
+                    "maths_ai.gnn_inference.atp_lean_gnn.live_runtime."
                     "RLHybridReasoner",
                     new=_RecordingReasoner,
                 ),
@@ -590,11 +590,24 @@ class PoolTests(unittest.TestCase):
                 max_scan_rows=7,
                 eval_pool_size=0,
             )
-            pool = asyncio.run(
-                build_theorem_pool(
-                    cfg, _env(tmp), report_dir=tmp / "admission", client_factory=_factory(client)
-                )
+            # The network iterator is a unit-test seam; spawned production readers
+            # deliberately do not inherit parent-process monkeypatches.
+            from maths_ai.gnn_inference.atp_lean_gnn.seed_admission import (
+                AdmissionReport, AdmissionSource, _dataset_row_events, preflight, write_report,
             )
+            admission = AdmissionReport()
+            rows = list(_dataset_row_events(
+                dataset_name=cfg.dataset_name, split=cfg.leandojo_split,
+                revision=cfg.dataset_revision, max_scan_rows=cfg.max_scan_rows,
+                max_state_chars=cfg.max_state_chars, report=admission,
+            ))
+            admitted = asyncio.run(preflight(
+                AdmissionSource("rows", {"rows": rows}), _factory(client),
+                max_admitted=cfg.max_pool_size, time_budget_s=30, report=admission,
+            ))
+            pool = TheoremPool(admitted, eval_pool_size=0,
+                               curriculum_size=cfg.curriculum_start_size, seed=cfg.seed)
+            write_report(admission, tmp / "admission")
             report = _report(tmp / "admission")
         self.assertEqual(len(pool.train_items), 1)
         self.assertEqual(pool.train_items[0].seed.source_dict["theorem"], "demo0")
@@ -1509,6 +1522,7 @@ class LivePoolDriverTests(unittest.TestCase):
             cfg = _write_config(
                 tmp,
                 collection_workers=2,
+                use_pln=False,
                 cpu_reserve=0,
                 resource_check="warn",
                 # Seed 0's sampled proposals solve a theorem in every round, so
@@ -1519,6 +1533,7 @@ class LivePoolDriverTests(unittest.TestCase):
             with (
                 patch.object(rl_training_driver, "pantograph_env", lambda _cfg: _Environment()),
                 patch.object(rl_training_driver, "create_model_sexpr_client", create_client),
+                patch.object(live_runtime, "create_model_sexpr_client", create_client),
                 patch.object(LiveReasonerPool, "collect_round", collect),
                 patch.object(LiveReasonerPool, "synchronize", synchronize),
                 patch.object(rl_training_driver, "train_step_onpolicy", onpolicy),

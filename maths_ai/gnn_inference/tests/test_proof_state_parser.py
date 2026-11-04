@@ -7,7 +7,7 @@ import pytest
 from maths_ai.gnn_inference.atp_lean_gnn.state import parse_state, parse_states
 from maths_ai.lean_replay import ReplayFailure, ReplayInputError
 from maths_ai.lean_replay.sexp import parse_sexp_string
-from maths_ai.pln_inference.metta.translator.translator_modules.parser import (
+from maths_ai.lean_replay.sexp import (
     parse_sexp_string as translator_reader,
 )
 

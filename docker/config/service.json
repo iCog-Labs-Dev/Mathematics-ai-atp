@@ -1,0 +1,72 @@
+{
+  "rl_config": "rl.json",
+  "state_dir": "/state",
+  "default_search_profile": "puct",
+  "search_profiles": {
+    "puct": {
+      "selection_policy": "puct",
+      "top_k_tactics": 8,
+      "max_depth": 16,
+      "max_nodes": 512,
+      "num_simulations": 64,
+      "sim_batch_size": 8,
+      "puct_c": 1.0,
+      "use_pln": false
+    },
+    "best_first": {
+      "selection_policy": "legacy",
+      "top_k_tactics": 8,
+      "max_depth": 16,
+      "max_nodes": 512,
+      "use_pln": false
+    },
+    "puct_pln": {
+      "selection_policy": "puct",
+      "top_k_tactics": 8,
+      "max_depth": 16,
+      "max_nodes": 512,
+      "num_simulations": 64,
+      "sim_batch_size": 8,
+      "puct_c": 1.0,
+      "use_pln": true
+    },
+    "best_first_pln": {
+      "selection_policy": "legacy",
+      "top_k_tactics": 8,
+      "max_depth": 16,
+      "max_nodes": 512,
+      "use_pln": true
+    }
+  },
+  "dataset_profiles": {
+    "mathlib-eval": {
+      "data_source": "dataset",
+      "dataset_name": "jajostrains/Mathlib-Normalized-Sexpr",
+      "dataset_revision": "f44841f98193c09b20c6092198a22e98ff2cd7a8",
+      "split": "train",
+      "eval_pool_size": 200,
+      "max_pool_size": 5000,
+      "admission_time_budget_s": 1800
+    }
+  },
+  "limits": {
+    "max_pending_proofs": 8,
+    "max_pending_jobs": 4,
+    "default_timeout_s": 60,
+    "max_timeout_s": 600,
+    "default_queue_timeout_s": 10,
+    "max_queue_timeout_s": 60,
+    "max_repeats": 8,
+    "eval_chunk_size": 4,
+    "runtime_start_timeout_s": 900
+  },
+  "pln": {
+    "petta_bin": "/opt/pln/bin/petta",
+    "petta_source_root": "/opt/pln/src/PeTTa",
+    "chainer_root": "/opt/pln/src/petta_chainer",
+    "swipl_bin": "/opt/pln/bin/swipl",
+    "max_concurrency": 2,
+    "max_pending": 32,
+    "timeout_s": 10.0
+  }
+}

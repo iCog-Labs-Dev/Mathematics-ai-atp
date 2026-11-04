@@ -1,0 +1,12 @@
+{
+  "warmstart_checkpoint": "/artifacts/checkpoint.pt",
+  "prepared_root": "/artifacts/prepared",
+  "run_root": "/state/runs",
+  "device": "cpu",
+  "collection_workers": 1,
+  "resource_check": "warn",
+  "use_pln": false,
+  "source_root": "/opt/mathlib4",
+  "pantograph_repl": "/opt/pantograph/repl",
+  "pantograph_imports": ["Init", "Mathlib"]
+}

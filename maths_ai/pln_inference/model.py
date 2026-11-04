@@ -1,65 +1,54 @@
-"""Symbolic (PLN) subgoal evaluation via PeTTaChainer/MeTTa.
-
-Wraps the formula-rendering and STV-parsing utilities already built for the
-batch ``translator.py`` pipeline (see ``metta/translator/translator_modules``)
-into a single-query interface suitable for the hybrid reasoner's recursive
-search loop, which needs to score one subgoal at a time rather than generate
-a directory of ``.metta``/``.log`` files.
-"""
+"""Native PeTTa scoring with exact shared compilation and rule-proof validation."""
 
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import os
 import random
-import shutil
-import subprocess
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import Optional, Tuple
 
 from maths_ai.data_models.proof_components import STV
 
-from .metta.translator.translator_modules.normalizer import VariableNormalizer
-from .metta.translator.translator_modules.parser import parse_simple_pp
-from .metta.translator.translator_modules.renderer import build_query, render_formula
+from .dependencies import PLNDependencies, resolve_petta
+
+from .processes import QueryProcesses
+from .compiler import (
+    GoalInput,
+    CompiledGoal,
+    TranslationError,
+    compile_goal,
+    compile_text,
+    render,
+)
+from .answers import rule_answers
 from .metta.translator.translator_modules.runner import (
-    extract_stv_scores,
     sample_fallback_score,
     score_from_stv,
 )
-
-_AXIOMS_DIR = Path(__file__).parent / "metta" / "axioms"
-_DEFAULT_IMPORT_HEADER = _AXIOMS_DIR / "import-pettachainer.metta"
-_DEFAULT_AXIOMS_FILE = _AXIOMS_DIR / "metamath_axioms.metta"
 
 _ERROR_MARKERS = ("error", "exception", "failed")
 
 
 @dataclass(frozen=True)
 class PLNResult:
-    """Outcome of scoring one subgoal against the symbolic engine.
+    """Only ``ok`` is a target-matching rule derivation with an attached STV.
 
-    ``status`` mirrors the vocabulary the MeTTa translator's ranking mode
-    already established (``ok``, ``no_stv_found``, ``log_error_no_stv``,
-    ``missing_log``) plus a few that only arise on the single-query path
-    (``petta_unavailable``, ``timeout``, ``render_error``). ``is_fallback``
-    tells the caller whether ``stv`` is a real PLN result or a random
-    exploration score — see the "Important limitation" note in the
-    translator readme: a fallback score is *not* evidence of provability.
+    Unsupported translations and engine failures have no STV. A completed query
+    with no derivation may carry an explicitly marked exploration fallback.
     """
 
-    stv: STV
+    stv: STV | None
     status: str
     is_fallback: bool
     raw_output: str = ""
+    diagnostic: dict | None = None
 
 
 class PLNInference:
     """
-        Evaluate a Lean subgoal's provability via PeTTaChainer (MeTTa/petta).
+    Evaluate a Lean subgoal's provability via PeTTaChainer (MeTTa/petta).
     """
 
     def __init__(
@@ -67,170 +56,98 @@ class PLNInference:
         *,
         petta_bin: Optional[str] = None,
         axioms_path: Optional[Path] = None,
-        import_header_path: Optional[Path] = None,
+        chainer_root: Optional[Path] = None,
         depth: int = 10,
         timeout: float = 60.0,
         fallback_low: float = 0.0,
         fallback_high: float = 1.0,
         random_seed: Optional[int] = None,
-        normalize_variables: bool = False,
-        max_concurrency: int = 8,
+        max_concurrency: int = 2,
+        pending_limit: int = 64,
+        output_limit: int = 1048576,
+        temp_dir: str | None = None,
     ) -> None:
-        self.petta_bin = petta_bin or os.environ.get("PETTA_BIN") or shutil.which("petta")
-        self.axioms_path = Path(axioms_path) if axioms_path else _DEFAULT_AXIOMS_FILE
-        self.import_header_path = (
-            Path(import_header_path) if import_header_path else _DEFAULT_IMPORT_HEADER
-        )
+        self.petta_bin = petta_bin
+        self.chainer_root = chainer_root
+        self.axioms_path = axioms_path
         self.depth = depth
         self.timeout = timeout
         self.fallback_low = fallback_low
         self.fallback_high = fallback_high
         self._rng = random.Random(random_seed)
-        self._normalizer = VariableNormalizer(normalize=normalize_variables)
-        # The bounded executor is created per active wave of evaluations and shut down
-        # when the final queued evaluation completes.
-        self._max_concurrency = max_concurrency
-        self._executor: ThreadPoolExecutor | None = None
-        self._active_evaluations = 0
+        self.processes = QueryProcesses(max_concurrency, pending_limit, output_limit, temp_dir)
 
-    # Public API
+    async def evaluate_async(self, goal: GoalInput, *, deadline=None) -> PLNResult:
+        try:
+            compiled = compile_goal(goal)
+        except TranslationError as exc:
+            return PLNResult(None, "unsupported", False, diagnostic=exc.as_dict())
+        source = self._render_query_source(compiled)
+        output, status = await self.processes.run(
+            resolve_petta(self.petta_bin), source, timeout=self.timeout, deadline=deadline,
+        )
+        return self._answer(compiled, output, status)
 
-    async def evaluate_async(
-        self,
-        expression: str,
-        hypotheses: Optional[Sequence[str]] = None,
-        *,
-        loop: Optional[asyncio.AbstractEventLoop] = None,
+    async def aclose(self):
+        await self.processes.aclose()
+
+    def evaluate(self, goal: GoalInput) -> PLNResult:
+        """Score a structured goal; unsupported translation has no STV."""
+        try:
+            compiled = compile_goal(goal)
+        except TranslationError as exc:
+            return PLNResult(None, "unsupported", False, diagnostic=exc.as_dict())
+        return self._evaluate_compiled(compiled)
+
+    def evaluate_text(
+        self, target: str, hypotheses: tuple[str, ...], *, propositions: dict[str, str]
     ) -> PLNResult:
-        """Non-blocking ``evaluate``: run the blocking subprocess in a bounded thread pool.
-
-        ``evaluate`` calls ``subprocess.run`` (up to ``timeout`` seconds), which does not
-        yield and would freeze the event loop — stalling every other concurrent proof
-        search. ``subprocess.run`` releases the GIL while waiting on the ``petta`` process,
-        so a thread executor gives genuine concurrency here. The pool is bounded by
-        ``max_concurrency`` so many searches cannot spawn unbounded ``petta`` processes.
-        """
-        running_loop = asyncio.get_running_loop()
-        if loop is not None and loop is not running_loop:
-            raise ValueError("evaluate_async received an event loop that is not running here.")
-        if self._executor is None:
-            self._executor = ThreadPoolExecutor(max_workers=self._max_concurrency)
-        hyps = list(hypotheses) if hypotheses is not None else None
-        future = self._executor.submit(self.evaluate, expression, hyps)
-        self._active_evaluations += 1
+        """Explicit propositional text API; never a structured-decoding fallback."""
         try:
-            # Polling keeps the event loop responsive and avoids depending on executor
-            # callback wakeups, which are unavailable in some sandboxed runtimes.
-            while not future.done():
-                await asyncio.sleep(0.005)
-            return future.result()
-        except asyncio.CancelledError:
-            future.cancel()
-            raise
-        finally:
-            self._active_evaluations -= 1
-            if self._active_evaluations == 0 and self._executor is not None:
-                self._executor.shutdown(wait=True, cancel_futures=True)
-                self._executor = None
+            compiled = compile_text(target, hypotheses, propositions=propositions)
+        except TranslationError as exc:
+            return PLNResult(None, "unsupported", False, diagnostic=exc.as_dict())
+        return self._evaluate_compiled(compiled)
 
-    def evaluate(self, expression: str, hypotheses: Optional[Sequence[str]] = None) -> PLNResult:
-        """Score ``expression``'s provability given ``hypotheses``.
+    def _evaluate_compiled(self, compiled: CompiledGoal) -> PLNResult:
+        source = self._render_query_source(compiled)
+        output, status = self._run_petta(source)
+        return self._answer(compiled, output, status)
 
-        ``expression`` is the Lean target formula (the text after ``⊢``);
-        ``hypotheses`` are local-context formula strings, asserted into the
-        knowledge base as ``(STV 1.0 1.0)`` facts before the query — exactly
-        as the batch translator does for local hypotheses.
-        """
-        try:
-            formula = parse_simple_pp(expression, self._normalizer)
-        except Exception as exc:  # malformed/unparseable expression string
-            return self._fallback(status="render_error", raw_output=repr(exc))
-
-        if self.petta_bin is None:
-            return self._fallback(status="petta_unavailable")
-
-        source = self._render_query_source(formula, hypotheses or [])
-        log_text, launch_status = self._run_petta(source)
+    def _answer(self, compiled, log_text, launch_status):
         if launch_status is not None:
-            return self._fallback(status=launch_status)
-
-        stvs = extract_stv_scores(log_text)
-        if stvs:
-            strength, confidence = max(stvs, key=lambda pair: score_from_stv(*pair))
+            return PLNResult(None, launch_status, False, log_text)
+        scores = rule_answers(log_text, render(compiled.target))
+        if scores:
+            strength, confidence = max(scores, key=lambda pair: score_from_stv(*pair))
             return PLNResult(
-                stv=STV(strength=strength, confidence=confidence),
-                status="ok",
-                is_fallback=False,
-                raw_output=log_text,
+                STV(strength=strength, confidence=confidence),
+                "ok",
+                False,
+                log_text,
+                {"symbols": compiled.symbols()},
             )
-
-        lowered = log_text.lower()
         status = (
             "log_error_no_stv"
-            if any(marker in lowered for marker in _ERROR_MARKERS)
+            if any(marker in log_text.lower() for marker in _ERROR_MARKERS)
             else "no_stv_found"
         )
+        if status == "log_error_no_stv":
+            return PLNResult(None, status, False, log_text)
         return self._fallback(status=status, raw_output=log_text)
 
-     
-    # Internals
-     
-    def _render_query_source(self, formula: object, hypotheses: Sequence[str]) -> str:
-        lines: List[str] = []
-
-        if self.import_header_path.exists():
-            lines.append(self.import_header_path.read_text(encoding="utf-8").strip())
-        if self.axioms_path.exists():
-            lines.append(f"!(import! &self {self.axioms_path})")
-
-        for index, raw_hypothesis in enumerate(hypotheses):
-            try:
-                hyp_formula = parse_simple_pp(raw_hypothesis, self._normalizer)
-            except Exception:
-                continue  # skip hypotheses we cannot render rather than abort the query
-            lines.append(
-                f"!(compileadd kb (: local-hyp-{index} {render_formula(hyp_formula)} (STV 1.0 1.0)))"
-            )
-
-        lines.append(build_query(formula, depth=self.depth))
-        return "\n\n".join(lines) + "\n"
+    def _render_query_source(self, compiled: CompiledGoal) -> str:
+        dependencies = PLNDependencies.resolve(self.chainer_root, self.axioms_path)
+        return dependencies.imports() + "\n\n" + compiled.source(depth=self.depth)
 
     def _run_petta(self, source: str) -> Tuple[str, Optional[str]]:
-        """Run ``petta`` on rendered MeTTa ``source``.
-
-        Returns ``(captured_output, launch_status)``; ``launch_status`` is
-        ``None`` on a successful run (regardless of whether a proof was
-        found) or one of ``timeout`` / ``petta_unavailable`` if the process
-        itself could not be completed.
-        """
-        handle = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".metta", delete=False, encoding="utf-8"
-        )
-        try:
-            handle.write(source)
-            handle.close()
-
-            try:
-                completed = subprocess.run(
-                    [self.petta_bin, handle.name],
-                    capture_output=True,
-                    text=True,
-                    timeout=self.timeout,
-                )
-            except subprocess.TimeoutExpired:
-                return "", "timeout"
-            except OSError:
-                return "", "petta_unavailable"
-
-            return completed.stdout + completed.stderr, None
-        finally:
-            try:
-                os.unlink(handle.name)
-            except OSError:
-                pass
+        """Synchronous entry point over the same owned async process runner."""
+        return asyncio.run(self.processes.run(resolve_petta(self.petta_bin), source, timeout=self.timeout))
 
     def _fallback(self, *, status: str, raw_output: str = "") -> PLNResult:
-        score = sample_fallback_score(self._rng, low=self.fallback_low, high=self.fallback_high)
+        score = sample_fallback_score(
+            self._rng, low=self.fallback_low, high=self.fallback_high
+        )
         return PLNResult(
             stv=STV(strength=score, confidence=1.0),
             status=status,

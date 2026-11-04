@@ -17,8 +17,8 @@ record gets the same classification in both.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
+import asyncio
 import json
 import time
 from collections import Counter
@@ -45,6 +45,7 @@ from maths_ai.lean_replay import (
 )
 
 from .dataset import iter_dataset_rows
+from .admission_rows import AdmissionSource, SourceRows
 
 EXAMPLES_PER_REASON = 20
 # Printed-state size buckets (characters) for coverage reporting.
@@ -71,6 +72,13 @@ class TheoremItem:
     seed: LeanGoalSeed
     tactic_label: str  # ground-truth tactic from the dataset row ("" in file mode)
     size: int
+
+
+@dataclass(frozen=True)
+class AdmissionRow:
+    """One source-row event; an offline rejection still consumes step capacity."""
+
+    item: TheoremItem | None
 
 
 @dataclass
@@ -169,7 +177,7 @@ def _admit_offline(
     return TheoremItem(seed=seed, tactic_label=tactic, size=size)
 
 
-def dataset_candidates(
+def _dataset_row_events(
     *,
     dataset_name: str,
     split: str,
@@ -177,7 +185,7 @@ def dataset_candidates(
     max_scan_rows: int,
     max_state_chars: int | None,
     report: AdmissionReport,
-) -> Iterator[TheoremItem]:
+) -> Iterator[AdmissionRow]:
     """Structured seeds from dataset rows; at most ``max_scan_rows`` are read."""
     report.source = {
         "kind": "dataset",
@@ -197,17 +205,16 @@ def dataset_candidates(
             max_state_chars,
             report,
         )
-        if item is not None:
-            yield item
+        yield AdmissionRow(item)
 
 
-def file_candidates(
+def _file_row_events(
     path: Path,
     *,
     max_scan_rows: int,
     max_state_chars: int | None,
     report: AdmissionReport,
-) -> Iterator[TheoremItem]:
+) -> Iterator[AdmissionRow]:
     """Text seeds from JSONL rows ``{"goal": str, "hypotheses": [str], "tactic"?: str}``.
 
     Each hypothesis is one declaration as Lean prints it (``n m : Nat``,
@@ -220,6 +227,7 @@ def file_candidates(
                 return
             line = line.strip()
             if not line:
+                yield AdmissionRow(None)
                 continue
             row = json.loads(line)
             goal, hypotheses = row["goal"], row.get("hypotheses", [])
@@ -233,8 +241,16 @@ def file_candidates(
                 max_state_chars,
                 report,
             )
-            if item is not None:
-                yield item
+            yield AdmissionRow(item)
+
+
+def dataset_candidates(*, dataset_name, split, revision, max_scan_rows, max_state_chars, report):
+    return AdmissionSource("dataset", dict(dataset_name=dataset_name, split=split, revision=revision,
+        max_scan_rows=max_scan_rows, max_state_chars=max_state_chars))
+
+
+def file_candidates(path, *, max_scan_rows, max_state_chars, report):
+    return AdmissionSource("file", dict(path=path, max_scan_rows=max_scan_rows, max_state_chars=max_state_chars))
 
 
 # Lean preflight --------------------------------------------------------------
@@ -294,8 +310,189 @@ class ValidationCache:
         temporary.replace(self.path)
 
 
+class AdmissionSession:
+    """Lean admission of candidate seeds, advanced a bounded step at a time.
+
+    The session owns one client at a time. A replay that closes the client
+    (request timeout, or unsolicited REPL output) is skipped (it says nothing
+    about the row's correctness) and a fresh, re-probed client continues.
+    Replays longer than ``max_replay_chars`` are skipped before sending.
+    Other failures end the session. The deadline is absolute: time spent
+    paused between steps counts against it. ``step`` returns only after the
+    current Lean request and its scope have settled, so a caller may run other
+    work between steps.
+    """
+
+    def __init__(
+        self,
+        candidates: AdmissionSource,
+        client_factory: Callable[[], Awaitable[PantographClient]],
+        *,
+        max_admitted: int,
+        time_budget_s: float,
+        report: AdmissionReport,
+        cache: ValidationCache | None = None,
+        max_replay_chars: int | None = None,
+    ) -> None:
+        self._source = candidates
+        self._rows: SourceRows | None = None
+        self._offline_report = AdmissionReport()
+        self._client_factory = client_factory
+        self.max_admitted = max_admitted
+        self.report = report
+        self.cache = cache
+        self.max_replay_chars = max_replay_chars
+        self.admitted: list[TheoremItem] = []
+        self.rows_seen = 0
+        self.done = False
+        self._client: PantographClient | None = None
+        self._started = time.monotonic()
+        self._deadline = self._started + time_budget_s
+
+    @property
+    def has_client(self) -> bool:
+        return self._client is not None
+
+    async def step(self, max_rows: int, *, interval_s: float = 0.25) -> list[TheoremItem]:
+        """Advance bounded source rows; return only after owned work settles."""
+        if max_rows < 1 or interval_s <= 0:
+            raise ValueError("Admission steps require positive bounds")
+        if self.done:
+            return []
+        newly = []
+        step_deadline = min(self._deadline, time.monotonic() + interval_s)
+        try:
+            for _ in range(max_rows):
+                if len(self.admitted) >= self.max_admitted:
+                    self.report.stopped_by, self.done = "pool-full", True
+                    break
+                if time.monotonic() >= self._deadline:
+                    self.report.stopped_by, self.done = "time-budget", True
+                    break
+                if time.monotonic() >= step_deadline:
+                    break
+                if self._rows is None:
+                    self._rows = SourceRows(self._source)
+                try:
+                    event, offline = await self._rows.next(step_deadline)
+                except TimeoutError:
+                    if time.monotonic() >= self._deadline:
+                        self.report.stopped_by, self.done = "time-budget", True
+                    break
+                self._merge_offline(offline)
+                if event is None:
+                    self.done = True
+                    break
+                self.rows_seen += 1
+                if event.item is None:
+                    await asyncio.sleep(0)
+                    continue
+                async with asyncio.timeout_at(self._deadline):
+                    if self._client is None:
+                        self._client = await self._client_factory()
+                    if await self._admit(event.item):
+                        newly.append(event.item)
+        except TimeoutError:
+            self.report.stopped_by, self.done = "time-budget", True
+            await self.close()
+        except BaseException:
+            await self.close()
+            raise
+        if self.done:
+            await self.close()
+        return newly
+
+    def _merge_offline(self, current):
+        previous, report = self._offline_report, self.report
+        report.source = current.source or report.source
+        for name in ("scanned", "candidates"):
+            setattr(report, name, getattr(report, name) + getattr(current, name) - getattr(previous, name))
+        for name in ("skipped", "quarantined"):
+            getattr(report, name).update(getattr(current, name) - getattr(previous, name))
+        for name, counts in current.coverage.items():
+            report.coverage.setdefault(name, Counter()).update(counts - previous.coverage.get(name, Counter()))
+        for reason, examples in current.examples.items():
+            bucket = report.examples.setdefault(reason, [])
+            before = len(previous.examples.get(reason, []))
+            bucket.extend(examples[before:before + max(0, EXAMPLES_PER_REASON-len(bucket))])
+        self._offline_report = current
+
+    async def _admit(self, item: TheoremItem) -> bool:
+        report, cache = self.report, self.cache
+        replay = render_replay(item.seed)
+        if self.max_replay_chars is not None and len(replay.expression) > self.max_replay_chars:
+            report.skipped["over-size-replay"] += 1
+            report.cover(item.seed.source_dict, item.size, "skipped")
+            return False
+        fingerprint = replay.fingerprint
+        if cache is not None and fingerprint in cache:
+            report.cache_hits += 1
+        else:
+            client = self._client
+            try:
+                async with client.state_scope() as scope:
+                    _, _, validation = await materialize_seed(scope, item.seed)
+            except ReplayInputError as exc:
+                report.quarantine(item.seed.source_dict, exc, item.size, replay=replay.as_dict())
+                return False
+            except (PantographRequestTimeout, PantographProtocolError) as exc:
+                if client.is_usable:
+                    raise
+                kind = (
+                    "replay-timeout"
+                    if isinstance(exc, PantographRequestTimeout)
+                    else "replay-repl-failure"
+                )
+                report.skipped[kind] += 1
+                report.cover(item.seed.source_dict, item.size, "skipped")
+                bucket = report.examples.setdefault(kind, [])
+                if len(bucket) < EXAMPLES_PER_REASON:
+                    bucket.append(
+                        {
+                            "source": item.seed.source_dict,
+                            "replay_chars": len(replay.expression),
+                            "error": str(exc)[:300],
+                        }
+                    )
+                await client.aclose()
+                self._client = await self._client_factory()
+                return False
+            if validation.name_drift:
+                report.name_drift += 1
+            if validation.source_indices != validation.replay_indices:
+                report.context_index_shift += 1
+            if cache is not None:
+                cache.add(fingerprint)
+        report.admitted += 1
+        report.cover(item.seed.source_dict, item.size, "admitted")
+        self.admitted.append(item)
+        return True
+
+    async def close(self) -> None:
+        """Close the client and record the time spent; safe to call twice."""
+        if self._rows is not None:
+            rows, self._rows = self._rows, None
+            cleanup = asyncio.create_task(rows.close())
+            while not cleanup.done():
+                try:
+                    await asyncio.shield(cleanup)
+                except asyncio.CancelledError:
+                    continue
+            cleanup.result()
+        client, self._client = self._client, None
+        try:
+            if client is not None:
+                await client.aclose()
+        finally:
+            if self._started is not None:
+                self.report.preflight_s += time.monotonic() - self._started
+                self._started = None
+                if self.cache is not None:
+                    self.cache.save()
+
+
 async def preflight(
-    candidates: Iterable[TheoremItem],
+    candidates: AdmissionSource,
     client_factory: Callable[[], Awaitable[PantographClient]],
     *,
     max_admitted: int,
@@ -306,78 +503,21 @@ async def preflight(
 ) -> list[TheoremItem]:
     """Replay candidates in their own scopes until the pool or budget is full.
 
-    The preflight owns one client at a time. A replay that closes the client
-    (request timeout, or unsolicited REPL output) is skipped (it says nothing
-    about the row's correctness) and a fresh, re-probed client continues.
-    Replays longer than ``max_replay_chars`` are skipped before sending.
-    Other failures end the preflight.
+    Drains an ``AdmissionSession`` in one go; see it for the client, skip and
+    deadline rules.
     """
-    admitted: list[TheoremItem] = []
-    started = time.monotonic()
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + time_budget_s
-    client = await client_factory()
+    session = AdmissionSession(
+        candidates,
+        client_factory,
+        max_admitted=max_admitted,
+        time_budget_s=time_budget_s,
+        report=report,
+        cache=cache,
+        max_replay_chars=max_replay_chars,
+    )
     try:
-        for item in candidates:
-            if len(admitted) >= max_admitted:
-                report.stopped_by = "pool-full"
-                break
-            if loop.time() >= deadline:
-                report.stopped_by = "time-budget"
-                break
-            replay = render_replay(item.seed)
-            if max_replay_chars is not None and len(replay.expression) > max_replay_chars:
-                report.skipped["over-size-replay"] += 1
-                report.cover(item.seed.source_dict, item.size, "skipped")
-                continue
-            fingerprint = replay.fingerprint
-            if cache is not None and fingerprint in cache:
-                report.cache_hits += 1
-            else:
-                try:
-                    async with client.state_scope() as scope:
-                        _, _, validation = await materialize_seed(scope, item.seed)
-                except ReplayInputError as exc:
-                    report.quarantine(
-                        item.seed.source_dict, exc, item.size, replay=replay.as_dict()
-                    )
-                    continue
-                except (PantographRequestTimeout, PantographProtocolError) as exc:
-                    if client.is_usable:
-                        raise
-                    kind = (
-                        "replay-timeout"
-                        if isinstance(exc, PantographRequestTimeout)
-                        else "replay-repl-failure"
-                    )
-                    report.skipped[kind] += 1
-                    report.cover(item.seed.source_dict, item.size, "skipped")
-                    bucket = report.examples.setdefault(kind, [])
-                    if len(bucket) < EXAMPLES_PER_REASON:
-                        bucket.append(
-                            {
-                                "source": item.seed.source_dict,
-                                "replay_chars": len(replay.expression),
-                                "error": str(exc)[:300],
-                            }
-                        )
-                    await client.aclose()
-                    client = await client_factory()
-                    continue
-                if validation.name_drift:
-                    report.name_drift += 1
-                if validation.source_indices != validation.replay_indices:
-                    report.context_index_shift += 1
-                if cache is not None:
-                    cache.add(fingerprint)
-            report.admitted += 1
-            report.cover(item.seed.source_dict, item.size, "admitted")
-            admitted.append(item)
+        while not session.done:
+            await session.step(64)
     finally:
-        try:
-            await client.aclose()
-        finally:
-            report.preflight_s += time.monotonic() - started
-            if cache is not None:
-                cache.save()
-    return admitted
+        await session.close()
+    return session.admitted

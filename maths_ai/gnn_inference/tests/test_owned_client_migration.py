@@ -97,8 +97,8 @@ def test_translator_projection_uses_local_names_for_raw_free_variables():
     fixture = Path(__file__).parent / "fixtures/pantograph/future_contract.json"
     wire = json.loads(fixture.read_text())["successes"]["identity_intro"]["goals"][0]
     projection = execution_goal_to_translator(decode_execution_goal(wire))
-    script, _cleanup, _hyps, formula = essentialize_subgoal(projection, mode="dynamic")
-    assert "_uniq" not in formula and "p" in formula
+    script, _cleanup, _hyps, formula = essentialize_subgoal(projection)
+    assert "_uniq" not in formula and "lean_" in formula
     assert "_uniq" not in script
 
 
@@ -267,6 +267,37 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
     for entry in lifecycle["sources"]:
         if entry["path"] in expected:
             assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        expected[entry["path"]] = entry["sha256"]
+    # Validate each historical branch from its shared predecessor, then the join.
+    import subprocess
+    predecessor = dict(expected)
+    snapshots = []
+    for history in (("mcts_api_service",), ("pln_local_imports", "pln_sampler_cli", "pln_structured_translation")):
+        snapshot = dict(predecessor)
+        for name in history:
+            record = json.loads((WIDENING_MANIFEST.parent.parent / name / "source_manifest.json").read_text())
+            for entry in record["sources"]:
+                if entry["path"] in snapshot:
+                    assert entry["target_base_sha256"] == snapshot[entry["path"]], entry["path"]
+                snapshot[entry["path"]] = entry["sha256"]
+            for entry in record.get("removed", []):
+                assert snapshot.pop(entry["path"], entry["target_base_sha256"]) == entry["target_base_sha256"]
+        snapshots.append(snapshot)
+    joined = json.loads((WIDENING_MANIFEST.parent.parent / "mcts_api_pln_integration/source_manifest.json").read_text())
+    assert joined["parents"] == ["439b3619d44d6211a20820eac450158bf590e9ca", "7cf93731993a7a08deb78356ff59ed178ddd60b2"]
+    expected = dict(predecessor)
+    for entry in joined["sources"]:
+        assert entry["parent_sha256"] == [snapshot.get(entry["path"]) for snapshot in snapshots]
+        if entry["sha256"] is None:
+            expected.pop(entry["path"], None)
+            assert not (root / entry["path"]).exists()
+        else:
+            expected[entry["path"]] = entry["sha256"]
+
+    remediation = json.loads((WIDENING_MANIFEST.parent.parent / "mcts_api_pln_remediation/source_manifest.json").read_text())
+    assert remediation["integration_parents"] == joined["parents"]
+    for entry in remediation["sources"]:
+        assert entry["target_base_sha256"] == expected.get(entry["path"]), entry["path"]
         expected[entry["path"]] = entry["sha256"]
     for path, digest in expected.items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path

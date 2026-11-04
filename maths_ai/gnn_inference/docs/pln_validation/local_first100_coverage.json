@@ -1,0 +1,636 @@
+{
+  "translation_version": "lean-pln-exact-v1-rule-proof",
+  "input": "/home/nolawi/new-maths/maths_ai/gnn_inference/local_state_tactic_pairs.jsonl",
+  "max_scan_rows": 100,
+  "time_budget_s": 90.0,
+  "rows": [
+    {
+      "row": 0,
+      "theorem": "CategoryTheory.Idempotents.Karoubi.coe_p",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: <stdin>:1:62: expected token"
+    },
+    {
+      "row": 1,
+      "theorem": "Nat.factorizationEquiv_apply",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: failed to synthesize\n  CancelCommMonoidWithZero \u2115+\nuse `set_option diagnostics true` to get diagnostic information\nunknown identifier 'factorizationEquiv'"
+    },
+    {
+      "row": 2,
+      "theorem": "Nat.factorizationEquiv_apply",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: invalid {...} notation, expected type is not known\nunknown identifier 'factorizationEquiv'"
+    },
+    {
+      "row": 3,
+      "theorem": "comap_center_subst",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: type expected, got\n  (Normal \u21a5H : (K : Type ?u.4012) \u2192 [inst : Field \u21a5H] \u2192 [inst_1 : Field K] \u2192 [inst : Algebra (\u21a5H) K] \u2192 Prop)"
+    },
+    {
+      "row": 4,
+      "theorem": "comap_center_subst",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: type expected, got\n  (Normal \u21a5H : (K : Type ?u.4208) \u2192 [inst : Field \u21a5H] \u2192 [inst_1 : Field K] \u2192 [inst : Algebra (\u21a5H) K] \u2192 Prop)"
+    },
+    {
+      "row": 5,
+      "theorem": "LocalEquiv.symm_symm",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.24956 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 6,
+      "theorem": "LocalEquiv.symm_symm",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.24956 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 7,
+      "theorem": "Submodule.apply_mem_map\u2082",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: invalid coercion notation, expected type is not known\ninvalid coercion notation, expected type is not known"
+    },
+    {
+      "row": 8,
+      "theorem": "Option.map\u2082_swap",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'map\u2082'"
+    },
+    {
+      "row": 9,
+      "theorem": "Equiv.symm_symm",
+      "status": "unsupported",
+      "diagnostic": {
+        "reason": "unknown-sort",
+        "detail": "Proposition classification outside supported fragment",
+        "field": "locals[_uniq.7837]"
+      }
+    },
+    {
+      "row": 10,
+      "theorem": "Equiv.symm_symm",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'LeftInverse'"
+    },
+    {
+      "row": 11,
+      "theorem": "Homeomorph.mulRight_symm",
+      "status": "unsupported",
+      "diagnostic": {
+        "reason": "unknown-sort",
+        "detail": "Proposition classification outside supported fragment",
+        "field": "locals[_uniq.9260]"
+      }
+    },
+    {
+      "row": 12,
+      "theorem": "Homeomorph.mulRight_symm",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: invalid coercion notation, expected type is not known\ninvalid coercion notation, expected type is not known"
+    },
+    {
+      "row": 13,
+      "theorem": "DistribMulActionHom.id_apply",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.147246 has no recorded assignment. (chars 5-14)"
+    },
+    {
+      "row": 14,
+      "theorem": "AlgEquiv.arrowCongr_trans",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'arrowCongr'"
+    },
+    {
+      "row": 15,
+      "theorem": "AlgEquiv.arrowCongr_trans",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'arrowCongr'\nunknown identifier 'arrowCongr'"
+    },
+    {
+      "row": 16,
+      "theorem": "PFunctor.W.dest_mk",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'Obj'"
+    },
+    {
+      "row": 17,
+      "theorem": "PFunctor.W.dest_mk",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'B'"
+    },
+    {
+      "row": 18,
+      "theorem": "LinearIsometryEquiv.coe_toAffineIsometryEquiv",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.380007 has no recorded assignment. (chars 5-14)"
+    },
+    {
+      "row": 19,
+      "theorem": "FirstOrder.Language.LHom.comp_id",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: type expected, got\n  (Language : Type ?u.12321 \u2192 Type ?u.12321)"
+    },
+    {
+      "row": 20,
+      "theorem": "FirstOrder.Language.LHom.comp_id",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: type expected, got\n  (Language : Type ?u.12342 \u2192 Type ?u.12342)"
+    },
+    {
+      "row": 21,
+      "theorem": "BoxIntegral.IntegrationParams.henstock_le_mcShane",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.20611 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 22,
+      "theorem": "List.sublistsLenAux_zero",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'sublistsLenAux'"
+    },
+    {
+      "row": 23,
+      "theorem": "Num.zneg_toZNum",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.446504 has no recorded assignment. (chars 5-14)"
+    },
+    {
+      "row": 24,
+      "theorem": "Set.inclusion_inclusion",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'inclusion'"
+    },
+    {
+      "row": 25,
+      "theorem": "Set.inclusion_inclusion",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'inclusion'"
+    },
+    {
+      "row": 26,
+      "theorem": "Finsupp.comapDomain_zero",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.304416 has no recorded assignment. (chars 5-14)"
+    },
+    {
+      "row": 27,
+      "theorem": "Finsupp.comapDomain_zero",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.304416 has no recorded assignment. (chars 5-14)"
+    },
+    {
+      "row": 28,
+      "theorem": "List.getLastD_cons",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'getLastD'"
+    },
+    {
+      "row": 29,
+      "theorem": "Bool.and_self",
+      "status": "supported",
+      "facts": 0
+    },
+    {
+      "row": 30,
+      "theorem": "ContinuousMap.continuous_eval'",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.10621 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 31,
+      "theorem": "ContinuousMap.continuous_eval'",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.10621 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 32,
+      "theorem": "ContinuousMap.continuous_eval'",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.10621 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 33,
+      "theorem": "Bool.or_false",
+      "status": "supported",
+      "facts": 0
+    },
+    {
+      "row": 34,
+      "theorem": "Matrix.reindexLinearEquiv_trans",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.20354 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 35,
+      "theorem": "Matrix.reindexLinearEquiv_trans",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.20354 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 36,
+      "theorem": "Sum.isRight_map",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'isRight'"
+    },
+    {
+      "row": 37,
+      "theorem": "Multiset.toEmbedding_coeEquiv_trans",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'coeEquiv'"
+    },
+    {
+      "row": 38,
+      "theorem": "Vector.toList_map",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'toList'"
+    },
+    {
+      "row": 39,
+      "theorem": "Vector.toList_map",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'toList'"
+    },
+    {
+      "row": 40,
+      "theorem": "List.zipWith_nil",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.144456 has no recorded assignment. (chars 5-14)"
+    },
+    {
+      "row": 41,
+      "theorem": "Equiv.trans_refl",
+      "status": "unsupported",
+      "diagnostic": {
+        "reason": "unknown-sort",
+        "detail": "Proposition classification outside supported fragment",
+        "field": "locals[_uniq.12957]"
+      }
+    },
+    {
+      "row": 42,
+      "theorem": "Equiv.trans_refl",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'LeftInverse'"
+    },
+    {
+      "row": 43,
+      "theorem": "MetricSpace.replaceUniformity_eq",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.562313 has no recorded assignment. (chars 5-14)"
+    },
+    {
+      "row": 44,
+      "theorem": "MetricSpace.replaceUniformity_eq",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.562313 has no recorded assignment. (chars 5-14)"
+    },
+    {
+      "row": 45,
+      "theorem": "SNum.bit_zero",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'zero'"
+    },
+    {
+      "row": 46,
+      "theorem": "CategoryTheory.MorphismProperty.isomorphisms.iff",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.59249 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 47,
+      "theorem": "Fin.induction_succ",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'succ'"
+    },
+    {
+      "row": 48,
+      "theorem": "Fin.induction_succ",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'succ'"
+    },
+    {
+      "row": 49,
+      "theorem": "Path.map_map",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.306794 has no recorded assignment. (chars 5-14)"
+    },
+    {
+      "row": 50,
+      "theorem": "Path.map_map",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.306794 has no recorded assignment. (chars 5-14)"
+    },
+    {
+      "row": 51,
+      "theorem": "PosNum.one_add",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.30381 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 52,
+      "theorem": "List.zipLeft_nil_right",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.476599 has no recorded assignment. (chars 5-14)"
+    },
+    {
+      "row": 53,
+      "theorem": "ContinuousLinearEquiv.trans_toLinearEquiv",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.1545569 has no recorded assignment. (chars 5-15)"
+    },
+    {
+      "row": 54,
+      "theorem": "ContinuousLinearEquiv.trans_toLinearEquiv",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.1545569 has no recorded assignment. (chars 5-15)"
+    },
+    {
+      "row": 55,
+      "theorem": "FreeGroup.Red.church_rosser",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'Step'"
+    },
+    {
+      "row": 56,
+      "theorem": "FreeGroup.Red.church_rosser",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'Step'"
+    },
+    {
+      "row": 57,
+      "theorem": "AlgEquiv.arrowCongr_symm",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'arrowCongr'"
+    },
+    {
+      "row": 58,
+      "theorem": "AlgEquiv.arrowCongr_symm",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'arrowCongr'\nunknown identifier 'arrowCongr'"
+    },
+    {
+      "row": 59,
+      "theorem": "List.length_tail",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'length'"
+    },
+    {
+      "row": 60,
+      "theorem": "Num.add_toZNum",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.456739 has no recorded assignment. (chars 5-14)"
+    },
+    {
+      "row": 61,
+      "theorem": "LieHom.mk_coe",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: invalid coercion notation, expected type is not known\ninvalid coercion notation, expected type is not known\ninvalid coercion notation, expected type is not known\ninvalid coercion notation, expected type is not known\ninvalid {...} notation, expected type is not known\ninvalid {...} notation, expected type is not known\ninvalid {...} notation, expected type is not known"
+    },
+    {
+      "row": 62,
+      "theorem": "LieHom.mk_coe",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: invalid coercion notation, expected type is not known\ninvalid coercion notation, expected type is not known\ninvalid coercion notation, expected type is not known\ninvalid coercion notation, expected type is not known\ninvalid {...} notation, expected type is not known\ninvalid {...} notation, expected type is not known\ninvalid {...} notation, expected type is not known\ninvalid {...} notation, expected type is not known\ninvalid coercion notation, expected type is not known"
+    },
+    {
+      "row": 63,
+      "theorem": "Equiv.mulEquiv_symm_apply",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'mulEquiv'\ninvalid coercion notation, expected type is not known"
+    },
+    {
+      "row": 64,
+      "theorem": "Equiv.mulEquiv_symm_apply",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'mulEquiv'\ninvalid coercion notation, expected type is not known"
+    },
+    {
+      "row": 65,
+      "theorem": "Option.pbind_map",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.6432 has no recorded assignment. (chars 5-12)"
+    },
+    {
+      "row": 66,
+      "theorem": "hasCompactMulSupport_def",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.8941 has no recorded assignment. (chars 5-12)"
+    },
+    {
+      "row": 67,
+      "theorem": "Dfinsupp.mapRange_id",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'mapRange'"
+    },
+    {
+      "row": 68,
+      "theorem": "Dfinsupp.mapRange_id",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'mapRange'\ninvalid coercion notation, expected type is not known"
+    },
+    {
+      "row": 69,
+      "theorem": "LinearEquiv.dualMap_refl",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'dualMap'"
+    },
+    {
+      "row": 70,
+      "theorem": "LinearEquiv.dualMap_refl",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'Dual'"
+    },
+    {
+      "row": 71,
+      "theorem": "NonUnitalStarAlgHom.fst_prod",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'comp'"
+    },
+    {
+      "row": 72,
+      "theorem": "NonUnitalStarAlgHom.fst_prod",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'comp'\ninvalid coercion notation, expected type is not known"
+    },
+    {
+      "row": 73,
+      "theorem": "PartENat.coe_add_get",
+      "status": "admission_rejected",
+      "detail": "semantic-mismatch: Replay produced 2 goals instead of one."
+    },
+    {
+      "row": 74,
+      "theorem": "EuclideanGeometry.eq_reflection_of_eq_subspace",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'direction'"
+    },
+    {
+      "row": 75,
+      "theorem": "EuclideanGeometry.eq_reflection_of_eq_subspace",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'direction'"
+    },
+    {
+      "row": 76,
+      "theorem": "DiscreteQuotient.ofLE_map",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.32610 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 77,
+      "theorem": "DiscreteQuotient.ofLE_map",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.32610 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 78,
+      "theorem": "NormedAddGroupHom.ker.incl_comp_lift",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.485294 has no recorded assignment. (chars 5-14)"
+    },
+    {
+      "row": 79,
+      "theorem": "NormedAddGroupHom.ker.incl_comp_lift",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.485294 has no recorded assignment. (chars 5-14)"
+    },
+    {
+      "row": 80,
+      "theorem": "Bool.sizeOf_eq_one",
+      "status": "supported",
+      "facts": 0
+    },
+    {
+      "row": 81,
+      "theorem": "Sum.getRight_swap",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.23345 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 82,
+      "theorem": "Num.bit_to_nat",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.402487 has no recorded assignment. (chars 5-14)"
+    },
+    {
+      "row": 83,
+      "theorem": "PEquiv.symm_symm",
+      "status": "unsupported",
+      "diagnostic": {
+        "reason": "unknown-sort",
+        "detail": "Proposition classification outside supported fragment",
+        "field": "locals[_uniq.88425]"
+      }
+    },
+    {
+      "row": 84,
+      "theorem": "PEquiv.symm_symm",
+      "status": "unsupported",
+      "diagnostic": {
+        "reason": "unknown-sort",
+        "detail": "Proposition classification outside supported fragment",
+        "field": "locals[_uniq.88573]"
+      }
+    },
+    {
+      "row": 85,
+      "theorem": "List.head?_map",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.44944 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 86,
+      "theorem": "CategoryTheory.Idempotents.Karoubi.comp_f",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: <stdin>:1:134: expected token"
+    },
+    {
+      "row": 87,
+      "theorem": "SubgroupClass.inclusion_self",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.59883 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 88,
+      "theorem": "SubgroupClass.inclusion_self",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.59883 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 89,
+      "theorem": "concaveOn_id",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.14565 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 90,
+      "theorem": "concaveOn_id",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.14565 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 91,
+      "theorem": "List.forall\u2082_cons",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.620 has no recorded assignment. (chars 5-11)"
+    },
+    {
+      "row": 92,
+      "theorem": "List.forall\u2082_cons",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.620 has no recorded assignment. (chars 5-11)"
+    },
+    {
+      "row": 93,
+      "theorem": "Sum.getLeft_swap",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.23182 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 94,
+      "theorem": "Int.natAbs_negOfNat",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'natAbs'"
+    },
+    {
+      "row": 95,
+      "theorem": "Sum.getRight_map",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: unknown identifier 'getRight'"
+    },
+    {
+      "row": 96,
+      "theorem": "CategoryTheory.Iso.homCongr_apply",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: <stdin>:1:161: expected end of input"
+    },
+    {
+      "row": 97,
+      "theorem": "EReal.coe_ennreal_add",
+      "status": "admission_rejected",
+      "detail": "lean-rejected: <stdin>:1:10: expected token"
+    },
+    {
+      "row": 98,
+      "theorem": "sigmaFinsuppEquivDfinsupp_add",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.76301 has no recorded assignment. (chars 5-13)"
+    },
+    {
+      "row": 99,
+      "theorem": "sigmaFinsuppEquivDfinsupp_add",
+      "status": "admission_rejected",
+      "detail": "unresolved-universe: Universe level metavariable ?u.76301 has no recorded assignment. (chars 5-13)"
+    }
+  ],
+  "counts": {
+    "admission_rejected": 92,
+    "lean_admitted": 8,
+    "unsupported:unknown-sort": 5,
+    "supported": 3
+  },
+  "scanned": 100,
+  "elapsed_s": 4.547585179999942
+}

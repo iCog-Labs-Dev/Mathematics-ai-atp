@@ -161,35 +161,42 @@ supported Linux deployment. Closing stdin with `DEVNULL` or increasing the start
 timeout does not provide a usable interactive server. Explicitly flushing every
 protocol response in the Pantograph fork is the longer-term portable correction.
 
-### 3.3 petta (PLN) — required only when `use_pln=true`
+### 3.3 PeTTa and PeTTaChainer — required only when `use_pln=true`
 
-If you are running with `"use_pln": false` (terminal-reward-only mode), skip this
-section entirely — `PLNInference` is never constructed and no petta subprocess ever
-spawns.
+Search does not install PeTTa. Provision PeTTa, SWI-Prolog with Janus, and a local
+checkout of `https://github.com/123nol/petta_chainer` before enabling PLN. Follow
+[the PLN installation and verification guide](../../pln_inference/README.md).
 
-When `use_pln=true` (the default), the PLN reward and ranking paths shell out to the
-`petta` binary. `PLNInference` finds it via, in order: the `petta_bin` constructor arg,
-the `PETTA_BIN` environment variable, or `shutil.which("petta")`. So either install it
-on PATH (e.g. `/usr/local/bin/petta`) or:
+Set these in the same activated environment and terminal used to launch RL:
 
 ```bash
-export PETTA_BIN=/path/to/petta          # put this in ~/.bashrc for JupyterLab terminals
+export PETTA_BIN=/home/jovyan/bin/petta
+export PETTACHAINER_ROOT=/home/jovyan/pln/petta_chainer
+
+python -m maths_ai.pln_inference.diagnose \
+  --petta-source-root /home/jovyan/pln/PeTTa \
+  --output artifacts/pln_checks/first_install
 ```
 
-Check:
+The output directory must not already exist. Verify the core implication,
+imported-control, and full-fork-axiom checks. The no-axiom identity control may
+still have a core proof; it must lack the imported rule identifiers. An unanswered
+conjunction is reported separately and is not evidence that imports failed.
 
-```bash
-uv run python -c "
-from maths_ai.pln_inference.model import PLNInference
-p = PLNInference()
-r = p.evaluate('p -> p', hypotheses=['p : Prop'])
-print('petta OK:', r.status, r.stv, 'fallback =', r.is_fallback)
-"
-```
+Both live and batch queries use absolute local imports from this checkout. The
+default axiom file is `pettachainer/metta/metamath/axioms/metamath_axioms.metta`
+inside that fork. There is no inference-time clone or download. `PETTA_BIN`
+identifies an executable launcher, not `run.sh` with command arguments appended.
+Missing configured files or executable raise configuration errors rather than
+producing random fallback scores. Other engine failures and unanswered queries
+remain distinguishable fallback results in the live wrapper.
 
-`is_fallback=True` with status `petta_unavailable` means the binary wasn't found. With
-`use_pln=true`, every Φ would be exploration noise from the DTS bandit instead of PLN
-scores — the run proceeds but reward shaping is uninformed.
+Only after the diagnostic succeeds, set `"use_pln": true` and launch the normal
+RL command. An enabled flag alone does not establish genuine PLN scoring. The
+shared compiler has a conservative supported fragment and reports unsupported
+states without an STV. Success requires a target-matching rule-proof and STV;
+direct-fact answers are intentionally excluded. Consult the PLN guide for coverage
+and start a new run after changing translation semantics.
 
 ### 3.4 Sanity: unit suite + live smoke
 
