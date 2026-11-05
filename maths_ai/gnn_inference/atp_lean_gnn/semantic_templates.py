@@ -21,45 +21,52 @@ def load_semantic_trace(cache_root, split, index, raw, source_trace):
     digest = hashlib.sha256(content).hexdigest()
     try:
         value = json.loads(content)
-        if (not isinstance(value, dict) or value.get("schema_version") != ActionTraceCache.SCHEMA_VERSION
-                or value.get("extractor_version") != ActionTraceCache.EXTRACTOR_VERSION
-                or value.get("raw_record_sha256") != ActionTraceCache.raw_record_sha256(raw)):
-            raise ValueError("semantic trace version/raw binding mismatch")
-        for key in ("dataset", "split", "row_index", "theorem", "tactic", "repo_commit", "file_path"):
-            if value.get(key) != raw.get(key) or value.get(key) != source_trace.get(key):
-                raise ValueError("semantic trace source identity mismatch")
-        from .sexpr_extraction import DATASET_MATHLIB_COMMIT, PANTOGRAPH_COMMIT
-
-        if (value.get("repo_commit") != DATASET_MATHLIB_COMMIT
-                or value.get("pantograph_commit") != PANTOGRAPH_COMMIT
-                or value.get("pantograph_commit") != source_trace.get("pantograph_commit")
-                or value["raw_record_sha256"] != source_trace.get("raw_record_sha256")):
-            raise ValueError("semantic trace pin/source binding mismatch")
-        for key in ("state_sha256", "tactic_sha256", "target_state_sha256"):
-            if not isinstance(value.get(key), str) or value[key] != source_trace.get(key):
-                raise ValueError("semantic trace dataset state binding mismatch")
-
-        def context_signature(context):
-            if not isinstance(context, list) or any(not isinstance(entry, dict) for entry in context):
-                raise ValueError("invalid semantic local context")
-            return [(entry["context_index"], entry.get("user_name"), entry.get("binder_role"),
-                     bool(entry.get("is_instance")), bool(entry.get("is_let"))) for entry in context]
-
-        if context_signature(value["local_context"]) != context_signature(source_trace["local_context"]):
-            raise ValueError("semantic trace input context mismatch")
-        terms = value["terms"]
-        if not isinstance(terms, list) or any(not isinstance(term, dict) or not isinstance(term.get("action_sexp"), str)
-                                              for term in terms):
-            raise ValueError("invalid semantic term payload")
-        if [{key: item for key, item in term.items() if key != "action_sexp"} for term in terms] != source_trace.get("term_ranges"):
-            raise ValueError("semantic trace owned term ranges differ from source trace")
-        for term in terms:
-            start, end = term.get("source_start"), term.get("source_end")
-            if type(start) is not int or type(end) is not int or not 0 <= start < end:
-                raise ValueError("invalid semantic term range")
+        terms = validate_semantic_trace(value, raw, source_trace)
         return {"status": "bound", "sha256": digest, "terms": terms}
     except (KeyError, TypeError, ValueError, RecursionError) as error:
         return {"status": "invalid", "sha256": digest, "terms": [], "error": str(error)}
+
+
+def validate_semantic_trace(value, raw, source_trace):
+    """Validate in memory before an isolated extraction writes its sidecar."""
+    from .sexpr_extraction import DATASET_MATHLIB_COMMIT, PANTOGRAPH_COMMIT
+
+    if (not isinstance(value, dict) or value.get("schema_version") != ActionTraceCache.SCHEMA_VERSION
+            or value.get("extractor_version") != ActionTraceCache.EXTRACTOR_VERSION):
+        raise ValueError("semantic trace version mismatch")
+    if value.get("raw_record_sha256") != ActionTraceCache.raw_record_sha256(raw):
+        raise ValueError("semantic trace raw binding mismatch")
+    for key in ("dataset", "split", "row_index", "theorem", "tactic", "repo_commit", "file_path"):
+        if value.get(key) != raw.get(key) or value.get(key) != source_trace.get(key):
+            raise ValueError(f"semantic trace source identity mismatch: {key}")
+    if (value.get("repo_commit") != DATASET_MATHLIB_COMMIT
+            or value.get("pantograph_commit") != PANTOGRAPH_COMMIT
+            or value.get("pantograph_commit") != source_trace.get("pantograph_commit")
+            or value["raw_record_sha256"] != source_trace.get("raw_record_sha256")):
+        raise ValueError("semantic trace pin/source binding mismatch")
+    for key in ("state_sha256", "tactic_sha256", "target_state_sha256"):
+        if not isinstance(value.get(key), str) or value[key] != source_trace.get(key):
+            raise ValueError(f"semantic trace dataset state binding mismatch: {key}")
+
+    def context_signature(context):
+        if not isinstance(context, list) or any(not isinstance(entry, dict) for entry in context):
+            raise ValueError("invalid semantic local context")
+        return [(entry["context_index"], entry.get("user_name"), entry.get("binder_role"),
+                 bool(entry.get("is_instance")), bool(entry.get("is_let"))) for entry in context]
+
+    if context_signature(value["local_context"]) != context_signature(source_trace["local_context"]):
+        raise ValueError("semantic trace input context mismatch")
+    terms = value["terms"]
+    if not isinstance(terms, list) or any(not isinstance(term, dict) or not isinstance(term.get("action_sexp"), str)
+                                       for term in terms):
+        raise ValueError("invalid semantic term payload")
+    if [{key: item for key, item in term.items() if key != "action_sexp"} for term in terms] != source_trace.get("term_ranges"):
+        raise ValueError("semantic trace owned term ranges differ from source trace")
+    for term in terms:
+        start, end = term.get("source_start"), term.get("source_end")
+        if type(start) is not int or type(end) is not int or not 0 <= start < end:
+            raise ValueError("invalid semantic term range")
+    return terms
 
 
 def decode_semantic_term(source, parser, depth):

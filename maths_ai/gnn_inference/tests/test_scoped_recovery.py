@@ -38,13 +38,16 @@ def frozen_v5(tmp_path):
             _cache_row(cache, split, 6, node("Lean.Parser.Tactic.exact", atom("exact"), expression), "exact fun hp => hp",
                        alignment="branch_opener", target=False),
         ]
-        source_path = cache / split / "action_trace_v3/000000003.json"
-        source = json.loads(source_path.read_text())
-        source.update(pantograph_commit=PANTOGRAPH_COMMIT, state_sha256="state", tactic_sha256="tactic", target_state_sha256="after",
-                      term_ranges=[{key: value for key, value in term.items() if key != "action_sexp"}])
-        source_path.write_text(json.dumps(source))
-        items[3].argument_trace_sha256 = SourceSyntaxTraceCache.raw_record_sha256(source)
-        semantic = {**source, "schema_version": ActionTraceCache.SCHEMA_VERSION,
+        for index in (3, 5):
+            source_path = cache / split / f"action_trace_v3/{index:09d}.json"
+            source = json.loads(source_path.read_text())
+            source.update(pantograph_commit=PANTOGRAPH_COMMIT, state_sha256="state", tactic_sha256="tactic", target_state_sha256="after",
+                          term_ranges=[{key: value for key, value in term.items() if key != "action_sexp"}])
+            source_path.write_text(json.dumps(source))
+            items[index].argument_trace_sha256 = SourceSyntaxTraceCache.raw_record_sha256(source)
+            if index == 3:
+                semantic_source = source
+        semantic = {**semantic_source, "schema_version": ActionTraceCache.SCHEMA_VERSION,
                     "extractor_version": ActionTraceCache.EXTRACTOR_VERSION, "terms": [term]}
         path = cache / split / "action_trace_v2/000000003.json"
         path.parent.mkdir()
@@ -89,6 +92,7 @@ def test_v6_rejects_changed_frozen_cache_and_counts_stale_optional_sidecars(tmp_
     assert scoped.main(["--previous-recovery-dir", str(previous), "--output-dir", str(output)]) == 0
     report = json.loads((output / "report.json").read_text())
     assert report["splits"]["train"]["semantic_trace_status_counts"]["invalid"] == 1
+    assert report["splits"]["train"]["semantic_trace_error_counts"] == {"semantic trace raw binding mismatch": 1}
     assert report["splits"]["train"]["summary"]["semantic_rescues"] == 0
     path = cache / "val/action_trace_v3/000000001.json"
     path.write_bytes(path.read_bytes() + b" ")
@@ -96,3 +100,20 @@ def test_v6_rejects_changed_frozen_cache_and_counts_stale_optional_sidecars(tmp_
     with pytest.raises(ValueError, match="cache changed"):
         scoped.main(["--previous-recovery-dir", str(previous), "--output-dir", str(output)])
     assert not json.loads((output / "report.json").read_text())["complete"]
+
+
+def test_v6_reads_isolated_overlay_without_falling_back_to_original_sidecars(tmp_path, frozen_v5):
+    previous, cache = frozen_v5
+    overlay = tmp_path / "overlay"
+    target = overlay / "val/action_trace_v2/000000003.json"
+    target.parent.mkdir(parents=True)
+    target.write_bytes((cache / "val/action_trace_v2/000000003.json").read_bytes())
+    before = _snapshot(cache)
+    output = tmp_path / "overlaid"
+    assert scoped.main(["--previous-recovery-dir", str(previous), "--semantic-cache-root", str(overlay),
+                        "--output-dir", str(output)]) == 0
+    report = json.loads((output / "report.json").read_text())
+    assert report["manifest"]["semantic_cache_root"] == str(overlay)
+    assert report["splits"]["val"]["summary"]["semantic_rescues"] == 1
+    assert report["splits"]["train"]["summary"]["semantic_rescues"] == 0
+    assert _snapshot(cache) == before

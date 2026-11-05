@@ -57,6 +57,7 @@ def main(argv=None):
     parser.add_argument("--previous-recovery-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--pilot-actions", type=int, default=24)
+    parser.add_argument("--semantic-cache-root", type=Path, help="Isolated optional V2 sidecars; defaults to original cache root")
     args = parser.parse_args(argv)
     if args.pilot_actions < 1:
         raise ValueError("pilot action count must be positive")
@@ -79,24 +80,28 @@ def main(argv=None):
     original = json.loads(baseline_report.read_text())
     verify_coverage(original, baseline_rows)
     cache = Path(source["manifest"]["cache_root"]).resolve()
+    semantic_cache = args.semantic_cache_root.resolve() if args.semantic_cache_root else cache
     if str(cache) != v4_report["manifest"]["cache_root"]:
         raise ValueError("predecessor cache roots differ")
-    for root in (previous, v4.resolve(), baseline.resolve(), cache, Path(original["manifest"]["prepared_root"]).resolve()):
+    for root in (previous, v4.resolve(), baseline.resolve(), cache, semantic_cache, Path(original["manifest"]["prepared_root"]).resolve()):
         if output == root or root in output.parents:
             raise ValueError("output must be outside source artifact roots")
     report = {"manifest": {"schema": "scoped_recovery_v1", "renderer": "template-v6",
         "previous_recovery_dir": str(previous), "previous_sha256": previous_hashes,
         "baseline_dir": str(baseline), "baseline_sha256": baseline_hashes, "cache_root": str(cache),
+        "semantic_cache_root": str(semantic_cache),
         "renderer_sha256": renderer_fingerprints(), "runner_sha256": file_sha256(Path(__file__)),
         "semantic_policy": "optional_v2_digest_context_pin_owned_range_bound_v1", "pilot_actions": args.pilot_actions,
         "native_execution_measured": False, "model_training_measured": False}, "complete": False, "splits": {}}
     output.mkdir(parents=True, exist_ok=False)
     totals, families = defaultdict(_stats), defaultdict(_stats)
     errors, family_errors, semantic_status, groups = defaultdict(Counter), defaultdict(Counter), defaultdict(Counter), defaultdict(list)
+    semantic_errors = defaultdict(Counter)
 
     def checkpoint():
         report["splits"] = {split: {"summary": dict(stats), "v6_error_counts": dict(errors[split]),
             "semantic_trace_status_counts": dict(semantic_status[split]),
+            "semantic_trace_error_counts": dict(semantic_errors[split]),
             "by_family": {family: {"summary": dict(counts), "error_counts": dict(family_errors[(split, family)])}
                           for (s, family), counts in families.items() if s == split}} for split, stats in totals.items()}
         temporary = output / "report.tmp"
@@ -122,10 +127,11 @@ def main(argv=None):
             row.update(v6_renderable=False, v6_syntax_renderable=False, v6_schema=None, semantic_reconstructions=0,
                        semantic_trace_status="quarantined", semantic_trace_sha256=None, term_kinds=[])
             if not row["quarantined"]:
-                semantic = load_semantic_trace(cache, row["split"], row["row_index"], raw, trace)
+                semantic = load_semantic_trace(semantic_cache, row["split"], row["row_index"], raw, trace)
                 row.update(semantic_trace_status=semantic["status"], semantic_trace_sha256=semantic["sha256"])
                 if "error" in semantic:
                     row["semantic_trace_error"] = semantic["error"]
+                    semantic_errors[row["split"]][semantic["error"]] += 1
                 result = prepare_gold_rendering(raw["tactic"], trace, renderer="template-v6")
                 row["v6_syntax_renderable"] = isinstance(result["rendered_tactic"], str)
                 row["v6_syntax_error"] = result["render_error"]

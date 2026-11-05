@@ -111,6 +111,11 @@ def test_native_runner_binds_optional_semantic_hashes_into_resume(tmp_path, monk
     path = cache / "val/action_trace_v2/000000000.json"
     path.parent.mkdir()
     path.write_text(json.dumps(semantic))
+    overlay = tmp_path / "overlay"
+    overlay_path = overlay / "val/action_trace_v2/000000000.json"
+    overlay_path.parent.mkdir(parents=True)
+    overlay_path.write_bytes(path.read_bytes())
+    path.unlink()  # Actual replay must read the overlay, not the original cache.
     monkeypatch.setattr(runner, "_verify_environment", lambda *_: None)
     monkeypatch.setattr(runner, "iter_dataset_rows", lambda **_: iter([row]))
     monkeypatch.setattr(runner, "run_native_file", lambda *_, **__: {"frontend_errors": [], "rows": [{
@@ -118,13 +123,15 @@ def test_native_runner_binds_optional_semantic_hashes_into_resume(tmp_path, monk
         "original": {"status": "executed", "goals": []}, "rendered": {"status": "executed", "goals": []}}]})
     output = tmp_path / "replay"
     argv = ["--source-root", str(source_root), "--pantograph-root", str(source_root), "--cache-root", str(cache),
-            "--output-dir", str(output), "--renderer", "template-v6"]
+            "--output-dir", str(output), "--renderer", "template-v6", "--semantic-cache-root", str(overlay)]
     assert runner.main(argv) == 0
     report = json.loads((output / "report.json").read_text())
     assert report["manifest"]["rows"][0]["cache_hashes"]["action_trace_v2"]
     assert report["summary"]["semantic_trace_status_counts"] == {"bound": 1}
     assert report["summary"]["semantic_reconstructed_steps"] == 1
+    assert report["summary"]["scoped_tactic_parsed_steps"] == 1
+    assert report["manifest"]["semantic_cache_root"] == str(overlay)
     assert runner.main([*argv, "--resume"]) == 0
-    path.write_bytes(path.read_bytes() + b" ")  # Same parsed content still has a different immutable binding.
+    overlay_path.write_bytes(overlay_path.read_bytes() + b" ")  # Same parsed content still has a different immutable binding.
     with pytest.raises(ValueError, match="resume bindings changed"):
         runner.main([*argv, "--resume"])

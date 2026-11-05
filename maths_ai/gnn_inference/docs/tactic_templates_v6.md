@@ -8,8 +8,8 @@ V6 combines three recovery paths under `--renderer template-v6`:
 
 The paired server audit measures net recovery against saved V5 support
 **127,245 train / 2,438 val**, on the same **218,727 / 4,157** denominator.
-The requested **>50,000 additional train rows** remains a target, not a measured
-gain or a guaranteed consequence of the residual error buckets.
+The requested **>50,000 additional train rows** remains a target. Completed
+server audit recovered **21,624 train / 382 val** rows; results below.
 
 ## Typed scopes and patterns
 
@@ -151,5 +151,49 @@ locals, insufficient semantic scopes, over-budget terms and changed resume
 inputs. Paired synthetic cohorts verify full denominators, unchanged artifacts,
 quarantine retention, syntax/semantic attribution and exact-only balanced
 sampling. Regression checks cover V1–V5, inventory fingerprints and existing
-joint/local decoders. Full server V6 row gains and real-Mathlib delta pilot
-results remain unmeasured.
+joint/local decoders. Full server V6 static gains are recorded below;
+real-Mathlib delta pilot results are recorded below.
+
+## Completed paired server result
+
+Source: user-supplied completed audit summary for `template_v6_recovery`.
+
+| Static support/gain | Train | Val |
+|---|---:|---:|
+| Selected population | 218,727 | 4,157 |
+| Quarantined original traces | 831 | 9 |
+| Frozen V5 support | 127,245 | 2,438 |
+| V6 support | **148,869** | **2,820** |
+| V6 rescues versus V5 | **21,624** | **382** |
+| V6 losses versus V5 | **0** | **0** |
+| Exact-aligned V6 support | 138,763 | 2,815 |
+| Exact-aligned rescues | 20,483 | 382 |
+| Exact-aligned losses | 0 | 0 |
+
+Static coverage rises **58.18% → 68.06% train / 58.65% → 67.84% val**.
+Exclusive rescues: patterns **13,835 / 241**, scoped terms **6,205 / 111**,
+other syntax **1,584 / 30**, semantic reconstruction **0 / 0**. All measured
+gains are syntax-only. The **1,141** new nonexact train rows remain source-only
+candidates. Remaining unsupported/invalid population: **69,858 / 1,337**.
+
+Subsequent status inspection found **no bound semantic sidecars**: train has
+**5,189 invalid / 212,707 missing / 831 quarantined**; val has **4,148 missing /
+9 quarantined**. Therefore this run did not exercise semantic reconstruction.
+The 5,189 invalid bindings need reason-level inspection before any repair;
+missing validation data motivates bounded fresh extraction. The requested
+>50k train gain has not been reached.
+
+The generated native pilot selected **24** new exact-aligned val actions from
+**135** family/feature groups and passed **24/24** normalized inputs, captured
+original controls, original-text diagnostics and rendered all-goal transitions.
+All 24 are new versus flat support. Every selected V2 sidecar was missing;
+semantic reconstruction count is zero. This validates the selected syntax
+instances, not all 382 val rescues or every form. Static report:
+`maths_ai/gnn_inference/runs/template_v6_recovery/report.json`.
+Native report:
+`maths_ai/gnn_inference/runs/native_gold_replay_template_v6_pilot/report.json`.
+
+Next workflow: [bounded isolated semantic extraction](semantic_recovery_extraction.md).
+Fresh output overlays preserve frozen caches, aggregate old invalid-binding
+reasons and emit a semantic-only native pilot. `--semantic-cache-root` selects
+the overlay for audit/replay. Combined regression suite now passes **156 tests**.

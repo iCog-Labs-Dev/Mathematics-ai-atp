@@ -57,7 +57,7 @@ def _write_report(path, report):
     temporary.replace(path)
 
 
-def _prepare_row(row, cache_root, raw_cache, model_cache, trace_cache, *, renderer="flat"):
+def _prepare_row(row, cache_root, raw_cache, model_cache, trace_cache, *, renderer="flat", semantic_cache_root=None):
     payload = {"row_index": row.row_index, "theorem": row.theorem, "file_path": row.file_path,
                "tactic": row.tactic, "rendered_tactic": None, "cache_hashes": {}}
     for directory in ("sexpr", "model_sexpr_v2", "action_trace_v3"):
@@ -84,7 +84,7 @@ def _prepare_row(row, cache_root, raw_cache, model_cache, trace_cache, *, render
             raise ValueError("invalid source invocation coordinates")
         semantic = None
         if renderer == "template-v6":
-            semantic = semantic_templates.load_semantic_trace(cache_root, row.split, row.row_index, raw, trace)
+            semantic = semantic_templates.load_semantic_trace(semantic_cache_root or cache_root, row.split, row.row_index, raw, trace)
             payload["cache_hashes"]["action_trace_v2"] = semantic["sha256"]
             payload["semantic_trace_status"] = semantic["status"]
             if "error" in semantic:
@@ -118,7 +118,10 @@ def main(argv=None):
     parser.add_argument("--validation-plan", type=Path,
                         help="Use an inventory's fixed exact-aligned selection instead of theorem sampling")
     parser.add_argument("--row-indices", type=Path, help="JSON list of fixed dataset row IDs for a targeted native check")
+    parser.add_argument("--semantic-cache-root", type=Path, help="Isolated optional V2 sidecars for template-v6")
     args = parser.parse_args(argv)
+    if args.semantic_cache_root and args.renderer != "template-v6":
+        raise ValueError("semantic cache overlay requires template-v6")
     if args.num_theorems < 1 or not math.isfinite(args.file_timeout) or args.file_timeout <= 0:
         raise ValueError("theorem count and file timeout must be positive")
     source_root, pantograph_root, cache_root = (
@@ -158,7 +161,8 @@ def main(argv=None):
         raise ValueError("empty theorem selection")
     caches = (SExprCache(cache_root, project_path=str(source_root)), ModelSExprCache(cache_root),
               SourceSyntaxTraceCache(cache_root))
-    planned = [_prepare_row(row, cache_root, *caches, renderer=args.renderer) for row in selected]
+    semantic_cache_root = args.semantic_cache_root.resolve() if args.semantic_cache_root else cache_root
+    planned = [_prepare_row(row, cache_root, *caches, renderer=args.renderer, semantic_cache_root=semantic_cache_root) for row in selected]
     if validation_plan is not None:
         for payload in planned:
             expected = expected_rows[payload["row_index"]]
@@ -187,6 +191,7 @@ def main(argv=None):
                               for file, theorem in sorted({(p["file_path"], p["theorem"]) for p in planned})],
         "source_root": str(source_root), "pantograph_root": str(pantograph_root),
         "cache_root": str(cache_root), "source_commit": DATASET_MATHLIB_COMMIT,
+        "semantic_cache_root": str(semantic_cache_root) if args.renderer == "template-v6" else None,
         "pantograph_commit": PANTOGRAPH_COMMIT, "toolchain": LEAN_TOOLCHAIN,
         "file_timeout": args.file_timeout, "source_hashes": source_hashes,
         "helper_sha256": file_sha256(LEAN_HELPER),
