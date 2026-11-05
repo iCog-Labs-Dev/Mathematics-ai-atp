@@ -72,7 +72,8 @@ def test_wrapper_rejects_unknown_configs_multi_blocks_and_declaration_parameter_
         parse_wrapper_trace(trace(root))
 
 
-def test_native_v5_wrappers_have_let_locations_and_modifiers_match_source():
+@pytest.mark.parametrize("renderer", ["template-v5", "template-v6"])
+def test_native_v5_wrappers_have_let_locations_and_modifiers_match_source(renderer):
     configured = os.environ.get("MATHS_AI_PANTOGRAPH_ROOT")
     if not configured:
         pytest.skip("set MATHS_AI_PANTOGRAPH_ROOT for pinned native V5 replay")
@@ -112,7 +113,7 @@ def test_native_v5_wrappers_have_let_locations_and_modifiers_match_source():
                 seen.add(text)
                 row = DatasetRow(invocation["goalBefore"], "WrapperSmoke", text, "val", len(requests))
                 data = _make_source_syntax_trace_record(row, {"invocation": invocation}, {})
-                result = prepare_gold_rendering(text, data, renderer="template-v5")
+                result = prepare_gold_rendering(text, data, renderer=renderer)
                 assert result["rendered_tactic"] is not None, (text, result)
                 syntax = data["source_syntax"]
                 texts[row.row_index] = text

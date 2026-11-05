@@ -11,7 +11,7 @@ import hashlib
 import json
 import math
 import subprocess
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from maths_ai.gnn_inference.atp_lean_gnn.bundle import file_sha256
@@ -28,6 +28,7 @@ from maths_ai.gnn_inference.atp_lean_gnn import intro_templates
 from maths_ai.gnn_inference.atp_lean_gnn import application_templates
 from maths_ai.gnn_inference.atp_lean_gnn import recursive_templates
 from maths_ai.gnn_inference.atp_lean_gnn import wrapper_templates
+from maths_ai.gnn_inference.atp_lean_gnn import scoped_templates, pattern_templates, semantic_templates
 from maths_ai.gnn_inference.atp_lean_gnn.template_catalog import (
     canonical_form, form_id, load_validation_plan, validation_summary,
 )
@@ -81,7 +82,14 @@ def _prepare_row(row, cache_root, raw_cache, model_cache, trace_cache, *, render
         unit, invocation = raw["unit_index"], raw["invocation_index"]
         if any(type(i) is not int or i < 0 for i in (unit, invocation)):
             raise ValueError("invalid source invocation coordinates")
-        payload.update(tactic_templates.prepare_gold_rendering(row.tactic, trace, renderer=renderer))
+        semantic = None
+        if renderer == "template-v6":
+            semantic = semantic_templates.load_semantic_trace(cache_root, row.split, row.row_index, raw, trace)
+            payload["cache_hashes"]["action_trace_v2"] = semantic["sha256"]
+            payload["semantic_trace_status"] = semantic["status"]
+            if "error" in semantic:
+                payload["semantic_trace_error"] = semantic["error"]
+        payload.update(tactic_templates.prepare_gold_rendering(row.tactic, trace, renderer=renderer, semantic_trace=semantic))
         if payload["rendered_tactic"] is not None:
             shape = canonical_form(payload["template_target"], payload["rendered_tactic"], trace["local_context"])
             payload["template_form_id"] = form_id(shape)
@@ -106,7 +114,7 @@ def main(argv=None):
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--file-timeout", type=float, default=600)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--renderer", choices=("flat", "template-v1", "template-v2", "template-v3", "template-v4", "template-v5"), default="flat")
+    parser.add_argument("--renderer", choices=("flat", "template-v1", "template-v2", "template-v3", "template-v4", "template-v5", "template-v6"), default="flat")
     parser.add_argument("--validation-plan", type=Path,
                         help="Use an inventory's fixed exact-aligned selection instead of theorem sampling")
     parser.add_argument("--row-indices", type=Path, help="JSON list of fixed dataset row IDs for a targeted native check")
@@ -190,11 +198,17 @@ def main(argv=None):
                             "template-v2": tactic_templates.APPLICATION_TEMPLATE_SCHEMA,
                              "template-v3": tactic_templates.NAMED_APPLICATION_TEMPLATE_SCHEMA,
                              "template-v4": recursive_templates.RECURSIVE_RULE_SCHEMA,
-                             "template-v5": wrapper_templates.WRAPPER_SCHEMA}.get(args.renderer),
-        "intro_template_schema": intro_templates.INTRO_TEMPLATE_SCHEMA if args.renderer in {"template-v3", "template-v4", "template-v5"} else None,
+                             "template-v5": wrapper_templates.WRAPPER_SCHEMA,
+                             "template-v6": scoped_templates.SCOPED_SCHEMA}.get(args.renderer),
+        "intro_template_schema": intro_templates.INTRO_TEMPLATE_SCHEMA if args.renderer in {"template-v3", "template-v4", "template-v5", "template-v6"} else None,
         "recursive_application_schema": recursive_templates.RECURSIVE_APPLICATION_SCHEMA if args.renderer == "template-v4" else None,
         "recursive_parser_sha256": file_sha256(Path(recursive_templates.__file__)),
         "wrapper_parser_sha256": file_sha256(Path(wrapper_templates.__file__)),
+        "scoped_parser_sha256": file_sha256(Path(scoped_templates.__file__)),
+        "pattern_parser_sha256": file_sha256(Path(pattern_templates.__file__)),
+        "semantic_parser_sha256": file_sha256(Path(semantic_templates.__file__)),
+        "semantic_sexp_parser_sha256": file_sha256(Path(tactic_templates.__file__).parent / "action_targets/compiler.py"),
+        "pattern_template_schema": pattern_templates.PATTERN_SCHEMA if args.renderer == "template-v6" else None,
         "application_term_schema": application_templates.APPLICATION_TERM_SCHEMA if args.renderer == "template-v3" else None,
         "intro_parser_sha256": file_sha256(Path(intro_templates.__file__)),
         "application_parser_sha256": file_sha256(Path(application_templates.__file__)),
@@ -250,7 +264,8 @@ def main(argv=None):
         for payload in payloads:
             result = {key: payload[key] for key in ("row_index", "theorem", "file_path", "tactic", "rendered_tactic")}
             for key in ("render_path", "flat_renderable", "flat_render_error", "template_target", "template_error_code",
-                        "alignment_kind", "dataset_target_matches_source", "template_form_id"):
+                        "alignment_kind", "dataset_target_matches_source", "template_form_id",
+                        "semantic_trace_status", "semantic_trace_error", "semantic_reconstructions"):
                 if key in payload:
                     result[key] = payload[key]
             if "failure" in payload:
@@ -266,6 +281,9 @@ def main(argv=None):
         report["files"][file_path] = {"rows": results, "frontend_messages": frontend_messages}
         all_results = [r for file in report["files"].values() for r in file["rows"]]
         report["summary"] = summarize_replays(all_results)
+        if args.renderer == "template-v6":
+            report["summary"]["semantic_trace_status_counts"] = dict(Counter(r.get("semantic_trace_status", "unavailable") for r in all_results))
+            report["summary"]["semantic_reconstructed_steps"] = sum(bool(r.get("semantic_reconstructions")) for r in all_results)
         if validation_plan is not None:
             report["template_validation"] = validation_summary(all_results, validation_plan["rows"])
         report["complete"] = len(report["files"]) == len(groups)

@@ -132,10 +132,9 @@ def main(argv=None):
         if output == root or root in output.parents:
             raise ValueError("output must be outside input artifact roots")
     code_root = Path(__file__).parents[1]
-    paths = [Path(__file__), code_root / "scripts/audit_unsupported_actions.py",
-             *(code_root / "atp_lean_gnn" / name for name in (
-                  "tactic_templates.py", "intro_templates.py", "application_templates.py", "recursive_templates.py", "wrapper_templates.py", "gold_replay.py", "preparation.py", "labels.py", "argument_relabeling.py")),
-             *sorted((code_root / "atp_lean_gnn/action_targets").glob("*.py"))]
+    from maths_ai.gnn_inference.atp_lean_gnn.template_catalog import renderer_fingerprints
+
+    paths = [Path(__file__), code_root / "scripts/audit_unsupported_actions.py"]
     report = {"manifest": {"schema": {"template-v2": "template_recovery_v1", "template-v3": "template_recovery_v2",
                                      "template-v4": "template_recovery_v3"}[args.renderer],
                            "renderer": args.renderer, "baseline_dir": str(baseline),
@@ -152,7 +151,7 @@ def main(argv=None):
                            "parameter_label_policy": "named_argument_position_v1" if args.renderer in {"template-v3", "template-v4"} else None,
                            "recursive_application_schema": recursive_templates.RECURSIVE_APPLICATION_SCHEMA if args.renderer == "template-v4" else None,
                            "reference_lookup": "validated_source_or_exact_global_identity_v1",
-                           "code_sha256": {str(path.relative_to(code_root)): file_sha256(path) for path in paths},
+                           "code_sha256": {**renderer_fingerprints(), **{str(path.relative_to(code_root)): file_sha256(path) for path in paths}},
                            "recursive_limits": {"nodes": recursive_templates.MAX_TERM_NODES, "depth": recursive_templates.MAX_TERM_DEPTH,
                                                  "children": recursive_templates.MAX_TERM_CHILDREN,
                                                  "literal_chars": recursive_templates.MAX_LITERAL_CHARS} if args.renderer == "template-v4" else None,

@@ -279,7 +279,7 @@ class WrappedTactic:
             "reference_count": int(refs), "hole_count": holes}
 
 
-def parse_wrapper_trace(trace):
+def parse_wrapper_trace(trace, *, parser_factory=None):
     try:
         compile_source_syntax_trace(trace, allow_parameter_labels=True)
     except (ActionTargetError, KeyError, TypeError) as error:
@@ -287,7 +287,7 @@ def parse_wrapper_trace(trace):
     # Syntax positions establish declaration/parameter/location roles. Term
     # values still go through the guarded recursive reference parser.
     root = _single_root(trace["source_syntax"])
-    parser = _ExtendedTermParser(trace["local_context"])
+    parser = (parser_factory or _ExtendedTermParser)(trace["local_context"])
     kind = root.get("kind")
     term_families = {f"Lean.Parser.Tactic.{family}": family for family in ("exact", "apply", "refine", "refine'")}
     if kind in term_families:
@@ -424,7 +424,8 @@ def render_extended_term(term, context):
     raise TemplateError("invalid_extended_term", "unrecognized typed node")
 
 
-def render_wrapper(action, context):
+def render_wrapper(action, context, *, term_renderer=None):
+    render_term = term_renderer or render_extended_term
     def location():
         if action.location.kind == "all":
             return " at *"
@@ -437,22 +438,22 @@ def render_wrapper(action, context):
         if value.kind == "star":
             return "*"
         prefix = "-" if value.kind == "erase" else {"default": "", "pre": "↓", "post": "↑"}[value.phase] + ("← " if value.backward else "")
-        return prefix + render_extended_term(value.term, context)
+        return prefix + render_term(value.term, context)
 
     family = action.family
     if family in {"have", "let"}:
         name = " " + _quoted_name(action.binder_name) if action.binder_name else ""
-        declared_type = " : " + render_extended_term(action.declared_type, context) if action.declared_type else ""
-        return family + name + declared_type + " := " + render_extended_term(action.value, context)
+        declared_type = " : " + render_term(action.declared_type, context) if action.declared_type else ""
+        return family + name + declared_type + " := " + render_term(action.value, context)
     if family in {"exact", "apply", "refine", "refine'", "change", "show", "specialize"}:
-        return family + " " + render_extended_term(action.terms[0], context) + location()
+        return family + " " + render_term(action.terms[0], context) + location()
     if family in {"unfold", "delta"}:
-        return family + " " + " ".join(render_extended_term(term, context) for term in action.terms) + location()
+        return family + " " + " ".join(render_term(term, context) for term in action.terms) + location()
     if family == "symm":
         return family + location()
     text = family + (" only" if action.only else "")
     if action.rules or action.only or family in {"rw", "rewrite", "rwa", "simp_rw"}:
         text += " [" + ", ".join(rule(value) for value in action.rules) + "]"
     if action.using is not None:
-        text += " using " + render_extended_term(action.using, context)
+        text += " using " + render_term(action.using, context)
     return text + location()
