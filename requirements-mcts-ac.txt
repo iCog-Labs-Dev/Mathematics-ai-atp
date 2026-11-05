@@ -78,6 +78,7 @@ httpx==0.28.1
 huggingface-hub==0.36.2
     # via
     #   datasets
+    #   mathematics-ai-atp
     #   tokenizers
     #   transformers
 idna==3.15
