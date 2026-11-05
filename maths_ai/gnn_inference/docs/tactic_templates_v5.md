@@ -102,4 +102,32 @@ combined/wildcard locations, rebuilt location hypotheses, modifiers, anonymous/
 typed declarations, atomic proofs and numeric projections. Unit/paired checks
 cover role conflicts, unknown values, immutable data, strict original-context
 validation, complete denominators and exact-only balanced pilot selection.
-Full server V5 gains and new-action native results remain pending.
+Full server V5 gains are recorded below; new-action native results remain pending.
+
+## Completed paired server result
+
+| Static support/gain | Train | Val |
+|---|---:|---:|
+| Frozen V4 support | 107,913 | 2,096 |
+| V5 support | 127,245 | 2,438 |
+| V5 rescues versus V4 | 19,332 | 342 |
+| V5 losses versus V4 | 0 | 0 |
+| Exact-aligned V5 support | 118,280 | 2,433 |
+| Exact-aligned rescues | 18,015 | 342 |
+
+Static coverage increases **49.34% to 58.18% train / 50.42% to 58.65% val**.
+Rescues split into declarations **2,919 / 65**, simplifier wrappers **6,776 /
+107**, rewrite wrappers **1,525 / 24**, existing-rule syntax **4,721 / 77**,
+ordinary term syntax **2,946 / 56**, and other wrappers **445 / 13**. These
+categories are exclusive; they sum to the total rescues.
+
+The **1,317** train rescues outside exact alignment remain source-only/unknown
+candidates, not ordinary dataset-step labels. Quarantine remains **831 / 9**.
+Remaining unsupported/invalid population: **91,482 train / 1,719 val**. No model
+accuracy or full-cohort Lean execution gain is implied by these static counts.
+
+The generated pilot selects **24** new exact-aligned val actions from **71**
+family/feature groups. It is a bounded sample, not coverage of all groups or
+all 342 val rescues. Run the focused native command above before accepting
+native execution parity for these new real-Mathlib instances. Report:
+`maths_ai/gnn_inference/runs/template_v5_recovery/report.json`.
