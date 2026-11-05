@@ -16,9 +16,11 @@ import shutil
 import stat
 
 import torch
-from pantograph_async import PROTOCOL_DESCRIPTION, PantographClient
+from pantograph_async import PROTOCOL_DESCRIPTION, PantographClient, PantographProtocolError
 from pantograph_async.compatibility import companion_base
 from pantograph_async.diagnostics import distribution_source, distribution_version, installed_sources
+
+from maths_ai.hybrid_reasoner.pantograph_diagnostics import certify_compiler_control
 
 from .bundle_publication import (
     BundlePublication, PUBLICATION_LAYOUT, directory_identity, logical_output,
@@ -143,6 +145,10 @@ async def _probe_runtime(env):
             if not certificate.is_certified:
                 raise RetrievalError("New REPL did not certify the deployment control theorem.")
             receipt = asdict(certificate.receipt)
+            try:
+                await certify_compiler_control(scope)
+            except PantographProtocolError as exc:
+                raise RetrievalError(f"New REPL failed the compiler-producing control: {exc}") from exc
         if (await client.stat()).n_goals != 0:
             raise RetrievalError("Deployment control leaked a Lean allocation.")
         return receipt
