@@ -103,10 +103,29 @@ The command performs these operations:
    checkpoint, reload it, and compare every tensor's name, shape, dtype, and
    exact value.
 7. Validate the staged bundle through the ordinary loaders, write a migration
-   receipt, and publish the complete directory without replacing an existing
-   output.
+   receipt, and publish a relative symlink to its complete backing directory
+   without replacing an existing output.
 
-The resulting directory contains:
+The command first probes relative-symlink publication on the actual output
+filesystem, before loading models or exporting declarations. It no longer
+requires `renameat2`/`RENAME_NOREPLACE`. Space reporting gives an estimated
+full-copy size and currently available bytes. Reflinks can reduce storage use,
+but support and quota must be established on the actual persistent filesystem.
+The tool does not require enough free space for the worst-case estimate when
+reflinks may succeed; an actual space/quota failure aborts copying with the
+source and destination paths.
+
+The output name is a relative symlink to a unique sibling backing directory:
+
+```text
+artifacts/
+├── .source_aware_deploy_scope_aware.bundle-<unique-id>/
+└── source_aware_deploy_scope_aware -> .source_aware_deploy_scope_aware.bundle-<unique-id>
+```
+
+Both names belong to the deployment. Keep the hidden backing directory;
+removing it breaks the published output. The symlink resolves to a bundle
+containing:
 
 ```text
 source_aware_deploy_scope_aware/
@@ -126,8 +145,10 @@ source_aware_deploy_scope_aware/
 The prepared directory contains the metadata used for live model loading;
 training graphs and candidate caches are not copied. The complete query and
 index serving files are retained. Files use independent filesystem reflinks
-where available, otherwise verified copies. Hard links and external symlinks
-are not used.
+where available, otherwise verified copies. Artifact files inside the bundle
+do not use hard links or symlinks to external source artifacts. The root
+publication symlink resolves to the persistent sibling backing directory;
+normal loader containment checks still apply inside each artifact root.
 
 The generated `rl.json` points to the new bundle and REPL, creates a separate
 run root and admission cache, and preserves the original search/training
@@ -154,8 +175,67 @@ print("All tensors preserved:", r["all_model_tensors_preserved"])
 print("Matching model hashes:", r["model_sha256_before"] == r["model_sha256_after"])
 print("Validation version:", r["protocol"]["transitionValidationVersion"])
 print("New environment:", r["new_environment_identity"])
+print("Publication:", r["publication"])
 PY
 ```
+
+## Persistent filesystem checks and publication retry
+
+Use the persistent output path directly. Mounting the same persistent
+filesystem over `/tmp` does not change its supported operations. A migration
+into `/tmp` also needs full-copy space for artifacts on another filesystem
+and produces temporary artifact/run paths.
+
+To check the persistent publication operation without starting migration:
+
+```bash
+python - <<'PY'
+from maths_ai.gnn_inference.atp_lean_gnn.bundle_publication import preflight_output
+output = preflight_output("artifacts/source_aware_deploy_scope_aware")
+print("Publication preflight passed:", output)
+print("Only temporary probe entries were created and removed.")
+PY
+```
+
+An existing output, including a dangling symlink, is refused. Concurrent
+different publishers cannot replace one another. A handled failure or cancellation
+before bundle validation removes that attempt's incomplete data. Abrupt process
+termination can leave an incomplete backing directory; publication retry
+refuses one without a complete valid receipt and artifact inventory. A publication failure
+after validation retains the backing directory and prints its exact retry
+command, for example:
+
+```bash
+python -m maths_ai.gnn_inference.scripts.publish_source_aware_bundle \
+  --backing /home/jovyan/Nol/Mathematics-ai-atp/artifacts/.source_aware_deploy_scope_aware.bundle-EXAMPLE \
+  --output /home/jovyan/Nol/Mathematics-ai-atp/artifacts/source_aware_deploy_scope_aware
+```
+
+Replace `EXAMPLE` with the retained directory reported by the tool. Retry
+verifies the receipt, complete artifact inventory, hashes, model tensors,
+configuration paths, client identity, and compiled environment before
+publication. It runs a native certification control, but does not copy the
+index again, regenerate embeddings, or reinitialize any model weights. An
+already published output is accepted only when it names that same verified
+backing directory. Later files under `runs/` and the generated admission cache
+are runtime outputs, not trusted model artifacts.
+
+Retry requires the current version-2 migration receipt containing publication
+identity evidence. The older implementation deleted staging on publication
+failure, so those failed attempts have no retained bundle to retry. Run a new
+migration after pulling this repair. Keep `--output` at the original intended
+path; retry cannot silently redirect the configuration to another location.
+
+Space errors during byte copying still require adequate destination capacity
+or quota. They are separate from publication support. The persistent output
+avoids the extra full copy into `/tmp`, but does not guarantee reflink support.
+
+For Docker, bind-mount the resolved backing directory at the artifact mount,
+or mount the common parent containing both the relative symlink and its
+backing directory. Verify the daemon can access the resolved source. When
+archiving or uploading a standalone bundle, copy/dereference the published
+root into a self-contained export; uploading only its symlink omits the data.
+Generated configuration paths remain specific to the deployment location.
 
 ## Subsequent REPL iterations
 
@@ -227,3 +307,18 @@ The test client was installed in an isolated temporary directory. The existing
 developer environment and remote JupyterHub artifacts were not modified.
 Docker image execution, Python 3.13 Conda creation, and the trained-model GPU
 trial remain deployment checks.
+
+## Persistent publication repair verification
+
+The [publication verification record](../tests/fixtures/pantograph/persistent_publication/verification.json)
+records this filesystem repair separately from the earlier validator migration.
+The inference/API regression run passed 822 tests and 35 subtests. Focused
+publication/retry/storage/tensor-preservation tests passed 49 checks. The native
+old-to-new migration and retained retry passed against the actual compiled
+Mathlib and custom REPL, including kernel certification and model loading.
+These groups overlap and their counts must not be added together.
+
+The user's JupyterHub filesystem must still run the new preflight and a short
+persistent trial after pulling the repair. Neither remote symlink support nor
+remote quota/capacity has been established by the local tests. No client or
+REPL update is required specifically for this publication change.

@@ -11,6 +11,7 @@ import pytest
 import torch
 
 from maths_ai.gnn_inference.atp_lean_gnn import deployment_migration as migration
+from maths_ai.gnn_inference.atp_lean_gnn.bundle_publication import BundlePublication, RetainedBundleError
 from maths_ai.gnn_inference.atp_lean_gnn.checkpointing import (
     build_model_from_checkpoint, checkpoint_payload,
 )
@@ -125,6 +126,7 @@ def test_migration_preserves_every_tensor_and_model_outputs(bundle, tmp_path):
     output = tmp_path / "rebound"
     result = asyncio.run(migration.rebind_environment(config, repl=repl, old_repl=old, output=output))
     assert result == output / "rl.json" and file_hash(config) == before
+    assert output.is_symlink() and output.resolve().parent == output.parent
     receipt = read(output / "migration_receipt.json")
     assert receipt["model_sha256_before"] == receipt["model_sha256_after"]
     assert receipt["all_model_tensors_preserved"] and receipt["mode"] == "fresh-run-warm-start"
@@ -200,7 +202,7 @@ def test_incompatible_or_tampered_inputs_are_not_rebound(bundle, tmp_path, damag
     with pytest.raises((RetrievalError, ValueError)):
         asyncio.run(migration.rebind_environment(config, repl=repl, old_repl=old, output=output))
     assert not output.exists()
-    assert not list(tmp_path.glob(".rebound-*"))
+    assert not list(tmp_path.glob(".rebound.bundle-*"))
 
 
 def test_first_migration_requires_provenance_and_refuses_overwrite(bundle, tmp_path):
@@ -225,7 +227,7 @@ def test_failed_staging_is_removed_and_other_deployments_are_preserved(bundle, t
     with pytest.raises(OSError, match="disk write failed"):
         asyncio.run(migration.rebind_environment(config, repl=repl, old_repl=old, output=tmp_path / "new"))
     assert config.exists() and old.exists()
-    assert not (tmp_path / "new").exists() and not list(tmp_path.glob(".new-*"))
+    assert not (tmp_path / "new").exists() and not list(tmp_path.glob(".new.bundle-*"))
 
 
 def test_changed_declarations_and_publication_races_fail_closed(bundle, tmp_path, monkeypatch):
@@ -241,18 +243,19 @@ def test_changed_declarations_and_publication_races_fail_closed(bundle, tmp_path
     with pytest.raises(RetrievalError, match="Declaration availability"):
         asyncio.run(migration.rebind_environment(config, repl=repl, old_repl=old, output=tmp_path / "new"))
     monkeypatch.setattr(migration, "generate_inventory", original)
-    publish = migration._publish
+    publish = BundlePublication.publish
     output = tmp_path / "race"
 
-    def raced(staged, destination):
-        destination.mkdir()
-        publish(staged, destination)
+    def raced(publication):
+        publication.output.mkdir()
+        publish(publication)
 
-    monkeypatch.setattr(migration, "_publish", raced)
-    with pytest.raises(FileExistsError):
+    monkeypatch.setattr(BundlePublication, "publish", raced)
+    with pytest.raises(RetainedBundleError) as failure:
         asyncio.run(migration.rebind_environment(config, repl=repl, old_repl=old, output=output))
     assert output.is_dir() and not list(output.iterdir())
-    assert not list(tmp_path.glob(".race-*"))
+    assert failure.value.backing.is_dir()
+    assert (failure.value.backing / "migration_receipt.json").is_file()
 
 
 def test_configuration_edits_during_migration_abort_publication(bundle, tmp_path, monkeypatch):
@@ -269,7 +272,7 @@ def test_configuration_edits_during_migration_abort_publication(bundle, tmp_path
     output = tmp_path / "changed-config"
     with pytest.raises(RetrievalError, match="Source configuration changed"):
         asyncio.run(migration.rebind_environment(config, repl=repl, old_repl=old, output=output))
-    assert not output.exists() and not list(tmp_path.glob(".changed-config-*"))
+    assert not output.exists() and not list(tmp_path.glob(".changed-config.bundle-*"))
 
 
 @pytest.mark.pantograph_live
@@ -321,6 +324,11 @@ def test_native_rebinding_verifies_the_real_inventory_and_kernel(bundle, tmp_pat
     assert receipt["control_certificate"]["root"]
     assert receipt["protocol"]["transitionValidationVersion"] == 2
     assert receipt["model_sha256_before"] == receipt["model_sha256_after"]
+    assert result.parent.is_symlink()
+    backing, output = result.parent.resolve(), result.parent
+    output.unlink()  # Remove this test's link, retaining its validated data.
+    published = asyncio.run(migration.publish_retained_bundle(backing, output=output))
+    assert published == result and output.resolve() == backing
 
 
 def test_environment_refactor_preserves_the_existing_fingerprint_recipe(bundle):

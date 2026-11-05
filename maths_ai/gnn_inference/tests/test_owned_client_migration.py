@@ -326,5 +326,14 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
         if entry["path"] in expected:
             assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
         expected[entry["path"]] = entry["sha256"]
+    publication = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "persistent_publication/source_manifest.json").read_text()
+    )
+    assert publication["target_base_commit"] == "6a76a7087a71566cbe479ed045ca8c3010c86f73"
+    assert publication["publication_layout"] == "relative-sibling-symlink-v1"
+    for entry in publication["sources"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        expected[entry["path"]] = entry["sha256"]
     for path, digest in expected.items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path

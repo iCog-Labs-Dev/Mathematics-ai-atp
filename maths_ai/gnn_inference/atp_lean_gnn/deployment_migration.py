@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import ctypes
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 import errno
@@ -14,13 +13,17 @@ import json
 import os
 from pathlib import Path
 import shutil
-import tempfile
+import stat
 
 import torch
 from pantograph_async import PROTOCOL_DESCRIPTION, PantographClient
 from pantograph_async.compatibility import companion_base
-from pantograph_async.diagnostics import distribution_source
+from pantograph_async.diagnostics import distribution_source, distribution_version, installed_sources
 
+from .bundle_publication import (
+    BundlePublication, PUBLICATION_LAYOUT, directory_identity, logical_output,
+    preflight_output, probe_publication_parent, publication_matches,
+)
 from .checkpointing import build_model_from_checkpoint, checkpoint_payload, module_state_fingerprint
 from .declaration_inventory import generate_inventory
 from .policy_actions import fingerprint
@@ -34,6 +37,7 @@ from .training import load_prepared_metadata
 PREPARED_FILES = (
     "vocab/node_vocab.json", "vocab/tactic_vocab.json", "metadata/graph_representation.json",
 )
+BUNDLE_RECEIPT_SCHEMA = "repl-only-deployment-migration-v2"
 
 
 def _read(path):
@@ -73,29 +77,50 @@ def verify_previous_environment(inventory, current, *, old_repl=None):
 
 def _copy_verified(source, destination, expected):
     """Create an independent file; use a filesystem reflink when available."""
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with Path(source).open("rb") as reader, destination.open("xb") as writer:
-        try:
-            fcntl.ioctl(writer.fileno(), 0x40049409, reader.fileno())  # Linux FICLONE
-        except OSError as exc:
-            if exc.errno not in {errno.EXDEV, errno.EOPNOTSUPP, errno.ENOTTY, errno.EINVAL, errno.ENOSYS}:
-                raise
-            reader.seek(0)
-            writer.seek(0)
-            writer.truncate(0)
-            shutil.copyfileobj(reader, writer, length=1024 * 1024)
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with Path(source).open("rb") as reader, destination.open("xb") as writer:
+            try:
+                fcntl.ioctl(writer.fileno(), 0x40049409, reader.fileno())  # Linux FICLONE
+            except OSError as exc:
+                if exc.errno not in {errno.EXDEV, errno.EOPNOTSUPP, errno.ENOTTY, errno.EINVAL, errno.ENOSYS}:
+                    raise
+                reader.seek(0)
+                writer.seek(0)
+                writer.truncate(0)
+                shutil.copyfileobj(reader, writer, length=1024 * 1024)
+    except OSError as exc:
+        if exc.errno not in {errno.ENOSPC, errno.EDQUOT}:
+            raise
+        raise OSError(
+            exc.errno,
+            f"Insufficient destination space or quota copying {source} to {destination}. "
+            "The destination may require a full byte copy when reflinks are unavailable.",
+            str(destination),
+        ) from exc
     if file_hash(destination) != expected:
         raise RetrievalError(f"Source changed or copy verification failed: {source}")
 
 
-def _publish(staged, output):
-    """Atomically publish on Linux without replacing even an empty directory."""
-    rename = ctypes.CDLL(None, use_errno=True).renameat2
-    rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
-    rename.restype = ctypes.c_int
-    if rename(-100, os.fsencode(staged), -100, os.fsencode(output), 1) != 0:
-        code = ctypes.get_errno()
-        raise OSError(code, os.strerror(code), str(output))
+def _client_identity():
+    return {
+        "version": distribution_version(), "sources": installed_sources(),
+        "companion": companion_base(),
+    }
+
+
+def _storage_report(parent, files, generated_bytes):
+    from .reporting import console_print
+
+    estimated = sum(Path(path).stat().st_size for path in files) + generated_bytes
+    available = shutil.disk_usage(parent).free
+    console_print(
+        f"Deployment storage: parent={parent} full_copy_estimate_bytes={estimated} "
+        f"available_bytes={available}. Reflinks may reduce usage; free space does not establish quota."
+    )
+    if available < estimated:
+        console_print("Available space is below the full-copy estimate; copying may fail if reflinks are unavailable.")
+    return {"full_copy_estimate_bytes": estimated, "available_bytes": available}
 
 
 def _same_tensors(before, after):
@@ -132,9 +157,8 @@ async def rebind_environment(config_path, *, repl, output, old_repl=None):
     """
     from .rl_training_driver import RLTrainingConfig, pantograph_env
 
-    config_path, output, repl = Path(config_path).resolve(), Path(output).absolute(), Path(repl).resolve()
-    if output.exists() or output.is_symlink():
-        raise FileExistsError(output)
+    config_path, repl = Path(config_path).resolve(), Path(repl).resolve()
+    output = preflight_output(output)
     config_hash = file_hash(config_path)
     cfg = RLTrainingConfig.from_json(config_path)
     if cfg.retrieval is None or cfg.source_root is None:
@@ -174,8 +198,14 @@ async def rebind_environment(config_path, *, repl, output, old_repl=None):
         raise RetrievalError("Environment changed during migration.")
     control = await _probe_runtime(env)
 
-    output.parent.mkdir(parents=True, exist_ok=True)
-    staged = Path(tempfile.mkdtemp(prefix=f".{output.name}-", dir=output.parent))
+    storage = _storage_report(output.parent, [
+        *(retrieval.lemma_index / name for name in old_deployment["files"]),
+        *(retrieval.query_artifact / name for name in old_query["files"]),
+        retrieval.corpus_path, cfg.warmstart_checkpoint,
+        *(metadata.root / name for name in PREPARED_FILES),
+    ], len(json.dumps(inventory).encode()) + 64 * 1024)
+    publication = BundlePublication.create(output)
+    staged = publication.backing
     try:
         # Every reused file is independently owned by the new bundle. Reflinks
         # share physical blocks until a write; hard links and external symlinks
@@ -256,7 +286,9 @@ async def rebind_environment(config_path, *, repl, output, old_repl=None):
         if file_hash(config_path) != config_hash:
             raise RetrievalError("Source configuration changed during migration.")
         receipt = {
-            "schema": "repl-only-deployment-migration-v1",
+            "schema": BUNDLE_RECEIPT_SCHEMA,
+            "publication": publication.metadata(),
+            "storage": storage,
             "created_utc": datetime.now(timezone.utc).isoformat(),
             "mode": "fresh-run-warm-start",
             "source_config_sha256": config_hash,
@@ -265,6 +297,7 @@ async def rebind_environment(config_path, *, repl, output, old_repl=None):
             "old_environment_identity": old_inventory["environment_identity"],
             "new_environment_identity": inventory["environment_identity"],
             "client": distribution_source(), "expected_companion": companion_base(),
+            "client_identity": _client_identity(),
             "protocol": dict(PROTOCOL_DESCRIPTION), "control_certificate": control,
             "all_model_tensors_preserved": True,
             "model_tensor_count": len(model.state_dict()),
@@ -275,8 +308,154 @@ async def rebind_environment(config_path, *, repl, output, old_repl=None):
             "files": {str(p.relative_to(staged)): file_hash(p) for p in staged.rglob("*") if p.is_file()},
         }
         _write(staged / "migration_receipt.json", receipt)
-        _publish(staged, output)
+        publication.validated = True
+        publication.publish()
     finally:
-        if staged.exists():
-            shutil.rmtree(staged)
+        publication.cleanup()
+    return output / "rl.json"
+
+
+def _verify_bundle_files(publication, receipt):
+    """Bound artifact files are exact; later run/cache files are never trusted artifacts."""
+    from .retrieval_artifacts import verify_files
+
+    root = publication.backing
+    hashes = receipt.get("files")
+    required = {
+        "rl.json", "checkpoint.pt", "declarations.json", "lemmas.jsonl",
+        *(f"prepared/{name}" for name in PREPARED_FILES),
+        "query/query_manifest.json", "index/deployment_manifest.json",
+    }
+    if not isinstance(hashes, dict) or not required <= hashes.keys():
+        raise RetrievalError("Retained bundle lacks its complete artifact inventory.")
+    directories = set()
+    for name, digest in hashes.items():
+        if not isinstance(name, str):
+            raise RetrievalError("Retained artifact paths must be strings.")
+        path = Path(name)
+        if (not path.parts or path.is_absolute() or str(path) != name or ".." in path.parts
+                or path.parts[0] in {"runs", "admission-cache.json", "admission-cache.json.tmp"}
+                or name == "migration_receipt.json"
+                or not isinstance(digest, str) or len(digest) != 64
+                or any(char not in "0123456789abcdef" for char in digest)):
+            raise RetrievalError(f"Invalid retained bundle artifact entry: {name}")
+        directories.update(str(parent) for parent in path.parents if str(parent) != ".")
+    published = publication_matches(root, publication.output, publication.identity)
+    actual = set()
+
+    def walk_error(exc):
+        raise exc
+
+    for parent, dirs, files in os.walk(root, followlinks=False, onerror=walk_error):
+        for name in list(dirs):
+            path = Path(parent) / name
+            relative = str(path.relative_to(root))
+            if path.is_symlink():
+                raise RetrievalError(f"Symlink inside retained artifact bundle: {relative}")
+            if published and relative == "runs":
+                dirs.remove(name)
+            elif relative not in directories:
+                raise RetrievalError(f"Unbound directory in retained artifact bundle: {relative}")
+        for name in files:
+            path = Path(parent) / name
+            relative = str(path.relative_to(root))
+            if not stat.S_ISREG(path.lstat().st_mode):
+                raise RetrievalError(f"Non-regular retained artifact file: {relative}")
+            if relative == "migration_receipt.json":
+                continue
+            if published and relative in {"admission-cache.json", "admission-cache.json.tmp"}:
+                continue
+            actual.add(relative)
+    if actual != set(hashes):
+        raise RetrievalError("Retained bundle contains missing or unbound artifact files.")
+    verify_files(root, hashes)
+
+
+def _retained_configuration(backing, output):
+    from .rl_training_driver import RLTrainingConfig
+
+    cfg = RLTrainingConfig.from_json(backing / "rl.json")
+    fixed_paths = {
+        "warmstart_checkpoint": "checkpoint.pt", "prepared_root": "prepared",
+        "run_root": "runs", "seed_cache_path": "admission-cache.json",
+    }
+    for key, relative in fixed_paths.items():
+        if getattr(cfg, key) != output / relative:
+            raise RetrievalError(f"Retained configuration changes its intended {key} path.")
+    if cfg.retrieval is None:
+        raise RetrievalError("Retained configuration requires source-aware retrieval.")
+    paths = {
+        "query_artifact": "query", "lemma_index": "index", "corpus_path": "lemmas.jsonl",
+        "declaration_inventory": "declarations.json",
+    }
+    for key, relative in paths.items():
+        if getattr(cfg.retrieval, key) != output / relative:
+            raise RetrievalError(f"Retained configuration changes its intended retrieval.{key} path.")
+    return replace(
+        cfg, warmstart_checkpoint=backing / "checkpoint.pt", prepared_root=backing / "prepared",
+        retrieval=replace(cfg.retrieval, device="cpu", **{key: backing / value for key, value in paths.items()}),
+    )
+
+
+async def publish_retained_bundle(backing, *, output):
+    """Revalidate and publish an owned bundle without re-copying its artifacts."""
+    from .live_runtime import load_policy
+    from .rl_training_driver import pantograph_env
+
+    backing, output = logical_output(backing), logical_output(output)
+    identity = directory_identity(backing)
+    if backing.parent != output.parent or not backing.name.startswith(f".{output.name}.bundle-"):
+        raise RetrievalError("Retained backing directory must be the intended output's sibling bundle.")
+    receipt_path = backing / "migration_receipt.json"
+    if not stat.S_ISREG(receipt_path.lstat().st_mode):
+        raise RetrievalError("Retained migration receipt must be a regular file.")
+    receipt_hash = file_hash(receipt_path)
+    receipt = _read(receipt_path)
+    expected = {
+        "layout": PUBLICATION_LAYOUT, "output": str(output), "backing": backing.name,
+        "identity": identity,
+    }
+    if (not isinstance(receipt, dict) or receipt.get("schema") != BUNDLE_RECEIPT_SCHEMA
+            or receipt.get("publication") != expected):
+        raise RetrievalError("Receipt does not identify this backing directory and intended output.")
+    publication = BundlePublication(output, backing, identity, validated=True)
+    if os.path.lexists(output) and not publication_matches(backing, output, identity):
+        raise FileExistsError(errno.EEXIST, "Deployment output belongs to another publication", str(output))
+    probe_publication_parent(output.parent)
+    _verify_bundle_files(publication, receipt)
+    if (receipt.get("protocol") != dict(PROTOCOL_DESCRIPTION)
+            or receipt.get("client_identity") != _client_identity()):
+        raise RetrievalError("Client identity or protocol changed since bundle validation.")
+    cfg = _retained_configuration(backing, output)
+    policy = load_policy(cfg, device=torch.device("cpu"))
+    model_hash = module_state_fingerprint(policy.model)
+    if (receipt.get("mode") != "fresh-run-warm-start"
+            or receipt.get("all_model_tensors_preserved") is not True
+            or receipt.get("model_sha256_before") != model_hash
+            or receipt.get("model_sha256_after") != model_hash
+            or receipt.get("model_tensor_count") != len(policy.model.state_dict())):
+        raise RetrievalError("Retained model tensor evidence differs from the checkpoint.")
+    env = pantograph_env(cfg)
+    env.verify()
+    components = environment_components(env.source_root, env.pantograph_repl, env.imports)
+    if (receipt.get("new_environment") != components
+            or receipt.get("new_environment_identity") != fingerprint_environment_components(components)):
+        raise RetrievalError("Compiled environment changed since bundle validation.")
+    provider = LiveLemmaProvider(cfg.retrieval)
+    try:
+        if (policy.model_spec.retrieval_binding != fingerprint(provider.manifest)
+                or receipt.get("destination_binding") != policy.model_spec.retrieval_binding):
+            raise RetrievalError("Retained checkpoint and retrieval deployment differ.")
+        inventory = _read(cfg.retrieval.declaration_inventory)
+        if inventory.get("environment_components") != components:
+            raise RetrievalError("Retained inventory differs from the verified environment.")
+        provider.verify_environment(env)
+    finally:
+        await provider.aclose()
+    await _probe_runtime(env)
+    _verify_bundle_files(publication, receipt)
+    if (file_hash(receipt_path) != receipt_hash
+            or environment_components(env.source_root, env.pantograph_repl, env.imports) != components):
+        raise RetrievalError("Retained receipt or environment changed during publication retry.")
+    publication.publish()
     return output / "rl.json"
