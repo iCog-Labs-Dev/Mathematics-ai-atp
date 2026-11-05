@@ -1,0 +1,58 @@
+{
+  "kind": "mcts-hugging-face-deployment-releases",
+  "target_base_commit": "6f4d94df7343eef07d8843e048aa0c9974d7a8a9",
+  "commit": "551d038d9b9c3199106c632963d40fa4611da0c4",
+  "note": "Recorded afterwards so the lineage covers 27a51c0 and 551d038.",
+  "sources": [
+    {
+      "path": "docker/DOCKER.md",
+      "target_base_sha256": "4f08225a77acc7f5577ae9fe19f8b4e9e9ac2d940aefaf2ef95398c11d236c2e",
+      "sha256": "69a7e049043c124d919715666108ebc2ac4092f45a7986b4a975a3815e6caeb7"
+    },
+    {
+      "path": "docker/HUGGING_FACE_DEPLOYMENT.md",
+      "target_base_sha256": null,
+      "sha256": "f1ac2047402df25f5d2511052913255c8755852d50621a2ea7fdc650218c5d5b"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/hub_deployment.py",
+      "target_base_sha256": null,
+      "sha256": "fc291ba8b9e75815436416826ce126ff1bfbaf3eff6d64d42a348f08cf8bf430"
+    },
+    {
+      "path": "maths_ai/gnn_inference/docs/mcts_hugging_face_deployment.md",
+      "target_base_sha256": null,
+      "sha256": "5d474e18648e0a24f848ea5ff3786568f09dbe35c26ce1b1deca81cec99b6beb"
+    },
+    {
+      "path": "maths_ai/gnn_inference/scripts/fetch_mcts_deployment.py",
+      "target_base_sha256": null,
+      "sha256": "08ce2dded728013471ff41e4a820e2dd0ad85c5a12c756cbf0cbd097a26168af"
+    },
+    {
+      "path": "maths_ai/gnn_inference/scripts/publish_mcts_deployment.py",
+      "target_base_sha256": null,
+      "sha256": "d936735bc1ea7be47ffc82e041a79d6089f748d2841850ef0e80748fce5c0959"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_hub_deployment.py",
+      "target_base_sha256": null,
+      "sha256": "b8a6ab37888b15b0cf57264ea855ca8293c7b591456e76b1388d6e7e6c95c42f"
+    },
+    {
+      "path": "pyproject.toml",
+      "target_base_sha256": "2c44629ee50ba88cae2b89313f748d20fb345ae892e82eb005a035e0b7897e91",
+      "sha256": "b652de86401581e11f1df90700c7c299a958458af996e4c6c130e598488cb584"
+    },
+    {
+      "path": "requirements-mcts-ac.txt",
+      "target_base_sha256": "dbee35e07a3c417f4396535ebcdce44cae8523cfaa85c70aa34172621f4d7356",
+      "sha256": "c49e870764237f21ee4b159b862c78e30f0814800f7d3e3213d5ae149dd991a6"
+    },
+    {
+      "path": "uv.lock",
+      "target_base_sha256": "d6b52801c1fe7cb59854c2307098e08b5b72277cf858eaec0855562dd395ab25",
+      "sha256": "98aa20f01864cf89bf5ee8a62414c8a5edd6b607470a42c4e7feedb53aaa7b5f"
+    }
+  ]
+}

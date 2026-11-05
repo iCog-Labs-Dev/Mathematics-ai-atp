@@ -5,7 +5,7 @@
     "protocol": "maths-ai-pantograph",
     "protocolVersion": 3,
     "modelSexpVersion": 1,
-    "transitionValidationVersion": 2,
+    "transitionValidationVersion": 3,
     "transitionProvenanceVersion": 1,
     "inspectionVersion": 1,
     "certificationVersion": 1,
@@ -64,8 +64,8 @@
         }
       ],
       "validation": {
-        "version": 2,
-        "scope": "execution-closure-and-transition-audit",
+        "version": 3,
+        "scope": "execution-closure-and-representation-aware-audit",
         "checked": true
       },
       "messages": [],
@@ -121,8 +121,8 @@
         }
       ],
       "validation": {
-        "version": 2,
-        "scope": "execution-closure-and-transition-audit",
+        "version": 3,
+        "scope": "execution-closure-and-representation-aware-audit",
         "checked": true
       },
       "messages": [],
@@ -164,8 +164,8 @@
         }
       ],
       "validation": {
-        "version": 2,
-        "scope": "execution-closure-and-transition-audit",
+        "version": 3,
+        "scope": "execution-closure-and-representation-aware-audit",
         "checked": true
       },
       "messages": [],
@@ -248,8 +248,8 @@
         }
       ],
       "validation": {
-        "version": 2,
-        "scope": "execution-closure-and-transition-audit",
+        "version": 3,
+        "scope": "execution-closure-and-representation-aware-audit",
         "checked": true
       },
       "messages": [],
@@ -329,8 +329,8 @@
         }
       ],
       "validation": {
-        "version": 2,
-        "scope": "execution-closure-and-transition-audit",
+        "version": 3,
+        "scope": "execution-closure-and-representation-aware-audit",
         "checked": true
       },
       "messages": [],
@@ -359,8 +359,8 @@
       "nextStateId": 16,
       "goals": [],
       "validation": {
-        "version": 2,
-        "scope": "execution-closure-and-transition-audit",
+        "version": 3,
+        "scope": "execution-closure-and-representation-aware-audit",
         "checked": true
       },
       "messages": [],
@@ -382,8 +382,8 @@
       "nextStateId": 14,
       "goals": [],
       "validation": {
-        "version": 2,
-        "scope": "execution-closure-and-transition-audit",
+        "version": 3,
+        "scope": "execution-closure-and-representation-aware-audit",
         "checked": true
       },
       "messages": [
@@ -415,8 +415,8 @@
       "nextStateId": 16,
       "goals": [],
       "validation": {
-        "version": 2,
-        "scope": "execution-closure-and-transition-audit",
+        "version": 3,
+        "scope": "execution-closure-and-representation-aware-audit",
         "checked": true
       },
       "messages": [],
@@ -491,8 +491,8 @@
     "nextStateId": 16,
     "goals": [],
     "validation": {
-      "version": 2,
-      "scope": "execution-closure-and-transition-audit",
+      "version": 3,
+      "scope": "execution-closure-and-representation-aware-audit",
       "checked": true
     },
     "messages": [

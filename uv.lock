@@ -781,7 +781,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "graphviz", specifier = ">=0.21" },
     { name = "huggingface-hub", specifier = ">=0.36.2,<1" },
-    { name = "pantograph-async-client", git = "https://github.com/123nol/Pantograph-Client?rev=053ff67dfc540391100c86e4deada06839904655" },
+    { name = "pantograph-async-client", git = "https://github.com/123nol/Pantograph-Client?rev=e8aa9ecc17686cfa2703c7082c02d45310ce421f" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "torch", specifier = ">=2.12.0" },
@@ -1259,8 +1259,8 @@ wheels = [
 
 [[package]]
 name = "pantograph-async-client"
-version = "0.4.0"
-source = { git = "https://github.com/123nol/Pantograph-Client?rev=053ff67dfc540391100c86e4deada06839904655#053ff67dfc540391100c86e4deada06839904655" }
+version = "0.5.0"
+source = { git = "https://github.com/123nol/Pantograph-Client?rev=e8aa9ecc17686cfa2703c7082c02d45310ce421f#e8aa9ecc17686cfa2703c7082c02d45310ce421f" }
 
 [[package]]
 name = "pluggy"

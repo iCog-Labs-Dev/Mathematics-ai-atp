@@ -1,9 +1,11 @@
 # Repository-owned client: reconciled source and contract
 
-The current deployment uses client `053ff67dfc540391100c86e4deada06839904655`
-and REPL `ba2c3dd8383f90b4b5327e31a645a53411f385e4`: protocol 3,
-transition validation 2, and scope `execution-closure-and-transition-audit`.
-See the [scope-aware application handoff](../docs/pantograph_scope_aware_application_integration.md)
+The current deployment uses client `e8aa9ecc17686cfa2703c7082c02d45310ce421f`
+and REPL `fc740c26a1e832ecb571859af24a5c632a351bd9`: protocol 3,
+transition validation 3, and scope `execution-closure-and-representation-aware-audit`.
+See the [compiler-aware application handoff](../docs/pantograph_compiler_aware_application_integration.md)
+for the change and the JupyterHub update, and the
+[scope-aware application handoff](../docs/pantograph_scope_aware_application_integration.md)
 for installation, verification, and tensor-preserving deployment migration.
 The dated sections below describe historical contracts and evidence.
 

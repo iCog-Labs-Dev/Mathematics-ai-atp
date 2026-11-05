@@ -35,6 +35,31 @@ GRAPH_CASES = (
 )
 
 
+# Compiles the on-demand splitter of `Nat.pow.match_1`, continues the retained
+# state, and closes it. Validation version 2 ended the session at the unfold.
+COMPILER_CONTROL = (
+    "∀ m n : Nat, Nat.pow m n = Nat.pow m n",
+    ("intro m n", "unfold Nat.pow", "split <;> rfl"),
+)
+
+
+async def certify_compiler_control(scope):
+    """Run the compiler-producing control and return its kernel receipt."""
+    expression, tactics = COMPILER_CONTROL
+    state = await scope.start_goal(expression, levels=())
+    for tactic in tactics:
+        state = await scope.apply_tactic(state, tactic)
+    require(not state.goals, "Compiler-producing control left goals open.")
+    certificate = await scope.certify(state)
+    require(certificate.is_certified, f"Compiler-producing control did not certify: {certificate.reason}")
+    auxiliary = certificate.receipt.auxiliary
+    require(
+        not any("_cstage" in name for name in auxiliary),
+        "A compiler-only entry reached the kernel certificate.",
+    )
+    return certificate.receipt
+
+
 async def verify_canonical_graphs(client: PantographClient) -> list[str]:
     """Live goals must reproduce the canonical states, DAGs, and replays."""
     from maths_ai.gnn_inference.atp_lean_gnn.graph import (
@@ -110,6 +135,9 @@ async def verify_canonical_graphs(client: PantographClient) -> list[str]:
                 "Known local-let closing tactic failed after replay.",
             )
     outcomes.append("constant-and-dependent-let-replay")
+    async with client.state_scope() as scope:
+        await certify_compiler_control(scope)
+    outcomes.append("compiler-producing-continuation-certified")
     return outcomes
 
 

@@ -322,7 +322,7 @@ def test_native_rebinding_verifies_the_real_inventory_and_kernel(bundle, tmp_pat
     ))
     receipt = read(result.parent / "migration_receipt.json")
     assert receipt["control_certificate"]["root"]
-    assert receipt["protocol"]["transitionValidationVersion"] == 2
+    assert receipt["protocol"]["transitionValidationVersion"] == 3
     assert receipt["model_sha256_before"] == receipt["model_sha256_after"]
     assert result.parent.is_symlink()
     backing, output = result.parent.resolve(), result.parent

@@ -11,6 +11,7 @@ of that list. Nothing is reconstructed from a canonical goal.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 from typing import Optional
 
 from pantograph_async import PantographResourceError, PantographTacticRejected, TacticState
@@ -18,6 +19,7 @@ from pantograph_async import PantographResourceError, PantographTacticRejected, 
 from maths_ai.data_models.model_identity import carry_model_identity
 from maths_ai.data_models.proof_components import Goal
 
+from .command_journal import default_journal
 from .execution_registry import Lease, LeaseKind, SnapshotRegistry
 from .execution_types import DIRECT, EXTRA, ChildObligation, ExecutionOccurrence
 from .pantograph_adapter import execution_goal_to_goal
@@ -97,13 +99,37 @@ class RetainedTacticExecutor:
                 f"Goal {occurrence.goal_name} is not open in its snapshot."
             )
         index = names.index(occurrence.goal_name)
+        journal = default_journal()
+        sequence = journal.command(
+            phase=holder, session=state.handle.session_id, scope=state.handle.scope_id,
+            state=state.handle.state_id,
+            goal=occurrence.goal_name, target=occurrence.goal.expression, command=command,
+        ) if journal else 0
         async with registry.request(occurrence.lease) as reservation:
             try:
                 result = await registry.scope.apply_tactic(state, command, goal_index=index)
             except PantographTacticRejected as exc:
+                if journal:
+                    journal.outcome(sequence, "rejected", error=str(exc))
                 return RetainedOutcome(success=False, command=command, error=str(exc))
             except PantographResourceError as exc:
+                if journal:
+                    journal.outcome(sequence, "resource", error=str(exc))
                 return RetainedOutcome(success=False, command=command, resource=ResourceDiagnostic.from_error(exc))
+            except BaseException as exc:
+                # A terminal error ends the session; keep its structured payload.
+                if journal:
+                    journal.outcome(
+                        sequence, "terminal", error_type=type(exc).__name__, error=str(exc),
+                        payload=json.dumps(getattr(exc, "payload", None), default=str),
+                    )
+                raise
+            if journal:
+                journal.outcome(
+                    sequence, "accepted", next_state=result.handle.state_id,
+                    validation=f"{result.validation.version}:{result.validation.scope}",
+                    goals=len(result.goals),
+                )
             lease = reservation.adopt(result, LeaseKind.OPERATION, holder)
             try:
                 return await self._decode(registry, occurrence, result, lease, command)

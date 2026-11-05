@@ -141,7 +141,7 @@ def test_lazy_exports_preserve_existing_package_api():
 
 
 CLIENT_REPOSITORY = "https://github.com/123nol/Pantograph-Client"
-CLIENT_COMMIT = "053ff67dfc540391100c86e4deada06839904655"
+CLIENT_COMMIT = "e8aa9ecc17686cfa2703c7082c02d45310ce421f"
 
 
 def test_dependency_is_the_pinned_client_and_not_pypantograph():
@@ -175,10 +175,10 @@ def test_dependency_is_the_pinned_client_and_not_pypantograph():
     assert source["url"] == CLIENT_REPOSITORY
     assert source["vcs_info"]["commit_id"] == CLIENT_COMMIT
     verify_contract()
-    assert companion_base()["source_commit"] == "ba2c3dd8383f90b4b5327e31a645a53411f385e4"
+    assert companion_base()["source_commit"] == "fc740c26a1e832ecb571859af24a5c632a351bd9"
     fixture = json.loads((Path(__file__).parent / "fixtures/pantograph/future_contract.json").read_text())
     assert fixture["descriptor"] == dict(PROTOCOL_DESCRIPTION)
-    assert fixture["descriptor"]["transitionValidationVersion"] == 2
+    assert fixture["descriptor"]["transitionValidationVersion"] == 3
 
 
 MANIFEST = Path(__file__).parent / "fixtures/pantograph/mcts_owned_client/source_manifest.json"
@@ -320,7 +320,7 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
         (WIDENING_MANIFEST.parent.parent / "scope_aware_validation/source_manifest.json").read_text()
     )
     assert scope_aware["target_base_commit"].startswith("f1eb8ca")
-    assert scope_aware["client_commit"] == CLIENT_COMMIT
+    assert scope_aware["client_commit"] == "053ff67dfc540391100c86e4deada06839904655"
     assert scope_aware["repl_commit"] == "ba2c3dd8383f90b4b5327e31a645a53411f385e4"
     for entry in scope_aware["sources"]:
         if entry["path"] in expected:
@@ -332,6 +332,25 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
     assert publication["target_base_commit"] == "6a76a7087a71566cbe479ed045ca8c3010c86f73"
     assert publication["publication_layout"] == "relative-sibling-symlink-v1"
     for entry in publication["sources"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        expected[entry["path"]] = entry["sha256"]
+    hub = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "hub_deployment/source_manifest.json").read_text()
+    )
+    assert hub["commit"].startswith("551d038")
+    for entry in hub["sources"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        expected[entry["path"]] = entry["sha256"]
+    compiler_aware = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "compiler_aware_validation/source_manifest.json").read_text()
+    )
+    assert compiler_aware["target_base_commit"].startswith("551d038")
+    assert compiler_aware["client_commit"] == CLIENT_COMMIT
+    assert compiler_aware["repl_commit"] == "fc740c26a1e832ecb571859af24a5c632a351bd9"
+    assert compiler_aware["transition_validation_version"] == 3
+    for entry in compiler_aware["sources"]:
         if entry["path"] in expected:
             assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
         expected[entry["path"]] = entry["sha256"]

@@ -149,7 +149,7 @@ class FakeSnapshotScope:
             state = TacticState(
                 handle,
                 tuple(goal.wire() for goal in snapshot.goals),
-                TransitionValidation(2, "execution-closure-and-transition-audit", True, False, False),
+                TransitionValidation(3, "execution-closure-and-representation-aware-audit", True, False, False),
                 (),
                 transition,
             )

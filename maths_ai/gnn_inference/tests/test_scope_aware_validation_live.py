@@ -1,4 +1,4 @@
-"""Application execution, replay, and learning over validation-version-2 snapshots."""
+"""Application execution, replay, and learning over validation-version-3 snapshots."""
 
 import asyncio
 from dataclasses import replace
@@ -97,7 +97,7 @@ def test_rl_collection_and_shared_evaluation_accept_valid_tauto(live_env, policy
         async with await create_model_sexpr_client(live_env) as client:
             async with client.state_scope() as scope:
                 state, goal, _ = await materialize_seed(scope, CONJUNCTION)
-                assert state.validation.version == TRANSITION_VALIDATION_VERSION == 2
+                assert state.validation.version == TRANSITION_VALIDATION_VERSION == 3
                 assert state.validation.scope == TRANSITION_VALIDATION_SCOPE
             vocab = build_vocab([model_goal_to_dag(goal)])
             model = build_actor_critic_model(
