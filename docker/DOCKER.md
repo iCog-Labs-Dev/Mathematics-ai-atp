@@ -1,5 +1,9 @@
 # Running the MCTS proving service in Docker
 
+For an end-user walkthrough that downloads a published Hugging Face release
+before starting the API, see [Deploy from Hugging Face](HUGGING_FACE_DEPLOYMENT.md).
+Deployment users do not need the publisher's local `upload-receipt.json`.
+
 The image runs one Uvicorn process. That process owns one runtime process,
 which holds the model, the Lean clients and the search. The image contains:
 
