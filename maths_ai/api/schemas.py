@@ -9,7 +9,7 @@ components exchange internally.
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from maths_ai.data_models.proof_components import STV, TacticCandidate
 
@@ -212,3 +212,56 @@ class HealthResponse(BaseModel):
     status: str
     ready: bool
     error: Optional[str] = None
+
+
+class FormalEnvironment(BaseModel):
+    """Execution environment recorded with a persistent search."""
+
+    model_config = ConfigDict(extra="forbid")
+    lean_version: Optional[str] = None
+    project: Optional[str] = None
+    variables: Dict[str, str] = Field(default_factory=dict)
+
+
+class FormalBudget(BaseModel):
+    """Bounds accepted by the persistent ATP contract."""
+
+    model_config = ConfigDict(extra="forbid")
+    max_depth: Optional[int] = Field(default=None, ge=1)
+    max_nodes: Optional[int] = Field(default=None, ge=1)
+    timeout: Optional[float] = Field(default=None, gt=0, le=3600)
+
+
+class FormalProblem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    goal: str
+    hypotheses: List[str] = Field(default_factory=list)
+
+    @field_validator("goal", mode="after")
+    @classmethod
+    def _validate_goal(cls, value: str) -> str:
+        return _strip_or_raise(value, "problem.goal")
+
+    @field_validator("hypotheses", mode="after")
+    @classmethod
+    def _validate_hypotheses(cls, value: List[str]) -> List[str]:
+        return [_strip_or_raise(item, "problem.hypotheses") for item in value]
+
+
+class FormalSearchRequest(BaseModel):
+    """Typed envelope accepted by ``POST /formal-search/start``."""
+
+    model_config = ConfigDict(extra="forbid")
+    run_id: Optional[str] = None
+    problem: FormalProblem
+    environment: FormalEnvironment = Field(default_factory=FormalEnvironment)
+    budget: FormalBudget = Field(default_factory=FormalBudget)
+
+
+class FormalReplayRequest(BaseModel):
+    """Typed independent Lean replay request."""
+
+    model_config = ConfigDict(extra="forbid")
+    run_id: Optional[str] = None
+    problem: FormalProblem
+    proof_trace: ProofTraceNode

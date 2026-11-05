@@ -710,18 +710,26 @@ name = "mathematics-ai-atp"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "annotated-types" },
     { name = "faiss-cpu" },
     { name = "fastapi" },
     { name = "graphviz" },
     { name = "httpx" },
     { name = "huggingface-hub" },
+    { name = "iniconfig" },
+    { name = "packaging" },
     { name = "pantograph" },
+    { name = "pluggy" },
     { name = "pydantic" },
+    { name = "pydantic-core" },
+    { name = "pygments" },
     { name = "pytest" },
     { name = "pyyaml" },
     { name = "safetensors" },
     { name = "torch" },
     { name = "torch-geometric" },
+    { name = "typing-extensions" },
+    { name = "typing-inspection" },
     { name = "uvicorn" },
 ]
 
@@ -732,18 +740,26 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "annotated-types", specifier = ">=0.7.0" },
     { name = "faiss-cpu", specifier = ">=1.14.2" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "graphviz", specifier = ">=0.21" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "huggingface-hub", specifier = ">=0.20.0" },
+    { name = "iniconfig", specifier = ">=2.3.0" },
+    { name = "packaging", specifier = ">=26.1" },
     { name = "pantograph", git = "https://github.com/stanford-centaur/PyPantograph" },
+    { name = "pluggy", specifier = ">=1.6.0" },
     { name = "pydantic", specifier = ">=2.13.4" },
+    { name = "pydantic-core", specifier = ">=2.46.4" },
+    { name = "pygments", specifier = ">=2.20.0" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "safetensors", specifier = ">=0.5.3" },
     { name = "torch", specifier = ">=2.12.0" },
     { name = "torch-geometric", specifier = ">=2.7.0" },
+    { name = "typing-extensions", specifier = ">=4.15.0" },
+    { name = "typing-inspection", specifier = ">=0.4.2" },
     { name = "uvicorn", specifier = ">=0.30.0" },
 ]
 

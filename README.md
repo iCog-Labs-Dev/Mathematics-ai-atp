@@ -16,7 +16,7 @@ The current implementation is research-oriented rather than a finished end-user 
 ## Repository structure
 
 - `maths_ai/` — core library for proof search, inference, data models, and utilities
-  - `api/` — FastAPI HTTP server exposing /health, /prove, /gnn/predict_tactic, /pln/evaluate
+  - `api/` — FastAPI HTTP server exposing the inference and persistent formal-search APIs
   - `core/` — shared configuration and runtime settings
   - `data/` — preprocessing and representation helpers
   - `data_models/` — proof-related data structures
@@ -88,6 +88,20 @@ curl http://localhost:8000/health
 curl -X POST http://localhost:8000/prove -H 'Content-Type: application/json' \
   -d '{"goal": "∀ (n : Nat), n + 0 = n"}'
 ```
+
+Persistent ATP clients can use:
+
+- `POST /formal-search/start`
+- `GET /formal-search/{run_id}`
+- `POST /formal-search/{run_id}/retry` for an interrupted or failed run
+- `POST /formal-search/{run_id}/cancel`
+- `POST /formal-replay`
+
+Formal-search requests are persisted under `/data/formal_runs` by default.
+Set `MATHS_AI_FORMAL_RUNS_DIR` to a writable mounted directory in local or
+container deployments. A search result is reported as `found` until its proof
+trace is independently accepted by `/formal-replay`, after which the run is
+reported as `verified`.
 
 Use a different local port either with an environment variable or a
 command-line option:

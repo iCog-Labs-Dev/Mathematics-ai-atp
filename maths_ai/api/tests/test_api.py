@@ -114,13 +114,13 @@ class FakeDtsSampler:
 # Helpers ---------------------------------------------------------------------
 
 
-def test_project_core_dependencies_do_not_require_pantograph():
+def test_project_core_dependencies_include_pantograph():
     pyproject_path = Path(__file__).resolve().parents[3] / "pyproject.toml"
     with pyproject_path.open("rb") as fh:
         metadata = tomllib.load(fh)
 
     dependency_names = [d.split(";", 1)[0].split("@", 1)[0].strip() for d in metadata["project"]["dependencies"]]
-    assert "pantograph" not in dependency_names
+    assert "pantograph" in dependency_names
 
 
 @pytest.fixture
@@ -132,7 +132,7 @@ def api(tmp_path: Path):
     async def factory():
         return service
 
-    with TestClient(create_app(service_factory=factory)) as client:
+    with TestClient(create_app(service_factory=factory, formal_runs_dir=tmp_path / "formal_runs")) as client:
         yield SimpleNamespace(client=client, reasoner=reasoner, dts_state_path=tmp_path / "dts" / "state.json")
 
 
@@ -169,6 +169,7 @@ def test_endpoints_return_503_while_uninitialized():
         assert client.post("/prove", json={"goal": "p"}).status_code == 503
         assert client.post("/gnn/predict_tactic", json={"goal": "p"}).status_code == 503
         assert client.post("/pln/evaluate", json={"expression": "p"}).status_code == 503
+        assert client.post("/formal-search/start", json={"goal": "p"}).status_code == 422
 
 
 # POST /prove -----------------------------------------------------------------
@@ -372,3 +373,47 @@ def test_evaluate_rejects_empty_expression(api):
     response = api.client.post("/pln/evaluate", json={"expression": ""})
 
     assert response.status_code == 422
+
+
+# Persistent formal-search contract ------------------------------------------
+
+
+def test_formal_search_lifecycle_preserves_envelope_and_result(api):
+    envelope = {
+        "run_id": "formal-test-1",
+        "problem": {"goal": "Or q p", "hypotheses": ["h : Or p q"]},
+        "environment": {"lean_version": "v4.19.0"},
+        "budget": {"max_nodes": 12},
+    }
+    response = api.client.post("/formal-search/start", json=envelope)
+    assert response.status_code == 202
+    assert response.json()["run_id"] == "formal-test-1"
+    assert response.json()["environment"] == envelope["environment"]
+
+    import time
+    for _ in range(20):
+        status = api.client.get("/formal-search/formal-test-1")
+        if status.json()["status"] == "completed":
+            break
+        time.sleep(0.01)
+    assert status.status_code == 200
+    body = status.json()
+    assert body["request"] == envelope
+    assert body["result"]["solved"] is True
+
+
+def test_formal_search_missing_run_is_404(api):
+    assert api.client.get("/formal-search/missing").status_code == 404
+    assert api.client.post("/formal-search/missing/resume").status_code == 404
+    assert api.client.post("/formal-search/missing/cancel").status_code == 404
+
+
+def test_formal_replay_reports_unavailable_lean_as_503(api):
+    response = api.client.post(
+        "/formal-replay",
+    json={
+        "problem": {"goal": "Or q p"},
+        "proof_trace": SOLVED_TRACE,
+    },
+    )
+    assert response.status_code == 503

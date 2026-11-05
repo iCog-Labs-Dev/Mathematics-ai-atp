@@ -5,6 +5,8 @@ Endpoints
 ``GET  /health``              liveness/readiness probe
 ``POST /prove``               full HybridReasoner.prove() search, returning the
                               verifiable tactic-sequence proof trace
+``POST /formal-search/*``     persistent-atp asynchronous search contract
+``POST /formal-replay``       independently replay a proof trace in Lean
 ``POST /gnn/predict_tactic``  top-k tactic candidates from GNNModelEngine
 ``POST /pln/evaluate``        STV score from PLNInference
 
@@ -23,7 +25,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, Awaitable, Callable, Optional
+from pathlib import Path
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -36,6 +39,8 @@ from maths_ai.api.schemas import (
     PredictTacticResponse,
     ProveRequest,
     ProveResponse,
+    FormalReplayRequest,
+    FormalSearchRequest,
 )
 from maths_ai.core.config import settings
 from maths_ai.pln_inference.model import PLNResult
@@ -59,7 +64,10 @@ def _get_service(request: Request) -> Any:
     return service
 
 
-def create_app(service_factory: Optional[ServiceFactory] = None) -> FastAPI:
+def create_app(
+    service_factory: Optional[ServiceFactory] = None,
+    formal_runs_dir: Optional[Path] = None,
+) -> FastAPI:
     """Build the API app.
 
     ``service_factory`` is an awaitable returning a fully-initialized
@@ -77,10 +85,14 @@ def create_app(service_factory: Optional[ServiceFactory] = None) -> FastAPI:
             factory = build_default_service
         try:
             app.state.service = await factory()
+            from maths_ai.api.service import FormalSearchManager
+
+            app.state.formal_search = FormalSearchManager(app.state.service, formal_runs_dir)
             app.state.init_error = None
         except Exception as exc:
             logger.exception("service initialization failed")
             app.state.service = None
+            app.state.formal_search = None
             app.state.init_error = str(exc)
         yield
         service = getattr(app.state, "service", None)
@@ -176,5 +188,73 @@ def create_app(service_factory: Optional[ServiceFactory] = None) -> FastAPI:
             status=result.status,
             is_fallback=result.is_fallback,
         )
+
+    @app.post("/formal-search/start", status_code=202)
+    async def formal_search_start(payload: FormalSearchRequest, request: Request) -> Dict[str, Any]:
+        _get_service(request)
+        manager = request.app.state.formal_search
+        try:
+            return await manager.start(payload.model_dump(
+                mode="json", exclude_none=True, exclude_unset=True
+            ))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=503, detail=f"formal run persistence unavailable: {exc}") from exc
+
+    @app.post("/formal-search/{run_id}/retry", status_code=202)
+    async def formal_search_retry(run_id: str, request: Request) -> Dict[str, Any]:
+        _get_service(request)
+        try:
+            return await request.app.state.formal_search.retry(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=f"run not found: {run_id}") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/formal-search/{run_id}")
+    async def formal_search_status(run_id: str, request: Request) -> Dict[str, Any]:
+        _get_service(request)
+        try:
+            result = await request.app.state.formal_search.get(run_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if result is None:
+            raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
+        return result
+
+    @app.post("/formal-search/{run_id}/cancel")
+    async def formal_search_cancel(run_id: str, request: Request) -> Dict[str, Any]:
+        _get_service(request)
+        try:
+            return await request.app.state.formal_search.cancel(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=f"run not found: {run_id}") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/formal-replay")
+    async def formal_replay(payload: FormalReplayRequest, request: Request) -> Dict[str, Any]:
+        service = _get_service(request)
+        try:
+            result = await service.replay(
+                payload.problem.goal,
+                payload.proof_trace.model_dump(),
+                payload.problem.hypotheses,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        try:
+            if payload.run_id is not None:
+                await request.app.state.formal_search.mark_verified(payload.run_id)
+            return result
+        except ValueError as exc:
+            return {"verified": False, "status": "rejected", "error": str(exc)}
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=f"run not found: {exc.args[0]}") from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return app
