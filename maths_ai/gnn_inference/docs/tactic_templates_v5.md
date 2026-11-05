@@ -102,7 +102,7 @@ combined/wildcard locations, rebuilt location hypotheses, modifiers, anonymous/
 typed declarations, atomic proofs and numeric projections. Unit/paired checks
 cover role conflicts, unknown values, immutable data, strict original-context
 validation, complete denominators and exact-only balanced pilot selection.
-Full server V5 gains are recorded below; new-action native results remain pending.
+Full server V5 gains and the focused new-action native result are recorded below.
 
 ## Completed paired server result
 
@@ -128,6 +128,15 @@ accuracy or full-cohort Lean execution gain is implied by these static counts.
 
 The generated pilot selects **24** new exact-aligned val actions from **71**
 family/feature groups. It is a bounded sample, not coverage of all groups or
-all 342 val rescues. Run the focused native command above before accepting
-native execution parity for these new real-Mathlib instances. Report:
+all 342 val rescues. Report:
 `maths_ai/gnn_inference/runs/template_v5_recovery/report.json`.
+
+The focused server pilot subsequently passed **24/24** selected exact-aligned
+actions: cached input parity, captured-syntax original execution/transition,
+reparsed original diagnostic, and rendered execution/transition all matched.
+Every candidate uses `extended_tactic_v1`; flat grammar rendered none of them.
+No operational, input, control or rendered replay failure occurred in this
+sample. This supports the selected real-Mathlib instances, not universal
+validity of every form/argument binding or completed theorem proofs. Report:
+`maths_ai/gnn_inference/runs/native_gold_replay_template_v5_pilot/report.json`.
+Next prioritize current per-family residual errors for further coverage.
