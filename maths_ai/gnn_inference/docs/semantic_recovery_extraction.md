@@ -117,5 +117,78 @@ re-capture, recovers its receiver-preserving application, matches original and
 rendered transitions, and successfully reuses a completed extraction checkpoint.
 It rejects changed annotated syntax, changed normalized input and changed
 completed sidecars. Paired overlay tests preserve original artifacts and verify
-that missing overlay rows do not fall back to original V2 data. Server sample
-yield and semantic native pilot remain pending.
+that missing overlay rows do not fall back to original V2 data. Completed server
+sample yield and semantic native replay are recorded below.
+
+## Completed first server extraction probe
+
+User-supplied final report processed **59 selected val actions in 16 files**:
+
+| Outcome | Actions |
+|---|---:|
+| Bound new sidecars | 54 |
+| Capture/binding failures | 5 |
+| Static semantic rescues | **46** |
+| Bound but still unrenderable | 8 |
+
+Static yield is **46/59 = 78.0%** of selected actions, or **46/54 = 85.2%** of
+successfully bound captures. All 59 selections stay in the primary denominator.
+This is a targeted exact-reference validation sample with a source-file cap,
+not train-wide coverage or native action validity. The file cap yielded fewer
+than the configured 64-action maximum.
+
+All **5,189** previously invalid train sidecars have the recorded reason
+`semantic trace pin/source binding mismatch`. That combined reason does not
+identify which pin/source component differs; it is not permission to rebind
+those payloads. Fresh captured expressions were bound independently.
+
+Exclusion diagnostics attribute all five capture failures to **ENOSPC**
+(`no space left on device`): four rows in
+`Mathlib/Algebra/Lie/Weights/RootSystem.lean`, one in
+`Mathlib/AlgebraicTopology/SimplicialObject.lean`. These are operational failures,
+not demonstrated grammar limitations. Check free bytes and inodes on temporary
+and output filesystems before retrying. Do not delete frozen caches to recover
+space. Identical extraction resume skips completed failed files; it is not a
+retry command for these five rows.
+
+Eight bound render exclusions: **2 multi-tactic wrappers**, **3 `:metavar`** and
+**3 `:lambda`** expressions. Missing V2 scope/binder information and unresolved
+metavariables remain guarded; those counts do not justify bypassing the guards.
+No additional train semantic recovery is established yet.
+Report: `maths_ai/gnn_inference/runs/template_v6_semantic_val_probe/report.json`.
+
+## Completed native check of all 46 static semantic rescues
+
+All **46/46** selected input states, captured originals and original-text
+diagnostics match their recorded exact-aligned transitions. Rendered execution
+succeeds on **42/46**, but only **41/46** match all ordered resulting goals:
+
+- **41** rendered transition matches.
+- **4** rendered execution failures; detailed errors still needed.
+- **1** rendered execution with a different normalized goal transition.
+
+Native-confirmed yield on the entire original probe is **41/59 = 69.5%**;
+conditional on static candidates, **41/46 = 89.1%**. These five renderer failures
+must be diagnosed before broader extraction. Successful execution alone does
+not validate the mismatched transition. Native report:
+`maths_ai/gnn_inference/runs/native_gold_replay_template_v6_semantic_all/report.json`.
+
+Retain this original report. Next replay only its five failed row IDs into a
+fresh output with goal-transition diagnostics, and inspect their source tactic,
+emitted action and complete owned semantic terms. No failure subtype or fix is
+inferred from summary counts alone.
+
+Replay now saves failure-only `transition_diagnostics`: expected normalized
+ordered goals, plus failing original/rendered branch status and actual goals
+(`null` if execution failed). Successful and unsupported-render rows do not
+duplicate goal snapshots. **31 focused checks pass**, including native replay,
+semantic extraction/reconstruction, executed goal mismatch diagnostics, and
+the distinction between execution failure and unsupported rendering.
+
+For diagnosis, read the old native report's rows with
+`status == "rendered_replay_failed"`, write their five IDs to a new selection
+file, then run the same V6 overlay renderer into a fresh diagnostic output.
+Existing completed reports remain historical; implementation fingerprints
+prevent resuming an old report under the changed diagnostic code. Inspect
+source/emitted action, `rendered_error`, `transition_diagnostics` and the
+corresponding overlay V2 owned terms before selecting a semantic renderer fix.

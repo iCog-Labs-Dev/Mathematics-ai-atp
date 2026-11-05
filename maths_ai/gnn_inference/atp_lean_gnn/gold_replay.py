@@ -249,9 +249,14 @@ def assess_replay(native: dict, model_record: dict, *, render_error: str | None 
                 continue
             branch = native[name]
             result[f"{name}_executed"] = branch.get("status") == "executed"
+            actual = goal_signature(branch["goals"]) if result[f"{name}_executed"] else None
             result[f"{name}_transition_match"] = (
-                result[f"{name}_executed"] and goal_signature(branch["goals"]) == expected
+                result[f"{name}_executed"] and actual == expected
             )
+            if (not result[f"{name}_transition_match"]
+                    and (name == "original" or (name == "rendered" and render_error is None))):
+                diagnostics = result.setdefault("transition_diagnostics", {"expected_goals": expected})
+                diagnostics[name] = {"status": branch.get("status"), "goals": actual}
             if branch.get("message"):
                 result[f"{name}_error"] = branch["message"]
         result["goals_before"] = len(native["source_before"])

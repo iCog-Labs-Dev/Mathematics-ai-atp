@@ -105,10 +105,29 @@ def test_assessment_checks_every_sibling_and_never_claims_whole_proof_success():
     assert result["input_model_match"] and result["original_transition_match"]
     assert result["status"] == "rendered_replay_failed"
     assert not result["rendered_transition_match"]
+    assert result["transition_diagnostics"] == {
+        "expected_goals": goal_signature([_goal(), _goal()]),
+        "rendered": {"status": "executed", "goals": goal_signature([_goal()])},
+    }
     assert summarize_replays([result])["proof_success_measured"] is False
     assert not model_input_matches([_goal(), _goal()], _model_record())
     native["source_before"][0]["target"]["modelSexp"] = "(:c Q)"
     assert assess_replay(native, _model_record())["status"] == "input_model_mismatch"
+
+
+def test_failed_execution_diagnostics_and_unsupported_reports_stay_distinct():
+    native = {"row_index": 3, "source_before": [_goal()], "source_after": [],
+              "original": {"status": "executed", "goals": []},
+              "rendered": {"status": "lean_error", "message": "type mismatch"}}
+    failed = assess_replay(native, _model_record())
+    assert failed["status"] == "rendered_replay_failed"
+    assert failed["rendered_error"] == "type mismatch"
+    assert failed["transition_diagnostics"] == {"expected_goals": [], "rendered": {"status": "lean_error", "goals": None}}
+    unsupported = assess_replay(native, _model_record(), render_error="unsupported syntax")
+    assert unsupported["status"] == "render_unsupported" and "transition_diagnostics" not in unsupported
+    native["rendered"] = {"status": "executed", "goals": []}
+    passed = assess_replay(native, _model_record())
+    assert passed["status"] == "rendered_transition_match" and "transition_diagnostics" not in passed
 
 
 def test_goal_signature_keeps_local_let_values_and_requires_versioned_ast():
