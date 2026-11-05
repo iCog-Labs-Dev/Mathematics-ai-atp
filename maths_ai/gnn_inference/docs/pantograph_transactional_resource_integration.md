@@ -1,11 +1,14 @@
 # Transactional Pantograph resource recovery in MCTS search
 
-The application uses standalone client
+The transactional-resource integration originally used standalone client
 `3300096484d95af070f2494eb42f5ab03a66450a` and custom REPL
 `5cab95e132bcdd1d3cb715505d1694ac7bb0e0d6`. Both require protocol revision 3.
 The client commit includes `bb22b22` and its corrected companion compatibility
 resources. Docker builds the exact REPL revision; CLI setup consumes the
-installed client's verified companion pins.
+installed client's verified companion pins. For the current validation-version-2
+pair and upgrade commands, use the [scope-aware application handoff](pantograph_scope_aware_application_integration.md).
+The version-3 resource handling described below remains in force; the older
+installation commands are retained as the original integration record.
 
 ## Behavior
 

@@ -757,7 +757,8 @@ async def _run_rl_training_impl(
         if resume_spec != model_spec:
             raise ValueError(
                 "Resume checkpoint model specification does not match the configured "
-                "warm-start checkpoint."
+                "warm-start checkpoint. A deployment rebound to a different Lean "
+                "environment requires a fresh run from its migrated weights, without --resume."
             )
         model.load_state_dict(resumed_model.state_dict(), strict=True)
         optimizer.load_state_dict(state["optimizer_state_dict"])

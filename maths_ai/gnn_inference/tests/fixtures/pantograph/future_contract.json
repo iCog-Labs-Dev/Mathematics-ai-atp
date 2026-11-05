@@ -1,17 +1,19 @@
 {
   "kind": "authored-future-contract",
-  "note": "Authored revision-3 companion contract, not live validation evidence. Model-bearing fields and failure variants are carried over unchanged from revision 2. Each success adds protocol-version-2 transition provenance; its selected goal is filled in by the fake REPL from the request. Inspection and certification samples are authored expectations.",
+  "note": "Authored current protocol-3, validation-2 companion expectations, not live validation evidence. Model-bearing fields remain unchanged. The fake REPL fills in selected goal identities. Historical revision-2 and earlier native captures remain separate.",
   "descriptor": {
     "protocol": "maths-ai-pantograph",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "modelSexpVersion": 1,
-    "transitionValidationVersion": 1,
+    "transitionValidationVersion": 2,
     "transitionProvenanceVersion": 1,
     "inspectionVersion": 1,
     "certificationVersion": 1,
     "messageVersion": 1,
     "goalSelection": "explicit-focused-v1",
-    "tacticErrorsFormat": "string-array-v1"
+    "tacticErrorsFormat": "string-array-v1",
+    "resourceErrorVersion": 1,
+    "commandTransactionVersion": 1
   },
   "successes": {
     "identity_intro": {
@@ -62,8 +64,8 @@
         }
       ],
       "validation": {
-        "version": 1,
-        "scope": "transition-expressions",
+        "version": 2,
+        "scope": "execution-closure-and-transition-audit",
         "checked": true
       },
       "messages": [],
@@ -119,8 +121,8 @@
         }
       ],
       "validation": {
-        "version": 1,
-        "scope": "transition-expressions",
+        "version": 2,
+        "scope": "execution-closure-and-transition-audit",
         "checked": true
       },
       "messages": [],
@@ -162,8 +164,8 @@
         }
       ],
       "validation": {
-        "version": 1,
-        "scope": "transition-expressions",
+        "version": 2,
+        "scope": "execution-closure-and-transition-audit",
         "checked": true
       },
       "messages": [],
@@ -246,8 +248,8 @@
         }
       ],
       "validation": {
-        "version": 1,
-        "scope": "transition-expressions",
+        "version": 2,
+        "scope": "execution-closure-and-transition-audit",
         "checked": true
       },
       "messages": [],
@@ -327,8 +329,8 @@
         }
       ],
       "validation": {
-        "version": 1,
-        "scope": "transition-expressions",
+        "version": 2,
+        "scope": "execution-closure-and-transition-audit",
         "checked": true
       },
       "messages": [],
@@ -357,8 +359,8 @@
       "nextStateId": 16,
       "goals": [],
       "validation": {
-        "version": 1,
-        "scope": "transition-expressions",
+        "version": 2,
+        "scope": "execution-closure-and-transition-audit",
         "checked": true
       },
       "messages": [],
@@ -380,8 +382,8 @@
       "nextStateId": 14,
       "goals": [],
       "validation": {
-        "version": 1,
-        "scope": "transition-expressions",
+        "version": 2,
+        "scope": "execution-closure-and-transition-audit",
         "checked": true
       },
       "messages": [
@@ -413,8 +415,8 @@
       "nextStateId": 16,
       "goals": [],
       "validation": {
-        "version": 1,
-        "scope": "transition-expressions",
+        "version": 2,
+        "scope": "execution-closure-and-transition-audit",
         "checked": true
       },
       "messages": [],
@@ -489,8 +491,8 @@
     "nextStateId": 16,
     "goals": [],
     "validation": {
-      "version": 1,
-      "scope": "transition-expressions",
+      "version": 2,
+      "scope": "execution-closure-and-transition-audit",
       "checked": true
     },
     "messages": [

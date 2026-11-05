@@ -1,0 +1,39 @@
+{
+  "kind": "application-scope-aware-validation-acceptance",
+  "date": "2026-11-05",
+  "client_commit": "053ff67dfc540391100c86e4deada06839904655",
+  "repl_commit": "ba2c3dd8383f90b4b5327e31a645a53411f385e4",
+  "repl_sha256": "e3c11038b1d0fa463f6ef439788dd4d70ed425a9928b67d3942546614939dd78",
+  "protocol_version": 3,
+  "transition_validation_version": 2,
+  "validation_scope": "execution-closure-and-transition-audit",
+  "environment": {
+    "python": "3.11.15",
+    "toolchain": "leanprover/lean4:v4.10.0-rc1",
+    "mathlib_expected_pin": "29dcec074de168ac2bf835a77ef68bbe069194c5",
+    "dependency_installation": "Isolated temporary directory; existing developer environment unchanged."
+  },
+  "completed_checks": [
+    "Application/API regression sweep excluding the final source-lineage module: 778 passed, 1 skipped, 47 deselected, 35 subtests passed.",
+    "PUCT and best-first native conjunction, disjunction, Finset, multi-step sibling replay, and zero-allocation teardown: 2 parameterized tests passed.",
+    "Native fatal validation integrity control: 1 test passed.",
+    "Native RL collection and shared evaluation using a controlled source-aware tauto policy: 2 tests passed.",
+    "Deployment migration suite including real old/new REPLs, declaration export, kernel certification and all-tensor preservation: 15 tests passed.",
+    "Native heartbeat recovery followed by certified search: 2 tests passed.",
+    "Real Uvicorn/FastAPI HTTP proof profiles and evaluation job without PLN: 1 test passed.",
+    "Installed client companion source hashes matched the local REPL checkout.",
+    "Offline lockfile verification passed; the only package version update is client 0.3.0 to 0.4.0.",
+    "Final migration guards, dependency/companion pins and source-lineage checks: 23 passed, 1 native test deselected."
+  ],
+  "not_run": [
+    "Full Docker image build/execution (Docker unavailable on this host).",
+    "Python 3.13 Conda installation.",
+    "Trained-checkpoint GPU trial or remote artifact migration in JupyterHub.",
+    "PLN-enabled native HTTP smoke in this task."
+  ],
+  "notes": [
+    "Counts describe separate completed invocations and overlap; they are not additive.",
+    "Initial native fixture/assertion errors were corrected. Only completed passing cases are listed.",
+    "Model and retrieval artifacts in native migration were controlled local test artifacts."
+  ]
+}

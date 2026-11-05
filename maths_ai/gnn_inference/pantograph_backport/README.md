@@ -1,5 +1,12 @@
 # Repository-owned client: reconciled source and contract
 
+The current deployment uses client `053ff67dfc540391100c86e4deada06839904655`
+and REPL `ba2c3dd8383f90b4b5327e31a645a53411f385e4`: protocol 3,
+transition validation 2, and scope `execution-closure-and-transition-audit`.
+See the [scope-aware application handoff](../docs/pantograph_scope_aware_application_integration.md)
+for installation, verification, and tensor-preserving deployment migration.
+The dated sections below describe historical contracts and evidence.
+
 Reconciled on 2026-10-08 after [upstream PR #1](https://github.com/jajos12/Pantograph/pull/1).
 Original Stages 0 and 1 of [the client plan](../docs/dev_plans/repository_owned_pantograph_async_client.md)
 shipped for contract revision 1. [contract.json](https://github.com/123nol/Pantograph-Client/blob/main/src/pantograph_async/resources/contract.json) now specifies

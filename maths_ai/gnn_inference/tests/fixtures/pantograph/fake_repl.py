@@ -100,7 +100,7 @@ def main():
                 "resourceErrorVersion": 1,
                 "commandTransactionVersion": 1,
                 "modelSexpVersion": 1,
-                "transitionValidationVersion": 1,
+                "transitionValidationVersion": 2,
                 "transitionProvenanceVersion": 1,
                 "inspectionVersion": 1,
                 "certificationVersion": 1,

@@ -29,22 +29,64 @@ def file_hash(path):
     return h.hexdigest()
 
 
-def environment_fingerprint(source_root, repl, imports):
-    """Bind the inventory to the deployed binary and compiled Lake artifacts."""
+def environment_components(source_root, repl, imports):
+    """Record content identities needed to verify a later binary-only migration."""
     root = Path(source_root)
     compiled = sorted((root / ".lake").rglob("*.olean"))
     if not compiled:
         raise RetrievalError(
             "No compiled Lean artifacts found for inventory verification."
         )
+    return {
+        "schema": "lean-environment-components-v1",
+        "imports": list(imports),
+        "toolchain_sha256": file_hash(root / "lean-toolchain"),
+        "lake_manifest_sha256": file_hash(root / "lake-manifest.json"),
+        "repl_sha256": file_hash(repl),
+        "compiled": {str(path.relative_to(root)): file_hash(path) for path in compiled},
+    }
+
+
+def fingerprint_environment_components(components):
+    """Reproduce the existing inventory identity from explicit component hashes."""
+    required = {
+        "schema", "imports", "toolchain_sha256", "lake_manifest_sha256",
+        "repl_sha256", "compiled",
+    }
+    if not isinstance(components, dict) or set(components) != required:
+        raise RetrievalError("Incomplete environment component evidence.")
+    if components["schema"] != "lean-environment-components-v1":
+        raise RetrievalError("Unsupported environment component evidence.")
+    imports, compiled = components["imports"], components["compiled"]
+    if (not isinstance(imports, list) or not imports
+            or any(not isinstance(name, str) or not name for name in imports)
+            or not isinstance(compiled, dict) or not compiled):
+        raise RetrievalError("Invalid imports or compiled environment evidence.")
+    for name in compiled:
+        path = Path(name)
+        if (path.is_absolute() or ".." in path.parts or not name.startswith(".lake/")
+                or path.suffix != ".olean"):
+            raise RetrievalError("Invalid compiled artifact path in environment evidence.")
+    hashes = [components[key] for key in (
+        "toolchain_sha256", "lake_manifest_sha256", "repl_sha256",
+    )] + list(compiled.values())
+    if any(not isinstance(value, str) or len(value) != 64
+           or any(c not in "0123456789abcdef" for c in value) for value in hashes):
+        raise RetrievalError("Invalid environment component hash.")
     digest = hashlib.sha256()
-    digest.update(json.dumps(list(imports)).encode())
-    for path in [root / "lean-toolchain", root / "lake-manifest.json", Path(repl)]:
-        digest.update(file_hash(path).encode())
-    for path in compiled:
-        digest.update(str(path.relative_to(root)).encode())
-        digest.update(file_hash(path).encode())
+    digest.update(json.dumps(imports).encode())
+    for key in ("toolchain_sha256", "lake_manifest_sha256", "repl_sha256"):
+        digest.update(components[key].encode())
+    # Path ordering is part of the existing inventory fingerprint recipe.
+    for name in sorted(compiled, key=Path):
+        digest.update(name.encode())
+        digest.update(compiled[name].encode())
     return digest.hexdigest()
+
+
+def environment_fingerprint(source_root, repl, imports):
+    """Bind the inventory to the deployed binary and compiled Lake artifacts."""
+    return fingerprint_environment_components(environment_components(source_root, repl, imports))
 
 
 def verify_files(root, hashes):

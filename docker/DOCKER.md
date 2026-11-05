@@ -6,7 +6,7 @@ which holds the model, the Lean clients and the search. The image contains:
 | | |
 | --- | --- |
 | Lean | `leanprover/lean4:v4.10.0-rc1` under `/opt/elan` |
-| REPL | `123nol/Pantograph@5cab95e` at `/opt/pantograph/repl`, the companion of client `3300096` |
+| REPL | `123nol/Pantograph@ba2c3dd` at `/opt/pantograph/repl`, the companion of client `053ff67` |
 | Mathlib | `29dcec07` built at `/opt/mathlib4`, the REPL's `source_root` |
 | PLN | pinned PeTTa/chainer, SWI-Prolog 9.3.31 with Python 3.13 Janus |
 | Python | `uv sync --frozen --no-dev` from `uv.lock` in `/opt/venv` |

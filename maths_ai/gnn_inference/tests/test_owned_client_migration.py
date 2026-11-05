@@ -141,12 +141,15 @@ def test_lazy_exports_preserve_existing_package_api():
 
 
 CLIENT_REPOSITORY = "https://github.com/123nol/Pantograph-Client"
-CLIENT_COMMIT = "3300096484d95af070f2494eb42f5ab03a66450a"
+CLIENT_COMMIT = "053ff67dfc540391100c86e4deada06839904655"
 
 
 def test_dependency_is_the_pinned_client_and_not_pypantograph():
+    import json
     import tomllib
 
+    from pantograph_async import PROTOCOL_DESCRIPTION
+    from pantograph_async.compatibility import companion_base, verify_contract
     from pantograph_async.diagnostics import distribution_source
 
     root = Path(__file__).parents[3]
@@ -171,6 +174,11 @@ def test_dependency_is_the_pinned_client_and_not_pypantograph():
     source = distribution_source()
     assert source["url"] == CLIENT_REPOSITORY
     assert source["vcs_info"]["commit_id"] == CLIENT_COMMIT
+    verify_contract()
+    assert companion_base()["source_commit"] == "ba2c3dd8383f90b4b5327e31a645a53411f385e4"
+    fixture = json.loads((Path(__file__).parent / "fixtures/pantograph/future_contract.json").read_text())
+    assert fixture["descriptor"] == dict(PROTOCOL_DESCRIPTION)
+    assert fixture["descriptor"]["transitionValidationVersion"] == 2
 
 
 MANIFEST = Path(__file__).parent / "fixtures/pantograph/mcts_owned_client/source_manifest.json"
@@ -302,9 +310,19 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
     resources = json.loads(
         (WIDENING_MANIFEST.parent.parent / "transactional_resources/source_manifest.json").read_text()
     )
-    assert resources["client_commit"] == CLIENT_COMMIT
+    assert resources["client_commit"] == "3300096484d95af070f2494eb42f5ab03a66450a"
     assert resources["repl_commit"] == "5cab95e132bcdd1d3cb715505d1694ac7bb0e0d6"
     for entry in resources["sources"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        expected[entry["path"]] = entry["sha256"]
+    scope_aware = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "scope_aware_validation/source_manifest.json").read_text()
+    )
+    assert scope_aware["target_base_commit"].startswith("f1eb8ca")
+    assert scope_aware["client_commit"] == CLIENT_COMMIT
+    assert scope_aware["repl_commit"] == "ba2c3dd8383f90b4b5327e31a645a53411f385e4"
+    for entry in scope_aware["sources"]:
         if entry["path"] in expected:
             assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
         expected[entry["path"]] = entry["sha256"]

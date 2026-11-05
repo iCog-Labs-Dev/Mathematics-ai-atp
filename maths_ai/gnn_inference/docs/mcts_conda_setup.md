@@ -90,7 +90,7 @@ python -m maths_ai.gnn_inference.scripts.rl_train --help
 
 `stdbuf --version` must identify GNU coreutils. The custom client source
 metadata should identify commit
-`3300096484d95af070f2494eb42f5ab03a66450a`. For a GPU run,
+`053ff67dfc540391100c86e4deada06839904655`. For a GPU run,
 `torch.cuda.is_available()` must return `True` and the GPU tensor operation
 must succeed. `--help` verifies CLI imports, not model or Lean readiness.
 
