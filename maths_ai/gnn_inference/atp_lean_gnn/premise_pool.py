@@ -66,8 +66,18 @@ def build_unified_pools(
         local_vecs = node_embeddings.index_select(0, local_ids)
         local_id_list = [int(i - graph_offset) for i in local_ids.tolist()]
 
-        lemma_ids = [int(x) for x in lemma_ids_batch[b]] if lemma_ids_batch else []
-        lemma_vecs = lemma_vecs_batch[b] if lemma_vecs_batch is not None else torch.empty(0, node_embeddings.size(1), device=device)
+        raw_lemma_ids = [int(x) for x in lemma_ids_batch[b]] if lemma_ids_batch else []
+        if lemma_vecs_batch is not None:
+            valid_lemma_mask = torch.tensor(
+                [lemma_id >= 0 for lemma_id in raw_lemma_ids],
+                dtype=torch.bool,
+                device=device,
+            )
+            lemma_ids = [lemma_id for lemma_id in raw_lemma_ids if lemma_id >= 0]
+            lemma_vecs = lemma_vecs_batch[b][valid_lemma_mask]
+        else:
+            lemma_ids = []
+            lemma_vecs = torch.empty(0, node_embeddings.size(1), device=device)
 
         if local_vecs.numel() == 0:
             candidate_vectors = lemma_vecs

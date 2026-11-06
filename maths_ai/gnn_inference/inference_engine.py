@@ -1,4 +1,5 @@
 from pathlib import Path
+from collections.abc import Mapping
 from typing import List, Optional, cast
 
 import torch
@@ -30,6 +31,7 @@ class GNNModelEngine:
         loaded = load_pointer_bundle(bundle_path, device=instance.device)
         lemma_index = instance._load_lemma_index(index_path, loaded.model.hidden_dim)
         lemma_corpus = instance._load_lemma_corpus(corpus_path)
+        instance._validate_lemma_artifacts(lemma_index, lemma_corpus)
         instance.gnn_inference = GNNPredictor(
             tactic_model=loaded.model,
             argument_model=loaded.scorer,
@@ -92,6 +94,7 @@ class GNNModelEngine:
 
         lemma_index = self._load_lemma_index(index_path, config.model.hidden_dim)
         lemma_corpus = self._load_lemma_corpus(corpus_path)
+        self._validate_lemma_artifacts(lemma_index, lemma_corpus)
 
         self.gnn_inference = GNNPredictor(
             tactic_model=tactic_model,
@@ -125,6 +128,22 @@ class GNNModelEngine:
 
         records = load_lemma_corpus(corpus_path)
         return {record.lemma_id: record for record in records}
+
+    @staticmethod
+    def _validate_lemma_artifacts(
+        lemma_index: LemmaIndex,
+        lemma_corpus: Mapping[int, object] | None,
+    ) -> None:
+        if lemma_corpus is None:
+            return
+        missing_ids = sorted(set(lemma_index.lemma_ids) - set(lemma_corpus))
+        if missing_ids:
+            preview = ", ".join(str(item) for item in missing_ids[:5])
+            suffix = "..." if len(missing_ids) > 5 else ""
+            raise ValueError(
+                "Lemma index contains IDs missing from the loaded lemma corpus: "
+                f"{preview}{suffix}."
+            )
 
     def inference(self, goal_expression: str, top_k: int = 3) -> List[TacticCandidate]:
         """Predict ranked tactic candidates for ``goal_expression``.
