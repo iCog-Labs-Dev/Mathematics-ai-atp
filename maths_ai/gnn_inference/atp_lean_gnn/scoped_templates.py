@@ -2,7 +2,7 @@
 
 from dataclasses import asdict, dataclass
 
-from .gold_replay import _name_parts, _quoted_name, resolve_references
+from .gold_replay import FlatReference, _name_parts, _quoted_name, resolve_references
 from .recursive_templates import RecursiveTerm
 from .tactic_templates import TemplateError, _atom, _children, _empty, _strip_parens
 from .wrapper_templates import (
@@ -91,6 +91,44 @@ class ScopedTermParser(_ExtendedTermParser):
         self.semantic_terms = semantic_terms
         self.semantic_reconstructions = 0
 
+    def _local_method(self, syntax, depth):
+        """Represent an explicitly written local receiver; never replace it by its head."""
+        if syntax.get("semanticRole") not in {None, "global", "constructor"}:
+            return None
+        parts = _name_parts(syntax["source"])
+        if len(parts) < 2:
+            return None
+        prefix = tuple(parts[:-1])
+        slot = next((slot for name, slot in reversed(self.environment) if name == prefix), None)
+        matches = [entry for entry in self.context if entry.get("user_name")
+                   and tuple(_name_parts(entry["user_name"])) == prefix] if slot is None else []
+        if slot is None and not matches:
+            return None
+        if len(matches) > 1:
+            raise TemplateError("method_receiver", "explicit local receiver is ambiguous")
+        identity = syntax.get("name")
+        recovered = False
+        if syntax.get("semanticRole") is None:
+            from .semantic_templates import semantic_method_identity
+
+            identity = semantic_method_identity(self.semantic_terms, syntax, parts[-1])
+            if identity is None:
+                return None
+            recovered = True
+        if not isinstance(identity, str) or _name_parts(identity)[-1] != parts[-1]:
+            raise TemplateError("method_identity", "method label disagrees with resolved declaration")
+        resolved = _name_parts(identity)
+        if tuple(parts) == tuple(resolved[1:] if resolved[0] == "_root_" else resolved):
+            # A namespace can share an input name. Do not turn an unchanged
+            # qualified global spelling into a fabricated receiver application.
+            return None
+        self._consume(depth)
+        self._consume(depth + 1)
+        self.semantic_reconstructions += recovered
+        receiver = (ScopedTerm("bound_reference", value=str(slot)) if slot is not None else
+                    RecursiveTerm("reference", reference=FlatReference("local", matches[0]["context_index"])))
+        return RecursiveTerm("projection", (receiver,), reference=FlatReference("library", identity), value=parts[-1])
+
     def _declare(self, syntax):
         if syntax.get("tag") == "identifier":
             if syntax.get("semanticRole") not in {None, "scoped_local"}:
@@ -156,6 +194,9 @@ class ScopedTermParser(_ExtendedTermParser):
     def _parse_syntax(self, syntax, depth=0, *, allow_named=False):
         syntax = _strip_parens(syntax)
         if syntax.get("tag") == "identifier":
+            method = self._local_method(syntax, depth)
+            if method is not None:
+                return method
             name = tuple(_name_parts(syntax["source"]))
             slot = next((slot for key, slot in reversed(self.environment) if key == name), None)
             if slot is not None and syntax.get("semanticRole") in {None, "scoped_local"}:
@@ -226,7 +267,9 @@ class ScopedTermParser(_ExtendedTermParser):
         saved = self.nodes, self.holes, self.next_binder, list(self.environment), self.semantic_reconstructions
         try:
             return self._parse_syntax(syntax, depth, allow_named=allow_named)
-        except TemplateError:
+        except TemplateError as error:
+            if error.code in {"method_identity", "method_receiver", "scope_capture_conflict"}:
+                raise
             if not self.semantic_terms or saved[3]:
                 raise
             start, end = syntax.get("sourceStart"), syntax.get("sourceEnd")
@@ -236,10 +279,11 @@ class ScopedTermParser(_ExtendedTermParser):
             if len(matches) != 1:
                 raise
             self.nodes, self.holes, self.next_binder, self.environment, self.semantic_reconstructions = saved
-            from .semantic_templates import decode_semantic_term
+            from .semantic_templates import decode_semantic_term, validate_source_preservation
 
             try:
                 term = decode_semantic_term(next(iter(matches)), self, depth)
+                validate_source_preservation(syntax, term, self.context)
             except TemplateError:
                 self.nodes, self.holes, self.next_binder, self.environment, self.semantic_reconstructions = saved
                 raise

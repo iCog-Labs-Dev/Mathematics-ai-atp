@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from .action_targets.compiler import _parse_sexp
-from .gold_replay import FlatReference
+from .gold_replay import FlatReference, _name_parts
 from .preparation import ActionTraceCache
 from .recursive_templates import RecursiveTerm
 from .tactic_templates import TemplateError
@@ -67,6 +67,66 @@ def validate_semantic_trace(value, raw, source_trace):
         if type(start) is not int or type(end) is not int or not 0 <= start < end:
             raise ValueError("invalid semantic term range")
     return terms
+
+
+def validate_source_preservation(syntax, term, context):
+    """V2 cannot justify erasing written implicit arguments, types or receivers."""
+    protected = {"Lean.Parser.Term.namedArgument", "Lean.Parser.Term.typeAscription", "Lean.Parser.Term.explicit",
+                 "Lean.Parser.Term.hole", "Lean.Parser.Term.syntheticHole"}
+    required, pending = set(), [syntax]
+    while pending:
+        node = pending.pop()
+        if node.get("kind") in protected:
+            raise TemplateError("semantic_source_information_loss", "V2 recovery would erase source arguments, types, explicit mode or holes")
+        if node.get("tag") == "identifier":
+            if node.get("semanticRole") == "local":
+                required.add(node["contextIndex"])
+            parts = _name_parts(node["source"])
+            for entry in context:
+                name = entry.get("user_name")
+                prefix = _name_parts(name) if name else []
+                if prefix and len(prefix) < len(parts) and parts[:len(prefix)] == prefix:
+                    required.add(entry["context_index"])
+        pending.extend(node.get("children", []))
+    actual, pending = set(), [term]
+    while pending:
+        node = pending.pop()
+        if node.reference is not None and node.reference.source == "local":
+            actual.add(node.reference.identity)
+        pending.extend(node.children)
+    if not required <= actual:
+        raise TemplateError("semantic_receiver_loss", "V2 expression omitted an explicitly written input reference or receiver")
+
+
+def semantic_method_identity(terms, syntax, member):
+    """Recover only a unique declaration label; preserve the source receiver/args."""
+    start, end = syntax.get("sourceStart"), syntax.get("sourceEnd")
+    if type(start) is not int or type(end) is not int:
+        return None
+    owners = {term["action_sexp"] for term in terms
+              if type(term.get("source_start")) is int and type(term.get("source_end")) is int
+              and term["source_start"] <= start < end <= term["source_end"]}
+    if len(owners) != 1:
+        return None
+    source = next(iter(owners))
+    if len(source) > 1_000_000:
+        return None
+    try:
+        pending, identities, count = [_parse_sexp(source)], set(), 0
+        while pending:
+            node = pending.pop()
+            count += 1
+            if count > 4096:
+                return None
+            if not isinstance(node, list):
+                continue
+            if len(node) == 2 and isinstance(node[0], str) and node[0] in {":global", ":ctor"} and isinstance(node[1], str):
+                if _name_parts(node[1])[-1] == member:
+                    identities.add(node[1])
+            pending.extend(child for child in node if isinstance(child, list))
+        return next(iter(identities)) if len(identities) == 1 else None
+    except (ValueError, RecursionError):
+        return None
 
 
 def decode_semantic_term(source, parser, depth):

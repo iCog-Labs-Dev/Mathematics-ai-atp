@@ -50,7 +50,9 @@ def test_native_isolated_semantic_extraction_replay_and_resume(tmp_path, monkeyp
     with tempfile.TemporaryDirectory(prefix="SemanticOverlay_", dir=root) as directory:
         path = Path(directory) / "Example.lean"
         path.write_text("import Lean\nset_option linter.unusedVariables false\n"
-                        "theorem swap (a b : Nat) (h : a = b) : b = a := by\n  exact h.symm\n")
+                        "theorem known : True := True.intro\n"
+                        "theorem True.finish (receiver h : True) : True := h\n"
+                        "theorem swap (h : True) : True := by\n  exact known.finish h\n")
 
         async def capture():
             client = PantographInvocationClient(source_root=root, pantograph_repl=root / ".lake/build/bin/repl", capture_model_sexprs=True)
@@ -61,11 +63,11 @@ def test_native_isolated_semantic_extraction_replay_and_resume(tmp_path, monkeyp
 
         units = asyncio.run(capture())
         u, v, invocation = next((u, v, inv) for u, unit in enumerate(units)
-            for v, inv in enumerate(unit.get("invocations", [])) if inv["tactic"].strip() == "exact h.symm")
+            for v, inv in enumerate(unit.get("invocations", [])) if inv["tactic"].strip() == "exact known.finish h")
         candidate = {"invocation": invocation, "unit_index": u, "invocation_index": v, "unit_boundary": units[u]["boundary"], "alignment_kind": "exact"}
         dataset_rows, graphs, artifacts = {}, {}, {}
         for split in ("train", "val"):
-            row = DatasetRow(invocation["goalBefore"], "swap", "exact h.symm", split, 0,
+            row = DatasetRow(invocation["goalBefore"], "swap", "exact known.finish h", split, 0,
                 target_state=invocation["goalAfter"], repo_commit=DATASET_MATHLIB_COMMIT, file_path=str(path.relative_to(root)), dataset_name="fixture")
             raw = _make_record(row, candidate)
             model = _make_model_record(row, candidate, raw)

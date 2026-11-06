@@ -59,8 +59,12 @@ def test_native_v6_scope_and_patterns_preserve_all_goals():
     fixture = Path(__file__).parent / "fixtures/template_v6_replay.lean"
     supported = {line.strip() for line in fixture.read_text().splitlines()
                  if line.startswith("  ") and line.strip().startswith(("exact fun", "refine fun", "have hx", "exact @", "rcases", "rintro", "obtain", "by_cases", "ext "))}
-    semantic_only = {"exact h.symm", "exact h.trans h2", "refine h.symm", "rw [h.symm]"}
-    supported |= semantic_only
+    semantic_only = {"exact reverseProof h", "exact h.trans h2", "have hx := h.named (m := 0) (Nat.le_refl 1)",
+                     "have hx := h.typed (1 : Nat)", "specialize hn (n + 1) (n.le_add_right 1)"}
+    supported |= semantic_only | {"exact h.symm", "exact h.trans h2", "refine h.symm", "rw [h.symm]",
+        "rewrite [inst₁.shift_zero, inst₂.shift_zero]", "rewrite [inst₁.shift_one, inst₂.shift_one]",
+        "have hx := h.named (m := 0) (Nat.le_refl 1)", "have hx := h.typed (1 : Nat)",
+        "specialize hn (n + 1) (n.le_add_right 1)"}
     with tempfile.TemporaryDirectory(prefix="TemplateV6_", dir=root) as directory:
         path = Path(directory) / "Example.lean"
         path.write_bytes(fixture.read_bytes())
@@ -103,15 +107,19 @@ def test_native_v6_scope_and_patterns_preserve_all_goals():
                 result = prepare_gold_rendering(text, data, renderer="template-v6", semantic_trace=bound)
                 semantic_count += result.get("semantic_reconstructions", 0)
                 assert result["rendered_tactic"] is not None, (text, result)
+                if text.startswith("have hx := h.named"):
+                    assert "(«m» := 0)" in result["rendered_tactic"]
+                if text == "have hx := h.typed (1 : Nat)":
+                    assert "(1 : _root_.«Nat»)" in result["rendered_tactic"]
                 texts[row.row_index] = (text, result["rendered_tactic"])
                 syntax = data["source_syntax"]
                 requests.append({"rowIndex": row.row_index, "unitIndex": u, "invocationIndex": v,
                     "sourceStart": syntax["sourceStart"], "sourceEnd": syntax["sourceEnd"], "renderedTactic": result["rendered_tactic"]})
         assert seen == supported
-        assert semantic_count == 4
+        assert semantic_count == 5
         response = run_native_file(path, requests, source_root=root, pantograph_root=root, timeout=120)
     assert not response["frontend_errors"], response
-    assert len(response["rows"]) == len(requests) == 38
+    assert len(response["rows"]) == len(requests) == 45
     for request, native in zip(requests, response["rows"]):
         assert native["original"]["status"] == "executed", (texts[request["rowIndex"]], native)
         assert goal_signature(native["original"]["goals"]) == goal_signature(native["source_after"])

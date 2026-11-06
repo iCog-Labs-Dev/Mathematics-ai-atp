@@ -192,3 +192,49 @@ Existing completed reports remain historical; implementation fingerprints
 prevent resuming an old report under the changed diagnostic code. Inspect
 source/emitted action, `rendered_error`, `transition_diagnostics` and the
 corresponding overlay V2 owned terms before selecting a semantic renderer fix.
+
+## Source-preserving repair after the five failing rows
+
+Compact user diagnostics identify information lost by whole-expression V2
+reconstruction:
+
+- Rows **1822/1824**: `inst₁.intCast_*` and `inst₂.intCast_*` became identical
+  bare projection declarations. V2 omitted the instance receiver arguments.
+- Row **2422**: the explicit named argument **`m := 0`** disappeared before
+  elaborating `ContDiff.fderiv_right`.
+- Row **198**: explicit type ascriptions, including **`(1 : 𝕜)`**, disappeared,
+  leaving typeclass inference stuck.
+- Row **2194**: reconstructed `specialize` replaced source arithmetic and
+  numerals with explicit `HAdd.hAdd`/`OfNat.ofNat` applications. It executed
+  but changed the normalized context/goal transition; source-level rendering
+  is needed rather than accepting execution alone.
+
+V6 now preserves a source-written local receiver as a typed method projection.
+Receiver identity must match an exact unique input name or lexical binder slot;
+the method declaration is carried separately. Existing resolved annotations
+provide declaration identity when available. For unannotated method heads,
+a unique containing digest-bound owned expression may supply **only a unique
+declaration label** with the matching terminal method name. Receiver, named and
+positional arguments, type ascriptions, literals and lexical slots still come
+from parsed source syntax. A namespace spelling identical to the resolved
+qualified global is not fabricated into a local receiver.
+
+This declaration-label lookup is distinct from whole-expression decoding.
+Whole-expression fallback still requires a unique exact source range and no
+active lexical environment. It now rejects source trees containing named
+arguments, type ascriptions, explicit `@`, or holes if fallback would erase
+those constructs, and rejects omission of source-written input references or
+receivers. Scoped receiver label lookup never reinterprets V2 input FV IDs as
+bound variables. Unknown/ambiguous identity and insufficient V2 payloads remain
+failures.
+
+**159 regression tests verified**, including **45/45** V6 native fixture original
+and rendered transitions. Added native analogues cover two explicit class
+instances, named parameters, typed arguments, bound method receivers and the
+`specialize hn (n + 1) (n.le_add_right 1)` pattern. Whole-expression semantic
+recovery remains tested separately on a global proof receiver; V5 regressions
+also pass. The namespace-collision guard was checked again with 18 focused
+tests. Actual five Mathlib rows require a fresh fixed-row recheck using the
+existing semantic overlay; its data bindings remain valid. Do not resume an
+old native report across this renderer change or re-extract the same 59 rows.
+Broader recovery measurement follows that check.

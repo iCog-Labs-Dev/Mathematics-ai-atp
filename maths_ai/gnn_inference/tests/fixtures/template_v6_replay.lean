@@ -1,7 +1,11 @@
 import Lean
 
 set_option linter.unusedVariables false
+theorem True.named {m : Nat} (h : True) (_ : m + 1 ≤ 1) : True := h
+theorem True.typed {α : Type} (h : True) (_ : α) : True := h
 namespace ScopeSmoke
+
+macro "reverseProof " h:term : term => `(Eq.symm $h)
 
 theorem simple (P : Prop) : P → P := by
   exact fun hp => hp
@@ -100,10 +104,33 @@ theorem extending {α : Type} (f : α → α) : f = f := by
   rfl
 theorem receiverSymmetry (a b : Nat) (h : a = b) : b = a := by
   exact h.symm
+theorem boundReceiver (a b : Nat) : a = b → b = a := by
+  exact fun h => h.symm
 theorem receiverTransitivity (a b c : Nat) (h : a = b) (h2 : b = c) : a = c := by
   exact h.trans h2
 theorem receiverRefine (a b : Nat) (h : a = b) : b = a := by
   refine h.symm
 theorem receiverRewrite (a b : Nat) (h : a = b) : b = a := by
   rw [h.symm]
+theorem semanticMacro (a b : Nat) (h : a = b) : b = a := by
+  exact reverseProof h
+class ShiftLaw where
+  shift : Nat → Nat
+  shift_zero : shift 0 = 0
+  shift_one : shift 1 = 1
+theorem twoInstances (inst₁ inst₂ : ShiftLaw) : inst₁.shift 0 + inst₂.shift 0 = 0 := by
+  rewrite [inst₁.shift_zero, inst₂.shift_zero]
+  rfl
+theorem twoInstancesOne (inst₁ inst₂ : ShiftLaw) : inst₁.shift 1 + inst₂.shift 1 = 2 := by
+  rewrite [inst₁.shift_one, inst₂.shift_one]
+  rfl
+theorem namedReceiver (h : True) : True := by
+  have hx := h.named (m := 0) (Nat.le_refl 1)
+  exact hx
+theorem typedReceiver (h : True) : True := by
+  have hx := h.typed (1 : Nat)
+  exact hx
+theorem specializeReceiver (n : Nat) (hn : ∀ m, n ≤ m → m = m) : True := by
+  specialize hn (n + 1) (n.le_add_right 1)
+  trivial
 end ScopeSmoke

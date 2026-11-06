@@ -62,8 +62,11 @@ Production audit/replay load optional sidecars at
 3. State/tactic/target hashes and original input-context signature.
 4. Exact agreement with V3's owned term metadata/ranges.
 
-Recovery requires a unique expression for the failed node's exact byte range.
-It is disabled inside a lexical binder environment. Missing, invalid or
+Whole-expression recovery requires a unique expression for the failed node's
+exact byte range. It is disabled inside a lexical binder environment. A later
+source-preserving method repair can instead use a unique containing expression
+to recover only the declaration label while keeping the receiver and all
+arguments in source syntax; see the semantic extraction document. Missing, invalid or
 conflicting sidecars never enable recovery; syntax-only support still works.
 
 The V2 serializer omitted implicit/instance arguments, universes and binder
@@ -197,3 +200,9 @@ Next workflow: [bounded isolated semantic extraction](semantic_recovery_extracti
 Fresh output overlays preserve frozen caches, aggregate old invalid-binding
 reasons and emit a semantic-only native pilot. `--semantic-cache-root` selects
 the overlay for audit/replay. Combined regression suite now passes **156 tests**.
+
+Subsequent semantic-probe repair preserves explicit local method receivers,
+named parameters, type ascriptions and arithmetic syntax. **159 regression
+tests verified; 45/45 V6 native fixture transitions match**. The five real
+Mathlib semantic failures need a fresh fixed-row recheck before broad scaling;
+details and guard changes are in the linked document.

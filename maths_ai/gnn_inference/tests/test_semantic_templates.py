@@ -16,7 +16,7 @@ from maths_ai.gnn_inference.tests.test_template_v6 import identifier, lambda_ter
 
 
 def method_trace():
-    expression = {"tag": "identifier", "source": "h0.symm", "semanticRole": "global", "name": "Eq.symm",
+    expression = {"tag": "identifier", "source": "h0.symm",
                   "sourceStart": 10, "sourceEnd": 17}
     data = trace(node("Lean.Parser.Tactic.exact", atom("exact"), expression))
     term = {"source_start": 10, "source_end": 17, "source": "h0.symm", "syntax_kind": "ident",
@@ -24,19 +24,51 @@ def method_trace():
     return data, term
 
 
-def test_semantic_recovery_requires_bound_exact_owned_range_and_retains_receiver():
+def test_semantic_recovery_requires_bound_owned_range_and_retains_receiver():
     data, term = method_trace()
     assert prepare_gold_rendering("exact h0.symm", data, renderer="template-v6", semantic_trace={"terms": [term]})["rendered_tactic"] is None
     result = prepare_gold_rendering("exact h0.symm", data, renderer="template-v6", semantic_trace={"status": "bound", "terms": [term]})
-    assert result["rendered_tactic"] == "exact (_root_.«Eq».«symm» «h0»)"
+    assert result["rendered_tactic"] == "exact («h0»).«symm»"
     assert result["semantic_reconstructions"] == 1
-    for terms in ([{**term, "source_end": 18}], [term, {**term, "action_sexp": "(:global Eq.refl)"}]):
+    for terms in ([{**term, "source_end": 16}], [term, {**term, "action_sexp": "(:global Eq.refl)"}]):
         assert prepare_gold_rendering("exact h0.symm", data, renderer="template-v6",
                                       semantic_trace={"status": "bound", "terms": terms})["rendered_tactic"] is None
-    # V2 cannot bind scoped locals by name; never reinterpret input FV0 as a lambda binder.
+    # Declaration-label recovery must not decode V2's input FV0 under a lambda.
     parser = ScopedTermParser(data["local_context"], [term])
-    with pytest.raises(TemplateError):
-        parser.parse(lambda_term("h0", data["source_syntax"]["children"][1]))
+    scoped = parser.parse(lambda_term("h0", data["source_syntax"]["children"][1]))
+    receiver = scoped.children[-1].children[0]
+    assert receiver.kind == "bound_reference" and receiver.reference is None
+
+
+def test_explicit_method_receiver_is_preserved_without_a_semantic_sidecar():
+    data, _ = method_trace()
+    data["source_syntax"]["children"][1].update(semanticRole="global", name="Eq.symm")
+    result = prepare_gold_rendering("exact h0.symm", data, renderer="template-v6")
+    assert result["rendered_tactic"] == "exact («h0»).«symm»"
+    assert result["semantic_reconstructions"] == 0
+    term = result["template_target"]["terms"][0]
+    assert term["reference"]["identity"] == "Eq.symm"
+    assert term["children"][0]["reference"] == {"source": "local", "identity": 0}
+    data["source_syntax"]["children"][1]["name"] = "h0.symm"
+    assert prepare_gold_rendering("exact h0.symm", data, renderer="template-v6")["rendered_tactic"] is None
+
+
+def test_v2_cannot_erase_written_receiver_or_type_ascription():
+    data, term = method_trace()
+    expression = data["source_syntax"]["children"][1]
+    unknown = node("Test.unknownTerm", expression)
+    unknown.update(sourceStart=10, sourceEnd=17)
+    data["source_syntax"]["children"][1] = unknown
+    result = prepare_gold_rendering("exact h0.symm", data, renderer="template-v6",
+        semantic_trace={"status": "bound", "terms": [{**term, "action_sexp": "(:global Eq.symm)"}]})
+    assert result["rendered_tactic"] is None and result["template_error_code"] == "semantic_receiver_loss"
+    ascribed = node("Lean.Parser.Term.typeAscription", atom("("), unknown, atom(":"),
+                    node("null", {"tag": "identifier", "source": "Nat", "semanticRole": "global", "name": "Nat"}), atom(")"))
+    ascribed.update(sourceStart=1, sourceEnd=25)
+    data["source_syntax"]["children"][1] = ascribed
+    result = prepare_gold_rendering("exact (h0.symm : Nat)", data, renderer="template-v6",
+        semantic_trace={"status": "bound", "terms": [{**term, "source_start": 1, "source_end": 25}]})
+    assert result["rendered_tactic"] is None and result["template_error_code"] == "semantic_source_information_loss"
 
 
 @pytest.mark.parametrize("source", ["(:local FV99)", "(:local FV?)", "(:bound 0)", "(:metavar)",
