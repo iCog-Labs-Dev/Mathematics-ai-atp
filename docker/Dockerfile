@@ -28,9 +28,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# Install elan (Lean version manager)
+# Install elan (Lean version manager) in a location accessible to the runtime user.
+ENV ELAN_HOME=/opt/elan
 RUN curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
-ENV PATH="/root/.elan/bin:${PATH}"
+ENV PATH="/opt/elan/bin:${PATH}"
 
 # Install uv for Python dependency management
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -46,28 +47,47 @@ RUN git config --global http.lowSpeedLimit 0 && \
     git config --global http.postBuffer 524288000 && \
     git config --global http.version HTTP/1.1
 
-# Build Lean project with Mathlib cache
-# Uses BuildKit cache mount for .lake directory
-RUN elan toolchain install leanprover/lean4:v4.15.0
-RUN --mount=type=cache,target=/opt/lean_project/.lake \
+# Build Lean project and keep the Lake artifacts in the runtime image.
+# BuildKit cache mounts are not persisted to the final image, so we rely on the
+# generated .lake tree staying in the image for the non-root runtime user.
+RUN elan toolchain install leanprover/lean4:v4.15.0 && \
     rm -rf /opt/lean_project/.lake/packages/mathlib && \
-    lake update && lake exe cache get
-RUN --mount=type=cache,target=/opt/lean_project/.lake \
+    lake update && lake exe cache get && \
     lake build --verbose
 
 ENV MATHS_AI_LEAN_PROJECT=/opt/lean_project
 ENV MATHS_AI_DATA_ROOT=/data
+ENV HOME=/home/maths_ai
 
-# Set up workspace and install Python dependencies
-# UV_PROJECT_ENVIRONMENT makes `uv sync` install into /opt/venv instead of
-# creating a separate /workspace/.venv that nothing on PATH would use.
+# Set up workspace and install Python dependencies.
+# This image is CPU-only, so we must resolve PyTorch from the CPU wheel index.
+# The default torch package on PyPI brings in CUDA wheel metadata and tries to
+# fetch the nvidia packages that fail in constrained Docker builds.
 WORKDIR /workspace
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+ENV UV_HTTP_TIMEOUT=300
+ENV UV_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
 COPY pyproject.toml uv.lock /workspace/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv --seed /opt/venv && \
-    uv sync --no-dev --inexact --no-install-project && \
-    uv pip install --python /opt/venv/bin/python -e . --no-deps
+    uv sync --no-dev --inexact --no-install-project --extra-index-url https://download.pytorch.org/whl/cpu && \
+    uv pip install --python /opt/venv/bin/python --extra-index-url https://download.pytorch.org/whl/cpu -e . --no-deps
+
+# Build the Lean Pantograph executable from the requested implementation.
+# The Python package supplies the client API used by this project; its bundled
+# executable is replaced with this build so the client and Lean backend stay
+# wired together.
+ARG PANTOGRAPH_REF=06fdf7e678c1ce2e7a2bb5fe26962c6d89715e22
+COPY docker/pantograph-repl /tmp/pantograph-repl-wrapper
+RUN git init /opt/pantograph && \
+    git -C /opt/pantograph remote add origin https://github.com/jajos12/Pantograph.git && \
+    git -C /opt/pantograph fetch --depth 1 origin ${PANTOGRAPH_REF} && \
+    git -C /opt/pantograph checkout --detach FETCH_HEAD && \
+    cd /opt/pantograph && \
+    lake build && \
+    pantograph_package=$(/opt/venv/bin/python -c 'import pathlib, pantograph; print(pathlib.Path(pantograph.__file__).parent)') && \
+    install -m 0755 /opt/pantograph/.lake/build/bin/repl "${pantograph_package}/pantograph-repl.bin" && \
+    install -m 0755 /tmp/pantograph-repl-wrapper "${pantograph_package}/pantograph-repl"
 
 # Install petta into the project virtualenv, not the system Python
 ARG PETTA_REF=v1.0.3
@@ -82,10 +102,12 @@ RUN git clone --depth 1 https://github.com/123nol/petta_chainer.git /opt/pettach
 ENV PATH="/workspace/docker/commands:/opt/venv/bin:/root/.local/bin:${PATH}"
 ENV PYTHONPATH="/workspace"
 
-# Create non-root user for security and grant it ownership of the asset volume.
+# Create non-root user for security and grant it ownership of the asset volume
+# plus the Lean toolchain/project artifacts required at runtime.
 RUN useradd -m -u 1000 maths_ai && \
-    mkdir -p /data/gnn_inference/runs /data/maths_ai/gnn_inference/models && \
-    chown -R maths_ai:maths_ai /data
+    mkdir -p /data/gnn_inference/runs /data/maths_ai/gnn_inference/models /state && \
+    chown -R maths_ai:maths_ai /data /state /opt/elan /opt/lean_project && \
+    chmod -R a+rX /opt/elan /opt/lean_project
 
 USER maths_ai
 WORKDIR /workspace

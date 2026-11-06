@@ -65,10 +65,13 @@ LOGS_DIR = ROOT_DIR / "logs"
 TEMP_DIR = ROOT_DIR / "tmp"
 
 OUTPUT_DIR = Path(os.getenv("MATHS_AI_OUTPUT_DIR", str(ROOT_DIR / "outputs")))
-DTS_STATE_DIR = ROOT_DIR / "dts_state"
-DTS_STATE_FILE = DTS_STATE_DIR / "thompson_sampler_state.json"
+DTS_STATE_DIR = Path(os.getenv("MATHS_AI_DTS_STATE_DIR", str(ROOT_DIR / "dts_state")))
+DTS_STATE_FILE = Path(
+    os.getenv("MATHS_AI_DTS_STATE_FILE", str(DTS_STATE_DIR / "thompson_sampler_state.json"))
+)
 DTS_DEFAULT_C = 100.0
 DTS_DEFAULT_SEED = None
+FORMAL_RUNS_DIR = Path(os.getenv("MATHS_AI_FORMAL_RUNS_DIR", "/data/formal_runs"))
 @dataclass(frozen=True)
 class Settings:
     # app_name: str = "APP_NAME"
@@ -80,6 +83,7 @@ class Settings:
     data_dir: Path = DATA_DIR
     models_dir: Path = MODELS_DIR
     logs_dir: Path = LOGS_DIR
+    lean_project_path: Path = LEAN_PROJECT_PATH
     proof_depth: int = 20
     gnn_config_path: Path = GNN_CONFIG_PATH
     gnn_bundle_path: Path = GNN_BUNDLE_PATH
@@ -91,6 +95,7 @@ class Settings:
     dts_state_file: Path = DTS_STATE_FILE
     dts_default_c: float = DTS_DEFAULT_C
     dts_default_seed: int = DTS_DEFAULT_SEED
+    formal_runs_dir: Path = FORMAL_RUNS_DIR
     
     # API server settings
     api_host: str = os.getenv("MATHS_AI_API_HOST", "0.0.0.0")

@@ -1,10 +1,13 @@
 """Lightweight Docker healthcheck for the core service.
 
-Verifies that core modules are importable and the data directory is accessible.
-Intentionally avoids heavy imports (torch, pantograph) to stay fast.
+Checks that the Lean project is present and that the HTTP readiness endpoint
+reports the application is up and ready.
 """
+import json
+import os
 import sys
-from pathlib import Path
+import urllib.error
+import urllib.request
 
 
 def _check() -> bool:
@@ -16,6 +19,19 @@ def _check() -> bool:
 
     if not LEAN_PROJECT_PATH.exists():
         print(f"FAIL: LEAN_PROJECT_PATH does not exist: {LEAN_PROJECT_PATH}", file=sys.stderr)
+        return False
+
+    try:
+        host = os.getenv("MATHS_AI_API_HEALTH_HOST", "127.0.0.1")
+        port = os.getenv("MATHS_AI_API_PORT", "8000")
+        with urllib.request.urlopen(f"http://{host}:{port}/health", timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        print(f"FAIL: /health is not reachable: {exc}", file=sys.stderr)
+        return False
+
+    if not payload.get("ready"):
+        print(f"FAIL: application is not ready: {payload}", file=sys.stderr)
         return False
 
     return True

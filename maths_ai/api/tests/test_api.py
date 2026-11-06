@@ -6,6 +6,7 @@ no torch/pantograph stack (or model checkpoints) is needed.
 
 from __future__ import annotations
 
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -113,6 +114,15 @@ class FakeDtsSampler:
 # Helpers ---------------------------------------------------------------------
 
 
+def test_project_core_dependencies_include_pantograph():
+    pyproject_path = Path(__file__).resolve().parents[3] / "pyproject.toml"
+    with pyproject_path.open("rb") as fh:
+        metadata = tomllib.load(fh)
+
+    dependency_names = [d.split(";", 1)[0].split("@", 1)[0].strip() for d in metadata["project"]["dependencies"]]
+    assert "pantograph" in dependency_names
+
+
 @pytest.fixture
 def api(tmp_path: Path):
     """App wired to a fake reasoner, plus handles for assertions."""
@@ -122,8 +132,13 @@ def api(tmp_path: Path):
     async def factory():
         return service
 
-    with TestClient(create_app(service_factory=factory)) as client:
-        yield SimpleNamespace(client=client, reasoner=reasoner, dts_state_path=tmp_path / "dts" / "state.json")
+    with TestClient(create_app(service_factory=factory, formal_runs_dir=tmp_path / "formal_runs")) as client:
+        yield SimpleNamespace(
+            client=client,
+            reasoner=reasoner,
+            dts_state_path=tmp_path / "dts" / "state.json",
+            formal_runs_dir=tmp_path / "formal_runs",
+        )
 
 
 # GET /health -----------------------------------------------------------------
@@ -159,6 +174,7 @@ def test_endpoints_return_503_while_uninitialized():
         assert client.post("/prove", json={"goal": "p"}).status_code == 503
         assert client.post("/gnn/predict_tactic", json={"goal": "p"}).status_code == 503
         assert client.post("/pln/evaluate", json={"expression": "p"}).status_code == 503
+        assert client.post("/formal-search/start", json={"goal": "p"}).status_code == 422
 
 
 # POST /prove -----------------------------------------------------------------
@@ -362,3 +378,137 @@ def test_evaluate_rejects_empty_expression(api):
     response = api.client.post("/pln/evaluate", json={"expression": ""})
 
     assert response.status_code == 422
+
+
+# Persistent formal-search contract ------------------------------------------
+
+
+def test_formal_search_lifecycle_preserves_envelope_and_result(api):
+    envelope = {
+        "run_id": "formal-test-1",
+        "problem": {"goal": "Or q p", "hypotheses": ["h : Or p q"]},
+        "environment": {"lean_version": "v4.19.0"},
+        "budget": {"max_nodes": 12},
+    }
+    response = api.client.post("/formal-search/start", json=envelope)
+    assert response.status_code == 202
+    assert response.json()["run_id"] == "formal-test-1"
+    assert response.json()["environment"] == envelope["environment"]
+
+    import time
+    for _ in range(20):
+        status = api.client.get("/formal-search/formal-test-1")
+        if status.json()["status"] == "found":
+            break
+        time.sleep(0.01)
+    assert status.status_code == 200
+    body = status.json()
+    assert body["status"] == "found"
+    assert body["request"] == envelope
+    assert body["result"]["solved"] is True
+
+
+def test_formal_search_missing_run_is_404(api):
+    assert api.client.get("/formal-search/missing").status_code == 404
+    assert api.client.post("/formal-search/missing/retry").status_code == 404
+    assert api.client.post("/formal-search/missing/cancel").status_code == 404
+
+
+def test_formal_search_accepts_namespaced_run_id_and_hashes_storage(api):
+    run_id = "proof/example/task-1"
+    response = api.client.post(
+        "/formal-search/start",
+        json={"run_id": run_id, "problem": {"goal": "Or q p"}},
+    )
+    assert response.status_code == 202
+    assert response.json()["run_id"] == run_id
+    assert response.json()["request"]["run_id"] == run_id
+
+    import time
+    for _ in range(20):
+        status = api.client.get(f"/formal-search/{run_id}")
+        if status.json()["status"] == "found":
+            break
+        time.sleep(0.01)
+
+    assert status.status_code == 200
+    assert status.json()["run_id"] == run_id
+    stored_files = list(api.formal_runs_dir.glob("*.json"))
+    assert len(stored_files) == 1
+    assert stored_files[0].stem != run_id
+    assert not any(path.is_dir() for path in api.formal_runs_dir.iterdir())
+
+    assert api.client.post("/formal-search/proof/example/missing/retry").status_code == 404
+    assert api.client.post("/formal-search/proof/example/missing/cancel").status_code == 404
+
+
+def test_formal_search_generated_id_is_normalized_in_request(api):
+    response = api.client.post(
+        "/formal-search/start",
+        json={"problem": {"goal": "Or q p"}},
+    )
+    assert response.status_code == 202
+    body = response.json()
+    assert body["run_id"]
+    assert body["request"]["run_id"] == body["run_id"]
+
+
+def test_formal_search_unsolved_result_is_not_found(tmp_path: Path):
+    reasoner = FakeReasoner(graph=FakeGraph(solved=False, exhausted=True, trace=None))
+    service = InferenceService(reasoner=reasoner)
+
+    async def factory():
+        return service
+
+    with TestClient(create_app(service_factory=factory, formal_runs_dir=tmp_path / "runs")) as client:
+        response = client.post(
+            "/formal-search/start",
+            json={"run_id": "unsolved-test", "problem": {"goal": "False"}},
+        )
+        assert response.status_code == 202
+
+        import time
+        for _ in range(20):
+            status = client.get("/formal-search/unsolved-test").json()
+            if status["status"] == "exhausted":
+                break
+            time.sleep(0.01)
+
+        assert status["status"] == "exhausted"
+        assert status["result"]["solved"] is False
+
+
+def test_formal_replay_cannot_verify_a_different_problem(api):
+    envelope = {
+        "run_id": "bound-replay-test",
+        "problem": {"goal": "Or q p", "hypotheses": ["h : Or p q"]},
+    }
+    assert api.client.post("/formal-search/start", json=envelope).status_code == 202
+
+    import time
+    for _ in range(20):
+        if api.client.get("/formal-search/bound-replay-test").json()["status"] == "found":
+            break
+        time.sleep(0.01)
+
+    response = api.client.post(
+        "/formal-replay",
+        json={
+            "run_id": "bound-replay-test",
+            "problem": {"goal": "True"},
+            "proof_trace": SOLVED_TRACE,
+        },
+    )
+    assert response.status_code == 409
+    assert "does not match" in response.json()["detail"]
+
+
+def test_formal_replay_reports_unavailable_lean_as_503(api):
+    response = api.client.post(
+        "/formal-replay",
+    json={
+        "problem": {"goal": "Or q p"},
+        "proof_trace": SOLVED_TRACE,
+    },
+    )
+    assert response.status_code == 503

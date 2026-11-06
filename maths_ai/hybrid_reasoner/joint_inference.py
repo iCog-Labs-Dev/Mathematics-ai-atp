@@ -108,7 +108,11 @@ class PantographExecutor(TacticExecutor):
         tactic_cmd = " ".join([tactic.tactic_name, arguments]).strip()
 
         try:
-            new_state = await server.goal_tactic_async(state, tactic_cmd)
+            new_state = await server.goal_tactic_async(
+                state,
+                0,
+                tactic_cmd,
+            )
         except Exception as e:
             return TacticOutcome(success=False, subgoals=[], error=str(e))
 
@@ -367,7 +371,11 @@ class HybridReasoner:
         state = await self.server.goal_start_async(expression)
         if goal.hypotheses:
             names = " ".join(hypothesis.split(":", 1)[0].strip() for hypothesis in goal.hypotheses)
-            state = await self.server.goal_tactic_async(state, f"intro {names}")
+            state = await self.server.goal_tactic_async(
+                state,
+                0,
+                f"intro {names}",
+            )
         return state
 
     async def _expand(self, graph: ProofHypergraph, node: ProofNode) -> None:
@@ -467,7 +475,7 @@ async def main(
     top_k_subgoals: int = 3,
 
 ) -> None:
-    server = await Server.create()
+    server = await Server.create(project_path=str(settings.lean_project_path))
     
     # Auto-load DTS state from default location if not specified
     if dts_state_input is None and settings.dts_state_file.exists():

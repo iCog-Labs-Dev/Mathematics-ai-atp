@@ -10,8 +10,8 @@
 # Usage:
 #   docker compose up                                   # fetch assets, then start the API server
 #   docker compose up api                               # start only the API server
-#   curl http://localhost:8000/health                    # check API health
-#   curl -X POST http://localhost:8000/prove -H 'Content-Type: application/json' -d '{"goal": "..."}'
+#   curl http://localhost:${MATHS_AI_API_HOST_PORT:-8000}/health
+#   curl -X POST http://localhost:${MATHS_AI_API_HOST_PORT:-8000}/prove -H 'Content-Type: application/json' -d '{"goal": "..."}'
 #   docker compose --profile experimental up experimental
 #   docker compose --profile batch run --rm core --goal_statement '...'
 #
@@ -51,9 +51,10 @@ services:
       asset-fetch:
         condition: service_completed_successfully
     ports:
-      - "${MATHS_AI_API_PORT:-8000}:8000"
+      - "${MATHS_AI_API_HOST_PORT:-8000}:8000"
     volumes:
       - models-corpus-cache:/data:ro
+      - formal-state:/state
     environment:
       - MATHS_AI_DATA_ROOT=/data
       - MATHS_AI_MODEL_CONFIG=/workspace/maths_ai/config/models/pointer_gnn.yaml
@@ -61,8 +62,10 @@ services:
       - MATHS_AI_LEAN_PROJECT=/opt/lean_project
       - MATHS_AI_API_HOST=0.0.0.0
       - MATHS_AI_API_PORT=8000
+      - MATHS_AI_FORMAL_RUNS_DIR=/state/formal_runs
+      - MATHS_AI_DTS_STATE_FILE=/state/dts/thompson_sampler_state.json
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-m", "maths_ai.healthcheck"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -147,6 +150,8 @@ volumes:
     name: maths_ai-models-corpus-cache
   training-output:
     name: maths_ai-training-output
+  formal-state:
+    name: maths_ai-formal-state
 
 networks:
   maths_ai_network:

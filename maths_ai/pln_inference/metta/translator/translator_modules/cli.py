@@ -18,6 +18,8 @@ import os
 import shutil
 from typing import Any
 
+from maths_ai.core.config import settings
+
 from .extractor import essentialize_subgoal, proof_state_after_tactics
 from .parser import to_plain
 from .runner import (
@@ -86,7 +88,11 @@ def run_demo(
     print("Connecting to Lean 4 via Pantograph...")
     try:
         from pantograph.server import Server
-        server = Server(imports=lean_imports, options={"printExprAST": True})
+        server = Server(
+            imports=lean_imports,
+            project_path=str(settings.lean_project_path),
+            options={"printExprAST": True},
+        )
     except Exception as e:
         raise RuntimeError(f"Error starting Pantograph server: {e}") from e
 
