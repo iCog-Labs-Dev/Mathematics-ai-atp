@@ -238,10 +238,24 @@ def create_app(
     @app.post("/formal-replay")
     async def formal_replay(payload: FormalReplayRequest, request: Request) -> Dict[str, Any]:
         service = _get_service(request)
+        proof_trace = payload.proof_trace.model_dump()
+        if payload.run_id is not None:
+            try:
+                await request.app.state.formal_search.validate_replay(
+                    payload.run_id,
+                    payload.problem.model_dump(mode="json"),
+                    proof_trace,
+                )
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=f"run not found: {exc.args[0]}") from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
         try:
             result = await service.replay(
                 payload.problem.goal,
-                payload.proof_trace.model_dump(),
+                proof_trace,
                 payload.problem.hypotheses,
             )
         except RuntimeError as exc:

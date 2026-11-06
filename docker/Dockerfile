@@ -105,8 +105,8 @@ ENV PYTHONPATH="/workspace"
 # Create non-root user for security and grant it ownership of the asset volume
 # plus the Lean toolchain/project artifacts required at runtime.
 RUN useradd -m -u 1000 maths_ai && \
-    mkdir -p /data/gnn_inference/runs /data/maths_ai/gnn_inference/models && \
-    chown -R maths_ai:maths_ai /data /opt/elan /opt/lean_project && \
+    mkdir -p /data/gnn_inference/runs /data/maths_ai/gnn_inference/models /state && \
+    chown -R maths_ai:maths_ai /data /state /opt/elan /opt/lean_project && \
     chmod -R a+rX /opt/elan /opt/lean_project
 
 USER maths_ai

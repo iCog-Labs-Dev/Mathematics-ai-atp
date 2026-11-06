@@ -65,8 +65,10 @@ LOGS_DIR = ROOT_DIR / "logs"
 TEMP_DIR = ROOT_DIR / "tmp"
 
 OUTPUT_DIR = Path(os.getenv("MATHS_AI_OUTPUT_DIR", str(ROOT_DIR / "outputs")))
-DTS_STATE_DIR = ROOT_DIR / "dts_state"
-DTS_STATE_FILE = DTS_STATE_DIR / "thompson_sampler_state.json"
+DTS_STATE_DIR = Path(os.getenv("MATHS_AI_DTS_STATE_DIR", str(ROOT_DIR / "dts_state")))
+DTS_STATE_FILE = Path(
+    os.getenv("MATHS_AI_DTS_STATE_FILE", str(DTS_STATE_DIR / "thompson_sampler_state.json"))
+)
 DTS_DEFAULT_C = 100.0
 DTS_DEFAULT_SEED = None
 FORMAL_RUNS_DIR = Path(os.getenv("MATHS_AI_FORMAL_RUNS_DIR", "/data/formal_runs"))

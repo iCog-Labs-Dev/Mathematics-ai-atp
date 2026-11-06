@@ -23,6 +23,8 @@ import asyncio
 import json
 import logging
 import re
+import subprocess
+import tempfile
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -127,27 +129,112 @@ class InferenceService:
             raise RuntimeError("Lean replay is unavailable for this service")
 
         async with self.proof_lock:
-            async def visit(node: Dict[str, Any], state: Any) -> None:
-                tactic = TacticCandidate(
-                    tactic_name=node["tactic"],
-                    arguments=list(node.get("arguments", [])),
-                    probability=1.0,
-                )
-                outcome = await executor.apply(executor.server, state, tactic)
-                if not outcome.success:
-                    raise ValueError(outcome.error or "Lean rejected tactic")
+            async def visit(node: Dict[str, Any], state: Any) -> Any:
+                if not state.goals:
+                    raise ValueError("proof trace contains a tactic after all goals were closed")
+
+                pending_goals = len(state.goals) - 1
+                tactic_cmd = self._render_tactic(node)
+                try:
+                    next_state = await executor.server.goal_tactic_async(state, 0, tactic_cmd)
+                except Exception as exc:
+                    raise ValueError(str(exc)) from exc
+
                 children = list(node.get("subgoals", []))
-                if len(children) != len(outcome.subgoals):
+                produced_goals = len(next_state.goals) - pending_goals
+                if produced_goals != len(children):
                     raise ValueError("proof trace subgoals do not match Lean")
-                for child, subgoal in zip(children, outcome.subgoals):
-                    child_state = await reasoner._start_state(subgoal)
-                    await visit(child, child_state)
+
+                for child in children:
+                    next_state = await visit(child, next_state)
+
+                if len(next_state.goals) != pending_goals:
+                    raise ValueError("proof trace did not close all generated subgoals")
+                return next_state
 
             root_state = await reasoner._start_state(
                 Goal(expression=goal, hypotheses=hypotheses or [])
             )
-            await visit(proof_trace, root_state)
+            final_state = await visit(proof_trace, root_state)
+            if final_state.goals:
+                raise ValueError("proof left unresolved Lean goals")
+
+            # The pinned Pantograph protocol does not expose hasSorry/hasUnsafe.
+            # Compile the same declaration with warnings-as-errors so verification
+            # fails closed rather than accepting a goal closed by `sorry`.
+            await asyncio.to_thread(
+                self._verify_declaration_sync,
+                goal,
+                proof_trace,
+                hypotheses or [],
+            )
         return {"verified": True, "status": "verified"}
+
+    @staticmethod
+    def _render_tactic(node: Dict[str, Any]) -> str:
+        arguments = " ".join(str(arg).rstrip(":") for arg in node.get("arguments", []))
+        return " ".join([str(node["tactic"]), arguments]).strip()
+
+    @classmethod
+    def _render_proof_script(
+        cls,
+        node: Dict[str, Any],
+        *,
+        indent: int = 2,
+        bullet: bool = False,
+    ) -> List[str]:
+        prefix = " " * indent + ("· " if bullet else "")
+        lines = [prefix + cls._render_tactic(node)]
+        child_indent = indent + 2 if bullet else indent
+        for child in node.get("subgoals", []):
+            lines.extend(cls._render_proof_script(child, indent=child_indent, bullet=True))
+        return lines
+
+    @classmethod
+    def _verify_declaration_sync(
+        cls,
+        goal: str,
+        proof_trace: Dict[str, Any],
+        hypotheses: List[str],
+    ) -> None:
+        binders = " ".join(f"({hypothesis})" for hypothesis in hypotheses)
+        theorem_head = "theorem replay_candidate"
+        if binders:
+            theorem_head += f" {binders}"
+        source = "\n".join([
+            "import Init",
+            "set_option warningAsError true",
+            f"{theorem_head} : {goal} := by",
+            *cls._render_proof_script(proof_trace),
+            "",
+        ])
+
+        path: Optional[Path] = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".lean", encoding="utf-8", delete=False
+            ) as handle:
+                handle.write(source)
+                path = Path(handle.name)
+            completed = subprocess.run(
+                ["lake", "env", "lean", str(path)],
+                cwd=settings.lean_project_path,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("Lean verification timed out") from exc
+        except OSError as exc:
+            raise RuntimeError(f"Lean verification is unavailable: {exc}") from exc
+        finally:
+            if path is not None:
+                path.unlink(missing_ok=True)
+
+        if completed.returncode != 0:
+            error = (completed.stderr or completed.stdout).strip()
+            raise ValueError(error[-4000:] or "Lean rejected the proof declaration")
 
     async def predict_tactics(self, goal: str, top_k: int) -> List[TacticCandidate]:
         """Predict tactics for a goal using the GNN engine."""
@@ -279,8 +366,14 @@ class FormalSearchManager:
             args = self._request_args(run.envelope)
             graph = await self.service.prove(**args)
             from maths_ai.api.schemas import ProveResponse
-            run.result = ProveResponse.from_graph(graph).model_dump(mode="json")
-            run.status = "found"
+            response = ProveResponse.from_graph(graph)
+            run.result = response.model_dump(mode="json")
+            if response.solved and response.proof_trace is not None:
+                run.status = "found"
+            elif response.exhausted:
+                run.status = "exhausted"
+            else:
+                run.status = "unsolved"
         except asyncio.CancelledError:
             run.status = "cancelled"
             self._save(run)
@@ -299,8 +392,8 @@ class FormalSearchManager:
                 raise ValueError(f"run_id already exists: {run_id}")
             run = FormalRun(run_id=run_id, envelope=dict(envelope))
             self.runs[run_id] = run
-            run.task = asyncio.create_task(self._execute(run))
             self._save(run)
+            run.task = asyncio.create_task(self._execute(run))
             return self._snapshot(run)
 
     async def get(self, run_id: str) -> Optional[Dict[str, Any]]:
@@ -321,8 +414,8 @@ class FormalSearchManager:
             if run.status not in {"interrupted", "failed", "cancelled"}:
                 raise RuntimeError("only interrupted, failed, or cancelled runs can be retried")
             run.status, run.error, run.result = "queued", None, None
-            run.task = asyncio.create_task(self._execute(run))
             self._save(run)
+            run.task = asyncio.create_task(self._execute(run))
             return self._snapshot(run)
 
     async def cancel(self, run_id: str) -> Dict[str, Any]:
@@ -350,6 +443,37 @@ class FormalSearchManager:
                 raise RuntimeError("only a found proof can be verified")
             run.status = "verified"
             self._save(run)
+
+    async def validate_replay(
+        self,
+        run_id: str,
+        problem: Dict[str, Any],
+        proof_trace: Dict[str, Any],
+    ) -> None:
+        """Ensure replay input is exactly the candidate stored for this run."""
+        self.validate_run_id(run_id)
+        async with self.lock:
+            run = self.runs.get(run_id) or self._load(run_id)
+            if run is None:
+                raise KeyError(run_id)
+            if run.status != "found":
+                raise RuntimeError("only a found proof can be replayed")
+            if not run.result or not run.result.get("solved") or not run.result.get("proof_trace"):
+                raise RuntimeError("run has no solved proof trace")
+
+            stored_problem = run.envelope.get("problem", {})
+            normalized_stored_problem = {
+                "goal": stored_problem.get("goal"),
+                "hypotheses": stored_problem.get("hypotheses", []),
+            }
+            normalized_problem = {
+                "goal": problem.get("goal"),
+                "hypotheses": problem.get("hypotheses", []),
+            }
+            if normalized_problem != normalized_stored_problem:
+                raise ValueError("replay problem does not match the stored run")
+            if proof_trace != run.result["proof_trace"]:
+                raise ValueError("replay proof trace does not match the stored run")
 
 async def build_default_service(
     *,

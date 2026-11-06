@@ -393,19 +393,70 @@ def test_formal_search_lifecycle_preserves_envelope_and_result(api):
     import time
     for _ in range(20):
         status = api.client.get("/formal-search/formal-test-1")
-        if status.json()["status"] == "completed":
+        if status.json()["status"] == "found":
             break
         time.sleep(0.01)
     assert status.status_code == 200
     body = status.json()
+    assert body["status"] == "found"
     assert body["request"] == envelope
     assert body["result"]["solved"] is True
 
 
 def test_formal_search_missing_run_is_404(api):
     assert api.client.get("/formal-search/missing").status_code == 404
-    assert api.client.post("/formal-search/missing/resume").status_code == 404
+    assert api.client.post("/formal-search/missing/retry").status_code == 404
     assert api.client.post("/formal-search/missing/cancel").status_code == 404
+
+
+def test_formal_search_unsolved_result_is_not_found(tmp_path: Path):
+    reasoner = FakeReasoner(graph=FakeGraph(solved=False, exhausted=True, trace=None))
+    service = InferenceService(reasoner=reasoner)
+
+    async def factory():
+        return service
+
+    with TestClient(create_app(service_factory=factory, formal_runs_dir=tmp_path / "runs")) as client:
+        response = client.post(
+            "/formal-search/start",
+            json={"run_id": "unsolved-test", "problem": {"goal": "False"}},
+        )
+        assert response.status_code == 202
+
+        import time
+        for _ in range(20):
+            status = client.get("/formal-search/unsolved-test").json()
+            if status["status"] == "exhausted":
+                break
+            time.sleep(0.01)
+
+        assert status["status"] == "exhausted"
+        assert status["result"]["solved"] is False
+
+
+def test_formal_replay_cannot_verify_a_different_problem(api):
+    envelope = {
+        "run_id": "bound-replay-test",
+        "problem": {"goal": "Or q p", "hypotheses": ["h : Or p q"]},
+    }
+    assert api.client.post("/formal-search/start", json=envelope).status_code == 202
+
+    import time
+    for _ in range(20):
+        if api.client.get("/formal-search/bound-replay-test").json()["status"] == "found":
+            break
+        time.sleep(0.01)
+
+    response = api.client.post(
+        "/formal-replay",
+        json={
+            "run_id": "bound-replay-test",
+            "problem": {"goal": "True"},
+            "proof_trace": SOLVED_TRACE,
+        },
+    )
+    assert response.status_code == 409
+    assert "does not match" in response.json()["detail"]
 
 
 def test_formal_replay_reports_unavailable_lean_as_503(api):
