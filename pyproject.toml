@@ -14,6 +14,7 @@ dependencies = [
     "pydantic>=2.13.4",
     "pyyaml>=6.0",
     "pytest>=9.0.3",
+    "regex>=2024.11.6",
     "safetensors>=0.5.3",
     "torch>=2.12.0",
     "torch-geometric>=2.7.0",
@@ -30,7 +31,7 @@ dependencies = [
 
 
 [tool.uv.sources]
-pantograph = { git = "https://github.com/stanford-centaur/PyPantograph" }
+pantograph = { git = "https://github.com/stanford-centaur/PyPantograph", rev = "3322696b72e81ed50f2f7dc0b667f8278a932283" }
 
 [tool.setuptools.packages.find]
 where=["."]
