@@ -25,6 +25,7 @@ class CandidatePool:
     candidate_ids: list[int]
     local_node_ids: list[int]
     lemma_ids: list[int]
+    filtered_negative_id_count: int = 0
 
 
 def build_unified_pools(
@@ -67,6 +68,7 @@ def build_unified_pools(
         local_id_list = [int(i - graph_offset) for i in local_ids.tolist()]
 
         raw_lemma_ids = [int(x) for x in lemma_ids_batch[b]] if lemma_ids_batch else []
+        filtered_negative_id_count = sum(lemma_id < 0 for lemma_id in raw_lemma_ids)
         if lemma_vecs_batch is not None:
             valid_lemma_mask = torch.tensor(
                 [lemma_id >= 0 for lemma_id in raw_lemma_ids],
@@ -99,6 +101,7 @@ def build_unified_pools(
                 candidate_ids=candidate_ids,
                 local_node_ids=local_id_list,
                 lemma_ids=lemma_ids,
+                filtered_negative_id_count=filtered_negative_id_count,
             )
         )
 

@@ -35,6 +35,18 @@ class FakeGnnEngine:
         return candidates[:top_k]
 
 
+class PlaceholderGnnEngine(FakeGnnEngine):
+    def inference(self, goal_expression: str, top_k: int = 3) -> List[TacticCandidate]:
+        return [
+            TacticCandidate(
+                tactic_name="exact",
+                arguments=["<lemma_-1>"],
+                probability=0.99,
+            ),
+            TacticCandidate(tactic_name="rfl", arguments=[], probability=0.01),
+        ][:top_k]
+
+
 class FakePlnChainer:
     def evaluate(self, expression: str, hypotheses: Optional[List[str]] = None) -> PLNResult:
         if "✝" in expression:
@@ -327,6 +339,23 @@ def test_predict_tactic_rejects_empty_goal(api):
     response = api.client.post("/gnn/predict_tactic", json={"goal": "  "})
 
     assert response.status_code == 422
+
+
+def test_predict_tactic_filters_unresolved_lemma_placeholders(tmp_path: Path):
+    reasoner = FakeReasoner()
+    reasoner.gnn_engine = PlaceholderGnnEngine()
+    service = InferenceService(reasoner=reasoner, dts_state_path=tmp_path / "dts" / "state.json")
+
+    async def factory():
+        return service
+
+    with TestClient(create_app(service_factory=factory)) as client:
+        response = client.post("/gnn/predict_tactic", json={"goal": "Or q p"})
+
+    assert response.status_code == 200
+    assert response.json()["candidates"] == [
+        {"tactic_name": "rfl", "arguments": [], "probability": 0.01}
+    ]
 
 
 # POST /pln/evaluate ----------------------------------------------------------

@@ -145,6 +145,9 @@ class InferencePipeline:
         self.k = k
         self.lemma_corpus = lemma_corpus
         self.filtered_candidate_count = 0
+        self.filtered_negative_id_count = 0
+        self.filtered_missing_corpus_count = 0
+        self.filtered_arity_count = 0
 
         # Invert tactic vocab for decoding
         self.id_to_tactic = {idx: name for name, idx in tactic_vocab.items()}
@@ -206,6 +209,9 @@ class InferencePipeline:
 
         top_tactic_predictions: list[dict[str, object]] = []
         filtered_candidate_count = 0
+        filtered_negative_id_count = pool.filtered_negative_id_count
+        filtered_missing_corpus_count = 0
+        filtered_arity_count = 0
         for candidate in top_candidates:
             tactic_id = int(candidate["tactic_id"])
             tactic_name = str(candidate["tactic_name"])
@@ -227,15 +233,8 @@ class InferencePipeline:
             tactic_emb = self.model.tactic_embedding(tactic_id_tensor)
 
             if not pool.candidate_ids:
-                top_tactic_predictions.append(
-                    {
-                        "tactic_id": tactic_id,
-                        "tactic_name": tactic_name,
-                        "probability": float(candidate["probability"]),
-                        "selected_arguments": [],
-                        "selected_argument_details": [],
-                    }
-                )
+                filtered_candidate_count += 1
+                filtered_arity_count += 1
                 continue
 
             # ── Tactic-aware argument filtering ──────────────────────────
@@ -243,6 +242,7 @@ class InferencePipeline:
                 fresh_names = _extract_fresh_names_from_dag(dag)
                 if len(fresh_names) < arity:
                     filtered_candidate_count += 1
+                    filtered_arity_count += 1
                     continue
                 top_tactic_predictions.append(
                     {
@@ -274,6 +274,7 @@ class InferencePipeline:
 
                 if len(local_indices) < arity:
                     filtered_candidate_count += 1
+                    filtered_arity_count += 1
                     continue
 
                 arguments: list[str] = []
@@ -311,15 +312,24 @@ class InferencePipeline:
             valid_indices = [
                 int(idx)
                 for idx in sorted_indices.tolist()
-                if pool.candidate_sources[int(idx)] == "local"
-                or (
-                    self.lemma_corpus is not None
-                    and pool.candidate_ids[int(idx)] >= 0
-                    and pool.candidate_ids[int(idx)] in self.lemma_corpus
-                )
+                if self._is_resolvable_argument(pool.candidate_sources[int(idx)], pool.candidate_ids[int(idx)])
             ]
+            filtered_negative_id_count += sum(
+                1
+                for idx in sorted_indices.tolist()
+                if pool.candidate_sources[int(idx)] == "lemma" and pool.candidate_ids[int(idx)] < 0
+            )
+            filtered_missing_corpus_count += sum(
+                1
+                for idx in sorted_indices.tolist()
+                if pool.candidate_sources[int(idx)]
+                == "lemma"
+                and pool.candidate_ids[int(idx)] >= 0
+                and (self.lemma_corpus is None or pool.candidate_ids[int(idx)] not in self.lemma_corpus)
+            )
             if len(valid_indices) < arity:
                 filtered_candidate_count += 1
+                filtered_arity_count += 1
                 continue
             top_indices = valid_indices[:arity]
 
@@ -361,11 +371,17 @@ class InferencePipeline:
             )
 
         self.filtered_candidate_count += filtered_candidate_count
-        if filtered_candidate_count:
+        self.filtered_negative_id_count += filtered_negative_id_count
+        self.filtered_missing_corpus_count += filtered_missing_corpus_count
+        self.filtered_arity_count += filtered_arity_count
+        if filtered_candidate_count or filtered_negative_id_count or filtered_missing_corpus_count:
             logger.warning(
-                "Filtered %d GNN tactic candidate(s) because required arguments "
-                "could not be resolved.",
+                "Filtered %d GNN tactic candidate(s): %d negative lemma IDs, "
+                "%d corpus-missing lemma IDs, %d insufficient-arity candidates.",
                 filtered_candidate_count,
+                filtered_negative_id_count,
+                filtered_missing_corpus_count,
+                filtered_arity_count,
             )
 
         top1 = top_tactic_predictions[0] if top_tactic_predictions else None
@@ -382,3 +398,10 @@ class InferencePipeline:
             selected_argument_details=list(top1["selected_argument_details"]) if top1 else [],
             top_tactic_predictions=top_tactic_predictions,
         )
+
+    def _is_resolvable_argument(self, source: str, candidate_id: int) -> bool:
+        if source == "local":
+            return True
+        if candidate_id < 0:
+            return False
+        return self.lemma_corpus is not None and candidate_id in self.lemma_corpus

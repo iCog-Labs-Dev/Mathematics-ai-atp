@@ -24,6 +24,7 @@ import hashlib
 import json
 import logging
 import re
+import re
 import subprocess
 import tempfile
 import uuid
@@ -37,6 +38,7 @@ from maths_ai.data_models.proof_components import Goal
 from maths_ai.pln_inference.model import PLNInference, PLNResult
 
 logger = logging.getLogger(__name__)
+_UNRESOLVED_LEMMA_RE = re.compile(r"^<lemma_[^>]+>$")
 
 
 @dataclass
@@ -240,7 +242,20 @@ class InferenceService:
     async def predict_tactics(self, goal: str, top_k: int) -> List[TacticCandidate]:
         """Predict tactics for a goal using the GNN engine."""
         async with self.gnn_lock:
-            return await asyncio.to_thread(self.reasoner.gnn_engine.inference, goal, top_k=top_k)
+            candidates = await asyncio.to_thread(
+                self.reasoner.gnn_engine.inference, goal, top_k=top_k
+            )
+        filtered = [
+            candidate
+            for candidate in candidates
+            if not any(_UNRESOLVED_LEMMA_RE.fullmatch(argument) for argument in candidate.arguments)
+        ]
+        if len(filtered) != len(candidates):
+            logger.warning(
+                "Filtered %d GNN candidate(s) containing unresolved lemma placeholders.",
+                len(candidates) - len(filtered),
+            )
+        return filtered
 
     async def evaluate(self, expression: str, hypotheses: Optional[List[str]] = None) -> PLNResult:
         """Evaluate an expression using PLN inference."""
