@@ -20,6 +20,7 @@ inject fakes; docs generation imports the app).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -287,7 +288,10 @@ class FormalRun:
 class FormalSearchManager:
     """Manage asynchronous formal-search runs and their checkpoints."""
 
-    _RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+    _RUN_ID_RE = re.compile(
+        r"^[A-Za-z0-9][A-Za-z0-9_.-]*(?:/[A-Za-z0-9][A-Za-z0-9_.-]*)*$"
+    )
+    _LEGACY_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 
     def __init__(self, service: InferenceService, state_dir: Optional[Path] = None):
         self.service = service
@@ -298,8 +302,11 @@ class FormalSearchManager:
 
     @classmethod
     def validate_run_id(cls, run_id: str) -> str:
-        if not cls._RUN_ID_RE.fullmatch(run_id):
-            raise ValueError("run_id must contain only letters, digits, '_' or '-'")
+        if len(run_id) > 256 or not cls._RUN_ID_RE.fullmatch(run_id):
+            raise ValueError(
+                "run_id must be at most 256 characters and contain slash-separated "
+                "segments using only letters, digits, '_', '-' or '.'"
+            )
         return run_id
 
     def _recover_interrupted(self) -> None:
@@ -317,7 +324,14 @@ class FormalSearchManager:
 
     def _path(self, run_id: str) -> Path:
         self.validate_run_id(run_id)
-        return self.state_dir / f"{run_id}.json"
+        digest = hashlib.sha256(run_id.encode("utf-8")).hexdigest()
+        return self.state_dir / f"{digest}.json"
+
+    def _legacy_path(self, run_id: str) -> Optional[Path]:
+        """Return the pre-hash path only for IDs that were already filesystem-safe."""
+        if self._LEGACY_RUN_ID_RE.fullmatch(run_id):
+            return self.state_dir / f"{run_id}.json"
+        return None
 
     def _save(self, run: FormalRun) -> None:
         self.state_dir.mkdir(parents=True, exist_ok=True)
@@ -328,8 +342,13 @@ class FormalSearchManager:
     def _load(self, run_id: str) -> Optional[FormalRun]:
         path = self._path(run_id)
         if not path.exists():
-            return None
+            legacy_path = self._legacy_path(run_id)
+            if legacy_path is None or not legacy_path.exists():
+                return None
+            path = legacy_path
         data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("run_id") != run_id:
+            raise ValueError("stored formal run ID does not match the requested run ID")
         run = FormalRun(run_id=run_id, envelope=data["envelope"], status=data["status"],
                         result=data.get("result"), error=data.get("error"))
         self.runs[run_id] = run
@@ -388,9 +407,16 @@ class FormalSearchManager:
         run_id = str(envelope.get("run_id") or envelope.get("id") or uuid.uuid4())
         self.validate_run_id(run_id)
         async with self.lock:
-            if run_id in self.runs or self._path(run_id).exists():
+            legacy_path = self._legacy_path(run_id)
+            if (
+                run_id in self.runs
+                or self._path(run_id).exists()
+                or (legacy_path is not None and legacy_path.exists())
+            ):
                 raise ValueError(f"run_id already exists: {run_id}")
-            run = FormalRun(run_id=run_id, envelope=dict(envelope))
+            normalized_envelope = dict(envelope)
+            normalized_envelope["run_id"] = run_id
+            run = FormalRun(run_id=run_id, envelope=normalized_envelope)
             self.runs[run_id] = run
             self._save(run)
             run.task = asyncio.create_task(self._execute(run))

@@ -133,7 +133,12 @@ def api(tmp_path: Path):
         return service
 
     with TestClient(create_app(service_factory=factory, formal_runs_dir=tmp_path / "formal_runs")) as client:
-        yield SimpleNamespace(client=client, reasoner=reasoner, dts_state_path=tmp_path / "dts" / "state.json")
+        yield SimpleNamespace(
+            client=client,
+            reasoner=reasoner,
+            dts_state_path=tmp_path / "dts" / "state.json",
+            formal_runs_dir=tmp_path / "formal_runs",
+        )
 
 
 # GET /health -----------------------------------------------------------------
@@ -407,6 +412,45 @@ def test_formal_search_missing_run_is_404(api):
     assert api.client.get("/formal-search/missing").status_code == 404
     assert api.client.post("/formal-search/missing/retry").status_code == 404
     assert api.client.post("/formal-search/missing/cancel").status_code == 404
+
+
+def test_formal_search_accepts_namespaced_run_id_and_hashes_storage(api):
+    run_id = "proof/example/task-1"
+    response = api.client.post(
+        "/formal-search/start",
+        json={"run_id": run_id, "problem": {"goal": "Or q p"}},
+    )
+    assert response.status_code == 202
+    assert response.json()["run_id"] == run_id
+    assert response.json()["request"]["run_id"] == run_id
+
+    import time
+    for _ in range(20):
+        status = api.client.get(f"/formal-search/{run_id}")
+        if status.json()["status"] == "found":
+            break
+        time.sleep(0.01)
+
+    assert status.status_code == 200
+    assert status.json()["run_id"] == run_id
+    stored_files = list(api.formal_runs_dir.glob("*.json"))
+    assert len(stored_files) == 1
+    assert stored_files[0].stem != run_id
+    assert not any(path.is_dir() for path in api.formal_runs_dir.iterdir())
+
+    assert api.client.post("/formal-search/proof/example/missing/retry").status_code == 404
+    assert api.client.post("/formal-search/proof/example/missing/cancel").status_code == 404
+
+
+def test_formal_search_generated_id_is_normalized_in_request(api):
+    response = api.client.post(
+        "/formal-search/start",
+        json={"problem": {"goal": "Or q p"}},
+    )
+    assert response.status_code == 202
+    body = response.json()
+    assert body["run_id"]
+    assert body["request"]["run_id"] == body["run_id"]
 
 
 def test_formal_search_unsolved_result_is_not_found(tmp_path: Path):

@@ -202,7 +202,7 @@ def create_app(
         except OSError as exc:
             raise HTTPException(status_code=503, detail=f"formal run persistence unavailable: {exc}") from exc
 
-    @app.post("/formal-search/{run_id}/retry", status_code=202)
+    @app.post("/formal-search/{run_id:path}/retry", status_code=202)
     async def formal_search_retry(run_id: str, request: Request) -> Dict[str, Any]:
         _get_service(request)
         try:
@@ -214,7 +214,7 @@ def create_app(
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    @app.get("/formal-search/{run_id}")
+    @app.get("/formal-search/{run_id:path}")
     async def formal_search_status(run_id: str, request: Request) -> Dict[str, Any]:
         _get_service(request)
         try:
@@ -225,7 +225,7 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
         return result
 
-    @app.post("/formal-search/{run_id}/cancel")
+    @app.post("/formal-search/{run_id:path}/cancel")
     async def formal_search_cancel(run_id: str, request: Request) -> Dict[str, Any]:
         _get_service(request)
         try:
