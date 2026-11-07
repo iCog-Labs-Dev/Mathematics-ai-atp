@@ -349,6 +349,9 @@ class HybridReasoner:
             print(f"\n=== Loop {loop_count}: expanding node {node.id} (depth {node.depth}) | goal: {node.goal.expression} ===")
             await self._expand(graph, node)
 
+        if not graph.is_solved() and not graph.is_exhausted() and len(graph.nodes) >= self.max_nodes:
+            graph.mark_budget_exhausted(note=f"global node budget ({self.max_nodes}) reached")
+
         return graph
 
     async def _start_state(self, goal: Goal) -> GoalState:

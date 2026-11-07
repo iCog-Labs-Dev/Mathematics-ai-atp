@@ -135,9 +135,14 @@ class ProveResponse(BaseModel):
             termination_reason = ProofTerminationReason.TIMEOUT
         elif solved:
             termination_reason = ProofTerminationReason.SOLVED
+        elif (
+            getattr(graph, "budget_exhausted", False)
+            or getattr(graph, "_budget_exhausted", False)
+            or getattr(graph, "termination_reason", None) in (ProofTerminationReason.BUDGET_EXHAUSTED, "budget_exhausted")
+        ):
+            termination_reason = ProofTerminationReason.BUDGET_EXHAUSTED
+            exhausted = True
         elif exhausted:
-            # Check if we hit budget limits (this would need graph to expose this info)
-            # For now, we use EXHAUSTED as the default for exhausted searches
             termination_reason = ProofTerminationReason.EXHAUSTED
         else:
             # Search stopped with open frontier (not exhausted, not solved)

@@ -193,6 +193,8 @@ class ProofHypergraph:
         self.edges: Dict[int, ProofHyperedge] = {}
 
         self.root_id = self._new_node(goal=root_goal, depth=0, gnn_probability=1.0, stv=None)
+        self._budget_exhausted: bool = False
+        self.termination_reason: Optional[str] = None
 
     # Construction
     def _new_node(
@@ -291,11 +293,22 @@ class ProofHypergraph:
     def root(self) -> ProofNode:
         return self.nodes[self.root_id]
 
+    @property
+    def budget_exhausted(self) -> bool:
+        return self._budget_exhausted
+
+    def mark_budget_exhausted(self, *, note: Optional[str] = None) -> None:
+        """Mark that proof search terminated because the node budget was reached."""
+        self._budget_exhausted = True
+        self.termination_reason = "budget_exhausted"
+        if note and self.root.note is None:
+            self.root.note = note
+
     def is_solved(self) -> bool:
         return self.root.status == NodeStatus.SOLVED
 
     def is_exhausted(self) -> bool:
-        return self.root.status == NodeStatus.DEAD
+        return self._budget_exhausted or self.root.status == NodeStatus.DEAD
 
     def frontier(self) -> List[ProofNode]:
         """Open nodes ranked by ``combined_rank``, descending.
@@ -353,6 +366,8 @@ class ProofHypergraph:
             "root_id": self.root_id,
             "solved": self.is_solved(),
             "exhausted": self.is_exhausted(),
+            "budget_exhausted": self._budget_exhausted,
+            "termination_reason": self.termination_reason,
             "num_nodes": len(self.nodes),
             "num_edges": len(self.edges),
             "nodes": [node.summary() for node in self.nodes.values()],
