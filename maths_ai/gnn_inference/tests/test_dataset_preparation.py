@@ -115,8 +115,8 @@ class DatasetPreparationTests(unittest.TestCase):
     def test_split_aliases_map_to_canonical_and_dataset_names(self) -> None:
         self.assertEqual(canonicalize_split_name("validation"), "val")
         self.assertEqual(canonicalize_split_name("val"), "val")
-        self.assertEqual(dataset_split_name("val"), "validation")
-        self.assertEqual(dataset_split_name("validation"), "validation")
+        self.assertEqual(dataset_split_name("val"), "val")
+        self.assertEqual(dataset_split_name("validation"), "val")
 
     def test_failure_record_contains_required_fields(self) -> None:
         row = DatasetRow(

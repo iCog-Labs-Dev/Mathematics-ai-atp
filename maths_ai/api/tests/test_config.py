@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from maths_ai.api.config import DatasetProfile, SearchProfile, ServiceConfig, ServiceLimits
+from maths_ai.gnn_inference.atp_lean_gnn.theorem_sources import TheoremSourceConfig
+from maths_ai.api.config import SearchProfile, ServiceConfig, ServiceLimits
 from maths_ai.api.tests.helpers import write_config
 
 PUCT = SearchProfile("puct", 4, 8, 64, num_simulations=64, sim_batch_size=4, puct_c=1.0)
@@ -36,16 +37,16 @@ def test_overrides_only_lower_applicable_budgets():
 
 
 def test_dataset_profiles_must_be_pinned():
-    with pytest.raises(ValueError, match="pins"):
-        DatasetProfile("dataset", 4, 8, dataset_name="x")
+    with pytest.raises(ValueError, match="pinned"):
+        TheoremSourceConfig("dataset", max_pool_size=4, dataset_name="x")
     with pytest.raises(ValueError, match="theorem_file"):
-        DatasetProfile("file", 4, 8)
+        TheoremSourceConfig("file", max_pool_size=4)
 
 
 def test_config_resolves_paths_against_its_file_and_rejects_unknown_fields(tmp_path):
     config = ServiceConfig.from_json(write_config(tmp_path))
     assert config.rl_config == tmp_path / "rl.json"
-    assert config.dataset_profiles["smoke"].theorem_file == str(tmp_path / "theorems.jsonl")
+    assert config.dataset_profiles["smoke"].theorem_file == tmp_path / "theorems.jsonl"
     assert set(config.search_profiles) == {"puct", "best_first"}
     with pytest.raises(ValueError, match="Unknown"):
         ServiceConfig.from_json(write_config(tmp_path, checkpoint_upload="x"))

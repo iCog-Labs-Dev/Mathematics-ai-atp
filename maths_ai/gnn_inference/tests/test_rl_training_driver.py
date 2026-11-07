@@ -1,4 +1,5 @@
 from __future__ import annotations
+from maths_ai.gnn_inference.atp_lean_gnn.theorem_sources import TheoremSourceConfig
 
 import asyncio
 import json
@@ -232,30 +233,13 @@ def _write_config(tmp: Path, **overrides) -> RLTrainingConfig:
         ckpt,
     )
 
-    defaults = dict(
-        warmstart_checkpoint=ckpt,
-        prepared_root=tmp / "prepared",
-        run_root=tmp / "runs",
-        device="cpu",
-        num_rounds=2,
-        theorems_per_round=2,
-        theorem_timeout_s=30.0,
-        checkpoint_every=1,
-        eval_every=0,
-        eval_pool_size=0,
-        bc_anneal_start=0.5,
-        bc_anneal_end=0.0,
-        bc_anneal_rounds=10,
-        top_k_tactics=2,
-        max_depth=3,
-        max_nodes=20,
-    )
+    defaults = dict(warmstart_checkpoint=ckpt, prepared_root=tmp / "prepared", run_root=tmp / "runs", device="cpu", num_rounds=2, theorems_per_round=2, theorem_timeout_s=30.0, checkpoint_every=1, eval_every=0, bc_anneal_start=0.5, bc_anneal_end=0.0, bc_anneal_rounds=10, top_k_tactics=2, max_depth=3, max_nodes=20, training_data=TheoremSourceConfig(data_source="dataset", dataset_name='jajostrains/Mathlib-Normalized-Sexpr', dataset_revision='f44841f98193c09b20c6092198a22e98ff2cd7a8', split='train'))
     defaults.update(overrides)
     return RLTrainingConfig(**defaults)
 
 
 def _pool(n_items: int = 6, eval_size: int = 0) -> TheoremPool:
-    return TheoremPool(_items(n_items), eval_pool_size=eval_size, curriculum_size=4, seed=0)
+    return TheoremPool((_items(n_items))[eval_size:], (_items(n_items))[:eval_size], curriculum_size=4, seed=0)
 
 
 def _qed_factory(model, node_vocab, tactic_vocab, cfg):
@@ -570,7 +554,7 @@ def _write_theorems(tmp: Path, rows: list[dict]) -> Path:
 
 
 def _report(directory: Path) -> dict:
-    (path,) = directory.iterdir()
+    (path,) = directory.rglob("admission-*.json")
     return json.loads(path.read_text())
 
 
@@ -583,13 +567,7 @@ class PoolTests(unittest.TestCase):
         client = _ReplayClient(_structured_goal)
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            cfg = _write_config(
-                tmp,
-                dataset_name="jajostrains/Mathlib-Normalized-Sexpr",
-                max_pool_size=5,
-                max_scan_rows=7,
-                eval_pool_size=0,
-            )
+            cfg = _write_config(tmp, training_data=TheoremSourceConfig(data_source="dataset", dataset_name="jajostrains/Mathlib-Normalized-Sexpr", dataset_revision='f44841f98193c09b20c6092198a22e98ff2cd7a8', split='train', max_pool_size=5, max_scan_rows=7))
             # The network iterator is a unit-test seam; spawned production readers
             # deliberately do not inherit parent-process monkeypatches.
             from maths_ai.gnn_inference.atp_lean_gnn.seed_admission import (
@@ -597,16 +575,15 @@ class PoolTests(unittest.TestCase):
             )
             admission = AdmissionReport()
             rows = list(_dataset_row_events(
-                dataset_name=cfg.dataset_name, split=cfg.leandojo_split,
-                revision=cfg.dataset_revision, max_scan_rows=cfg.max_scan_rows,
-                max_state_chars=cfg.max_state_chars, report=admission,
+                dataset_name=cfg.training_data.dataset_name, split=cfg.training_data.split,
+                revision=cfg.training_data.dataset_revision, max_scan_rows=cfg.training_data.max_scan_rows,
+                max_state_chars=cfg.training_data.max_state_chars, report=admission,
             ))
             admitted = asyncio.run(preflight(
                 AdmissionSource("rows", {"rows": rows}), _factory(client),
-                max_admitted=cfg.max_pool_size, time_budget_s=30, report=admission,
+                max_admitted=cfg.training_data.max_pool_size, time_budget_s=30, report=admission,
             ))
-            pool = TheoremPool(admitted, eval_pool_size=0,
-                               curriculum_size=cfg.curriculum_start_size, seed=cfg.seed)
+            pool = TheoremPool(admitted, [], curriculum_size=cfg.curriculum_start_size, seed=cfg.seed)
             write_report(admission, tmp / "admission")
             report = _report(tmp / "admission")
         self.assertEqual(len(pool.train_items), 1)
@@ -616,7 +593,7 @@ class PoolTests(unittest.TestCase):
             dataset_name="jajostrains/Mathlib-Normalized-Sexpr",
             split="train",
             sample_limit=7,
-            revision=cfg.dataset_revision,
+            revision=cfg.training_data.dataset_revision,
         )
         # Schema 4 records no let values: the row is quarantined, not guessed.
         self.assertEqual(report["quarantined"], {"missing-context": 1})
@@ -636,13 +613,7 @@ class PoolTests(unittest.TestCase):
                     {"goal": "x" * 500, "hypotheses": []},  # over max_state_chars
                 ],
             )
-            cfg = _write_config(
-                tmp,
-                data_source="file",
-                theorem_file=theorem_file,
-                max_state_chars=400,
-                eval_pool_size=0,
-            )
+            cfg = _write_config(tmp, training_data=TheoremSourceConfig(data_source="file", theorem_file=theorem_file, max_state_chars=400))
             pool = asyncio.run(build_theorem_pool(cfg, _env(tmp), client_factory=_factory(_ReplayClient())))
             total = len(pool.train_items) + len(pool.eval_items)
             self.assertEqual(total, 2)  # oversized row skipped
@@ -669,9 +640,7 @@ class PoolTests(unittest.TestCase):
                     {"goal": "q ∨ p", "hypotheses": ["p : Prop", "q : Prop", "h : p ∨ q"]},
                 ],
             )
-            cfg = _write_config(
-                tmp, data_source="file", theorem_file=theorem_file, eval_pool_size=0
-            )
+            cfg = _write_config(tmp, training_data=TheoremSourceConfig(data_source="file", theorem_file=theorem_file))
             pool = asyncio.run(
                 build_theorem_pool(
                     cfg,
@@ -716,9 +685,7 @@ class PoolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             rows = [{"goal": "boom", "hypotheses": []}, {"goal": "p → p", "hypotheses": ["p : Prop"]}]
-            cfg = _write_config(
-                tmp, data_source="file", theorem_file=_write_theorems(tmp, rows), eval_pool_size=0
-            )
+            cfg = _write_config(tmp, training_data=TheoremSourceConfig(data_source="file", theorem_file=_write_theorems(tmp, rows)))
             pool = asyncio.run(
                 build_theorem_pool(
                     cfg, _env(tmp), report_dir=tmp / "admission", client_factory=factory
@@ -734,9 +701,7 @@ class PoolTests(unittest.TestCase):
             many = tmp / "many"
             many.mkdir()
             rows = [{"goal": "boom", "hypotheses": []}] * 3 + [{"goal": "True", "hypotheses": []}]
-            cfg = _write_config(
-                many, data_source="file", theorem_file=_write_theorems(many, rows), eval_pool_size=0
-            )
+            cfg = _write_config(many, training_data=TheoremSourceConfig(data_source="file", theorem_file=_write_theorems(many, rows)))
             pool = asyncio.run(build_theorem_pool(cfg, _env(many), client_factory=factory))
             self.assertEqual(len(pool.train_items), 1)
 
@@ -752,13 +717,7 @@ class PoolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             rows = [{"goal": "x = " + "x" * 300, "hypotheses": []}, {"goal": "True", "hypotheses": []}]
-            cfg = _write_config(
-                tmp,
-                data_source="file",
-                theorem_file=_write_theorems(tmp, rows),
-                max_replay_chars=100,
-                eval_pool_size=0,
-            )
+            cfg = _write_config(tmp, training_data=TheoremSourceConfig(data_source="file", theorem_file=_write_theorems(tmp, rows), max_replay_chars=100))
             pool = asyncio.run(
                 build_theorem_pool(
                     cfg, _env(tmp), report_dir=tmp / "admission", client_factory=_factory(client)
@@ -787,13 +746,7 @@ class PoolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             rows = [{"goal": "p → p", "hypotheses": ["p : Prop"]}]
-            cfg = _write_config(
-                tmp,
-                data_source="file",
-                theorem_file=_write_theorems(tmp, rows),
-                seed_cache_path=tmp / "cache.json",
-                eval_pool_size=0,
-            )
+            cfg = _write_config(tmp, training_data=TheoremSourceConfig(data_source="file", theorem_file=_write_theorems(tmp, rows), seed_cache_path=tmp / "cache.json"))
             for _ in range(2):
                 asyncio.run(
                     build_theorem_pool(
@@ -802,7 +755,7 @@ class PoolTests(unittest.TestCase):
                 )
             reports = [
                 json.loads(path.read_text())
-                for path in sorted((tmp / "admission").iterdir())
+                for path in sorted((tmp / "admission").rglob("admission-*.json"))
             ]
         # Two runs wrote two reports; the second reused the validation.
         self.assertEqual(len(reports), 2)
@@ -813,7 +766,7 @@ class PoolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             theorem_file = _write_theorems(tmp, [{"goal": "span R s = N", "hypotheses": []}])
-            cfg = _write_config(tmp, data_source="file", theorem_file=theorem_file)
+            cfg = _write_config(tmp, training_data=TheoremSourceConfig(data_source="file", theorem_file=theorem_file))
             with self.assertRaisesRegex(RuntimeError, "No seed passed Lean validation"):
                 asyncio.run(
                     build_theorem_pool(
@@ -937,7 +890,7 @@ class EvalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             cfg = _write_config(tmp, num_rounds=1, eval_every=1)
-            pool = TheoremPool(_items(20), eval_pool_size=2, curriculum_size=4, seed=0)
+            pool = TheoremPool((_items(20))[2:], (_items(20))[:2], curriculum_size=4, seed=0)
             self.assertGreater(len(pool.eval_items), 0)
             torch.manual_seed(0)
             asyncio.run(run_rl_training(cfg, reasoner_factory=_qed_factory, pool=pool))
@@ -949,7 +902,7 @@ class EvalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             cfg = _write_config(tmp, num_rounds=1, eval_every=1)
-            pool = TheoremPool(_items(20), eval_pool_size=2, curriculum_size=4, seed=0)
+            pool = TheoremPool((_items(20))[2:], (_items(20))[:2], curriculum_size=4, seed=0)
             torch.manual_seed(0)
             asyncio.run(run_rl_training(cfg, reasoner_factory=_reject_factory, pool=pool))
             run_dir = next((tmp / "runs").iterdir())
@@ -1199,7 +1152,7 @@ class EvaluationSettingsTests(unittest.TestCase):
             cfg = _write_config(
                 tmp, num_rounds=1, eval_every=1, eval_proposal_mode="greedy", eval_seed=9, eval_repeats=2
             )
-            pool = TheoremPool(_items(20), eval_pool_size=2, curriculum_size=4, seed=0)
+            pool = TheoremPool((_items(20))[2:], (_items(20))[:2], curriculum_size=4, seed=0)
             torch.manual_seed(0)
             asyncio.run(run_rl_training(cfg, reasoner_factory=_qed_factory, pool=pool))
             run_dir = next((tmp / "runs").iterdir())
@@ -1642,7 +1595,7 @@ class EvaluationArchiveDriverTests(unittest.TestCase):
             cfg = _write_config(tmp, num_rounds=1)
             vocab = _build_node_vocab()
             reasoner = _make_reasoner(_make_model(vocab), vocab, _QEDExecutor(), top_k=2)
-            theorem_pool = TheoremPool(_items(20), eval_pool_size=2, curriculum_size=4, seed=0)
+            theorem_pool = TheoremPool((_items(20))[2:], (_items(20))[:2], curriculum_size=4, seed=0)
 
             class Pool:
                 primary = reasoner

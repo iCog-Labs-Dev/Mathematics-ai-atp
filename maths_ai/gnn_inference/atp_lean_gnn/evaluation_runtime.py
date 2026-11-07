@@ -491,15 +491,9 @@ def evaluation_report(
             "max_depth": cfg.max_depth,
             "max_nodes": cfg.max_nodes,
         },
-        "dataset": {
-            "data_source": cfg.data_source,
-            "dataset_name": cfg.dataset_name,
-            "dataset_revision": cfg.dataset_revision,
-            "split": cfg.leandojo_split,
-            "theorem_file": str(cfg.theorem_file) if cfg.theorem_file else None,
-            "eval_pool_size": cfg.eval_pool_size,
-        },
-        "admission": pool.admission,
+        "dataset": cfg.evaluation_data.contract() if cfg.evaluation_data else None,
+        "admission": pool.admission.get("evaluation"),
+        "training_admission": pool.admission.get("training"),
         "workers": cfg.collection_workers,
         "reproducibility": (
             "Proposal draws repeat for the same seeds, model, inputs and device; "

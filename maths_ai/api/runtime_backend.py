@@ -9,7 +9,6 @@ creates an optimizer or changes weights.
 from __future__ import annotations
 
 import time
-from dataclasses import replace
 from typing import Any
 
 from maths_ai.gnn_inference.atp_lean_gnn.evaluation_runtime import (
@@ -20,21 +19,18 @@ from maths_ai.gnn_inference.atp_lean_gnn.evaluation_runtime import (
     subset_identity,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.live_runtime import LiveRuntime, open_live_runtime
-from maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver import RLTrainingConfig, TheoremPool
+from maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver import RLTrainingConfig
 from maths_ai.gnn_inference.atp_lean_gnn.seed_admission import (
     AdmissionReport,
     AdmissionSession,
     TheoremItem,
-    ValidationCache,
-    dataset_candidates,
     environment_identity,
-    file_candidates,
 )
-from maths_ai.hybrid_reasoner.pantograph_model_sexpr import create_model_sexpr_client
 from maths_ai.hybrid_reasoner.proposal import proposal_specs, input_identity
 from maths_ai.lean_replay import ReplayInputError, seed_from_text
 
-from .config import DatasetProfile, SearchProfile, ServiceConfig
+from .config import SearchProfile, ServiceConfig
+from maths_ai.gnn_inference.atp_lean_gnn.theorem_sources import TheoremSourceConfig, open_admission, finalize_admission
 from maths_ai.hybrid_reasoner.search_results import plain, record_view
 
 
@@ -59,7 +55,7 @@ def _seed(goal: str, hypotheses: list[str]):
 class _EvaluationJob:
     """One resident job: its admission session, then its fixed evaluation subset."""
 
-    def __init__(self, session: AdmissionSession, report: AdmissionReport, profile: DatasetProfile, seed: int):
+    def __init__(self, session: AdmissionSession, report: AdmissionReport, profile: TheoremSourceConfig, seed: int):
         self.session = session
         self.report = report
         self.profile = profile
@@ -152,7 +148,7 @@ class LiveBackend:
         if job is None:
             if self.jobs:
                 raise BackendError("busy", "Another evaluation session is resident")
-            job = self._open_admission(job_id, DatasetProfile(**payload["dataset_profile"]), payload["seed"])
+            job = self._open_admission(job_id, TheoremSourceConfig(**payload["dataset_profile"]), payload["seed"])
         newly = await job.session.step(int(payload["rows"]))
         progress = {
             "rows_seen": job.session.rows_seen,
@@ -164,13 +160,8 @@ class LiveBackend:
         }
         if job.session.done:
             await job.session.close()
-            pool = TheoremPool(
-                job.session.admitted,
-                eval_pool_size=job.profile.eval_pool_size,
-                curriculum_size=1,
-                seed=job.seed,
-            )
-            job.items = pool.eval_items
+            admitted = finalize_admission(job.profile, job.session.admitted, job.report)
+            job.items = admitted.items
             settings = EvaluationSettings(**payload["evaluation"])
             progress.update(
                 input_records=[{"identity": input_identity(item.seed), "source": plain(item.seed.source_dict)} for item in job.items],
@@ -181,37 +172,14 @@ class LiveBackend:
                     proposal_seeds_sha256(settings.proposals(job.items, repeat))
                     for repeat in range(settings.repeats)
                 ],
-                admission=plain(job.report.as_dict()),
+                admission={**plain(job.report.as_dict()), "source_contract": admitted.provenance},
             )
         return progress
 
-    def _open_admission(self, job_id: str, profile: DatasetProfile, seed: int) -> _EvaluationJob:
-        cfg = replace(self.cfg, **profile.rl_overrides())
+    def _open_admission(self, job_id: str, profile: TheoremSourceConfig, seed: int) -> _EvaluationJob:
         if len(self.runtime.pool.active_workers) + 2 > self.runtime.plan.usable_cpu_count:
             raise BackendError("resources", "Admission needs capacity for its decoder process and Lean client")
-        report = AdmissionReport()
-        report.environment = environment_identity(self.runtime.env)
-        if cfg.data_source == "file":
-            candidates = file_candidates(
-                cfg.theorem_file, max_scan_rows=cfg.max_scan_rows,
-                max_state_chars=cfg.max_state_chars, report=report,
-            )
-        else:
-            candidates = dataset_candidates(
-                dataset_name=cfg.dataset_name, split=cfg.leandojo_split,
-                revision=cfg.dataset_revision, max_scan_rows=cfg.max_scan_rows,
-                max_state_chars=cfg.max_state_chars, report=report,
-            )
-        env = self.runtime.env
-        session = AdmissionSession(
-            candidates,
-            lambda: create_model_sexpr_client(env),
-            max_admitted=cfg.max_pool_size,
-            time_budget_s=cfg.admission_time_budget_s,
-            report=report,
-            cache=ValidationCache(cfg.seed_cache_path, report.environment),
-            max_replay_chars=cfg.max_replay_chars,
-        )
+        session, report = open_admission(profile, self.runtime.env)
         job = _EvaluationJob(session, report, profile, seed)
         self.jobs[job_id] = job
         return job

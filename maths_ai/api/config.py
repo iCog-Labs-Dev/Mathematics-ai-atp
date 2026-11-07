@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from maths_ai.pln_inference.runtime import PLNRuntimeSpec
+from maths_ai.gnn_inference.atp_lean_gnn.theorem_sources import TheoremSourceConfig
 from maths_ai.hybrid_reasoner.selection_policy import (
     WIDENING_FIELDS,
     resolve_search_params,
@@ -111,56 +112,6 @@ class SearchProfile:
 
 
 @dataclass(frozen=True)
-class DatasetProfile:
-    """An allowlisted evaluation input: a pinned dataset revision or a mounted file."""
-
-    data_source: str
-    eval_pool_size: int
-    max_pool_size: int
-    dataset_name: str | None = None
-    dataset_revision: str | None = None
-    split: str = "train"
-    theorem_file: str | None = None
-    max_scan_rows: int | None = None
-    max_state_chars: int | None = None
-    max_replay_chars: int | None = None
-    admission_time_budget_s: float = 600.0
-
-    def __post_init__(self) -> None:
-        if self.data_source == "dataset":
-            if not self.dataset_name or not self.dataset_revision:
-                raise ValueError("A dataset profile pins dataset_name and dataset_revision")
-        elif self.data_source == "file":
-            if not self.theorem_file:
-                raise ValueError("A file profile needs theorem_file")
-        else:
-            raise ValueError(f"data_source must be 'dataset' or 'file', got {self.data_source!r}")
-        _positive_int("eval_pool_size", self.eval_pool_size)
-        _positive_int("max_pool_size", self.max_pool_size)
-        _positive_float("admission_time_budget_s", self.admission_time_budget_s)
-
-    def rl_overrides(self) -> dict[str, Any]:
-        """The training-config fields this profile sets for admission.
-
-        Optional limits the profile leaves unset keep the training config's.
-        """
-        overrides = {
-            "data_source": self.data_source,
-            "dataset_name": self.dataset_name,
-            "dataset_revision": self.dataset_revision,
-            "leandojo_split": self.split,
-            "theorem_file": None if self.theorem_file is None else Path(self.theorem_file),
-            "max_pool_size": self.max_pool_size,
-            "eval_pool_size": self.eval_pool_size,
-            "admission_time_budget_s": self.admission_time_budget_s,
-        }
-        for name in ("max_scan_rows", "max_state_chars", "max_replay_chars"):
-            if getattr(self, name) is not None:
-                overrides[name] = getattr(self, name)
-        return overrides
-
-
-@dataclass(frozen=True)
 class ServiceLimits:
     """Queue, input, deadline and message bounds."""
 
@@ -204,7 +155,7 @@ class ServiceConfig:
     state_dir: Path
     search_profiles: dict[str, SearchProfile]
     default_search_profile: str
-    dataset_profiles: dict[str, DatasetProfile] = field(default_factory=dict)
+    dataset_profiles: dict[str, TheoremSourceConfig] = field(default_factory=dict)
     checkpoint: Path | None = None
     limits: ServiceLimits = field(default_factory=ServiceLimits)
     pln: PLNRuntimeSpec | None = None
@@ -243,7 +194,7 @@ class ServiceConfig:
             },
             default_search_profile=payload["default_search_profile"],
             dataset_profiles={
-                name: DatasetProfile(**{**profile, **({"theorem_file": str(path(profile["theorem_file"]))} if profile.get("theorem_file") else {})})
+                name: TheoremSourceConfig(**{**profile, **{key: path(profile[key]) for key in ("theorem_file", "seed_cache_path") if profile.get(key)}})
                 for name, profile in payload.get("dataset_profiles", {}).items()
             },
             checkpoint=path(payload.get("checkpoint")),

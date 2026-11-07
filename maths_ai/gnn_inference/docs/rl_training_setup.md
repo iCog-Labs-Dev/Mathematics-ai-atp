@@ -1,3 +1,5 @@
+> **Input-source configuration:** RL configs now require independent `training_data` and `evaluation_data` blocks. See [independent training and evaluation inputs](independent_training_and_evaluation_sources.md) for train/val/test setup, migration, and resume rules. Old flat data fields and automatic training-pool partitioning are retired.
+
 # Starting RL training: weights, environment, and launch (remote server / JupyterLab)
 
 Step-by-step operational guide: where the weight files go, what format the loaders

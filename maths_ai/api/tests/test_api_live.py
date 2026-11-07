@@ -97,7 +97,7 @@ def _bundle(root: Path, source: str, repl: str) -> Path:
         },
         "dataset_profiles": {
             "local": {"data_source": "file", "theorem_file": str(theorems),
-                      "eval_pool_size": 2, "max_pool_size": 3, "admission_time_budget_s": 300},
+                      "max_pool_size": 2, "admission_time_budget_s": 300},
         },
         "limits": {"default_timeout_s": 120, "max_timeout_s": 300, "default_queue_timeout_s": 30,
                    "eval_chunk_size": 2, "runtime_start_timeout_s": 600},
@@ -214,7 +214,7 @@ def test_http_proving_and_evaluation_over_the_custom_repl(tmp_path, request, pln
             assert state["state"] == "completed", state
             result = client.get(f"/evaluations/{job_id}/result").json()
             assert result["complete"] and result["summary"]["eval_subset_size"] == 2
-            assert result["admission"]["admitted"] == 2  # the unknown name was quarantined
+            assert result["admission"]["admitted"] == 2  # both requested source states were admitted
             assert len(result["attempts"]) == 2
         owned = descendants(server.pid)
         assert owned, "the service should own its runtime and Lean processes"

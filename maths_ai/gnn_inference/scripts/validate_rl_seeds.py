@@ -12,19 +12,11 @@ from pathlib import Path
 from pantograph_async import PantographEnv
 
 from maths_ai.gnn_inference.atp_lean_gnn.dataset import DATASET_NAME, DATASET_REVISION
-from maths_ai.gnn_inference.atp_lean_gnn.seed_admission import (
-    AdmissionReport,
-    ValidationCache,
-    dataset_candidates,
-    environment_identity,
-    file_candidates,
-    preflight,
-    write_report,
-)
-from maths_ai.hybrid_reasoner.pantograph_model_sexpr import create_model_sexpr_client
+from maths_ai.gnn_inference.atp_lean_gnn.theorem_sources import TheoremSourceConfig, admit_source
 
 
-async def run(args) -> AdmissionReport:
+
+async def run(args):
     env = PantographEnv(
         source_root=args.source_root,
         pantograph_repl=args.pantograph_repl,
@@ -33,34 +25,17 @@ async def run(args) -> AdmissionReport:
         server_start_timeout_s=args.start_timeout,
     )
     env.verify()
-    report = AdmissionReport()
-    report.environment = environment_identity(env)
-    if args.theorem_file is not None:
-        candidates = file_candidates(
-            args.theorem_file,
-            max_scan_rows=args.max_scan_rows,
-            max_state_chars=args.max_state_chars,
-            report=report,
-        )
-    else:
-        candidates = dataset_candidates(
-            dataset_name=args.dataset_name,
-            split=args.split,
-            revision=args.revision,
-            max_scan_rows=args.max_scan_rows,
-            max_state_chars=args.max_state_chars,
-            report=report,
-        )
-    await preflight(
-        candidates,
-        lambda: create_model_sexpr_client(env),
-        max_admitted=args.max_admitted,
-        time_budget_s=args.time_budget,
-        report=report,
-        cache=ValidationCache(args.cache, report.environment),
-        max_replay_chars=args.max_replay_chars,
+    source = TheoremSourceConfig(
+        data_source="file" if args.theorem_file is not None else "dataset",
+        theorem_file=args.theorem_file,
+        dataset_name=None if args.theorem_file else args.dataset_name,
+        dataset_revision=None if args.theorem_file else args.revision,
+        split=None if args.theorem_file else args.split,
+        max_pool_size=args.max_admitted, max_scan_rows=args.max_scan_rows,
+        max_state_chars=args.max_state_chars, max_replay_chars=args.max_replay_chars,
+        admission_time_budget_s=args.time_budget, seed_cache_path=args.cache,
     )
-    return report
+    return await admit_source(source, env, report_dir=args.report_dir)
 
 
 def main(argv=None) -> int:
@@ -86,9 +61,9 @@ def main(argv=None) -> int:
         help="Validated-replay cache; reused only for the same environment identity.",
     )
     args = parser.parse_args(argv)
-    report = asyncio.run(run(args))
-    print(report.summary())
-    print(f"Report: {write_report(report, args.report_dir)}")
+    admitted = asyncio.run(run(args))
+    print(admitted.provenance)
+    print(f"Reports: {args.report_dir}")
     return 0
 
 

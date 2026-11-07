@@ -8,5 +8,10 @@
   "use_pln": false,
   "source_root": "/opt/mathlib4",
   "pantograph_repl": "/opt/pantograph/repl",
-  "pantograph_imports": ["Init", "Mathlib"]
+  "pantograph_imports": [
+    "Init",
+    "Mathlib"
+  ],
+  "training_data": null,
+  "evaluation_data": null
 }

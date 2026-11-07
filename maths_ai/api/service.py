@@ -422,7 +422,7 @@ class ProvingService:
             "search_profile": name,
             "profile": profile,
             "dataset_profile": request["dataset_profile"],
-            "dataset": {key: getattr(dataset, key) for key in dataset.__dataclass_fields__},
+            "dataset": dataset.to_dict(),
             "evaluation": {"mode": evaluation.mode, "seed": evaluation.seed, "repeats": evaluation.repeats},
             "evaluation_contract": evaluation.contract(),
             "timeout_s": float(timeout),

@@ -282,8 +282,13 @@ async def rebind_environment(config_path, *, repl, output, old_repl=None):
             warmstart_checkpoint=str(output / "checkpoint.pt"), prepared_root=str(output / "prepared"),
             source_root=str(Path(env.source_root).resolve()), pantograph_repl=str(repl),
             pantograph_imports=list(env.imports), run_root=str(output / "runs"),
-            seed_cache_path=str(output / "admission-cache.json"),
         )
+        for role in ("training", "evaluation"):
+            source = updated.get(f"{role}_data")
+            if source is not None:
+                source["seed_cache_path"] = str(output / f"{role}-admission-cache.json")
+                if source.get("theorem_file"):
+                    source["theorem_file"] = str(Path(source["theorem_file"]).resolve())
         updated["retrieval"].update(
             query_artifact=str(output / "query"), lemma_index=str(output / "index"),
             corpus_path=str(output / "lemmas.jsonl"), declaration_inventory=str(output / "declarations.json"),
@@ -369,7 +374,7 @@ def _verify_bundle_files(publication, receipt):
                 raise RetrievalError(f"Non-regular retained artifact file: {relative}")
             if relative == "migration_receipt.json":
                 continue
-            if published and relative in {"admission-cache.json", "admission-cache.json.tmp"}:
+            if published and relative in {f"{role}-admission-cache.json{suffix}" for role in ("training", "evaluation") for suffix in ("", ".tmp")}:
                 continue
             actual.add(relative)
     if actual != set(hashes):
@@ -383,11 +388,15 @@ def _retained_configuration(backing, output):
     cfg = RLTrainingConfig.from_json(backing / "rl.json")
     fixed_paths = {
         "warmstart_checkpoint": "checkpoint.pt", "prepared_root": "prepared",
-        "run_root": "runs", "seed_cache_path": "admission-cache.json",
+        "run_root": "runs",
     }
     for key, relative in fixed_paths.items():
         if getattr(cfg, key) != output / relative:
             raise RetrievalError(f"Retained configuration changes its intended {key} path.")
+    for role in ("training", "evaluation"):
+        source = getattr(cfg, f"{role}_data")
+        if source is not None and source.seed_cache_path != output / f"{role}-admission-cache.json":
+            raise RetrievalError(f"Retained configuration changes its intended {role} cache path.")
     if cfg.retrieval is None:
         raise RetrievalError("Retained configuration requires source-aware retrieval.")
     paths = {

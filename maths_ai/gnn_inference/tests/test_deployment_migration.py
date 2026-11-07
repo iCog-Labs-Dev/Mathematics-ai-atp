@@ -103,6 +103,8 @@ def bundle(tmp_path, monkeypatch):
         "warmstart_checkpoint": str(checkpoint), "prepared_root": str(prepared),
         "source_root": str(root), "pantograph_repl": str(old),
         "pantograph_imports": ["Init", "Mathlib"], "retrieval": retrieval,
+        "training_data": {"data_source": "dataset", "dataset_name": "jajostrains/Mathlib-Normalized-Sexpr", "dataset_revision": "f44841f98193c09b20c6092198a22e98ff2cd7a8", "split": "train"},
+        "evaluation_data": {"data_source": "dataset", "dataset_name": "jajostrains/Mathlib-Normalized-Sexpr", "dataset_revision": "f44841f98193c09b20c6092198a22e98ff2cd7a8", "split": "val"},
     })
 
     def inventory_export(source, binary, imports, excluded):
@@ -146,7 +148,7 @@ def test_migration_preserves_every_tensor_and_model_outputs(bundle, tmp_path):
     torch.testing.assert_close(first.value, second.value, rtol=0, atol=0)
     assert first.arguments == second.arguments
     deployed = read(result)
-    assert deployed["seed_cache_path"] == str(output / "admission-cache.json")
+    assert deployed["training_data"]["seed_cache_path"] == str(output / "training-admission-cache.json")
     assert not (output / "admission-cache.json").exists()
     for name, digest in receipt["files"].items():
         assert file_hash(output / name) == digest

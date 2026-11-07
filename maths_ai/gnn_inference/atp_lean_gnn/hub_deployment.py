@@ -186,7 +186,10 @@ def container_configs(cfg, device):
         warmstart_checkpoint=Path("/artifacts/checkpoint.pt"), prepared_root=Path("/artifacts/prepared"),
         source_root=Path("/opt/mathlib4"), pantograph_repl=Path("/opt/pantograph/repl"),
         pantograph_imports=cfg.pantograph_imports or ["Init", "Mathlib"],
-        run_root=Path("/state/runs"), seed_cache_path=Path("/state/admission-cache.json"),
+        run_root=Path("/state/runs"),
+        training_data=None,
+        evaluation_data=(replace(cfg.evaluation_data, seed_cache_path=Path("/state/eval-admission-cache.json"))
+                         if cfg.evaluation_data and cfg.evaluation_data.data_source == "dataset" else None),
         device=device, collection_workers=1, collection_devices=[device], update_device=device,
         retrieval=replace(cfg.retrieval, query_artifact=Path("/artifacts/query"),
                           lemma_index=Path("/artifacts/index"), corpus_path=Path("/artifacts/lemmas.jsonl"),
@@ -208,12 +211,7 @@ def container_configs(cfg, device):
         "search_profiles": {name + suffix: {**settings, "use_pln": enabled}
                             for name, settings in (("puct", puct), ("best_first", legacy))
                             for suffix, enabled in (("", False), ("_pln", True))},
-        "dataset_profiles": {"mathlib-eval": {
-            "data_source": "dataset", "dataset_name": serving.dataset_name,
-            "dataset_revision": serving.dataset_revision, "split": serving.leandojo_split,
-            "eval_pool_size": serving.eval_pool_size, "max_pool_size": serving.max_pool_size,
-            "admission_time_budget_s": serving.admission_time_budget_s,
-        }},
+        "dataset_profiles": {"mathlib-eval": serving.evaluation_data.to_dict()} if serving.evaluation_data else {},
         "pln": {"petta_bin": "/opt/pln/bin/petta", "petta_source_root": "/opt/pln/src/PeTTa",
                 "chainer_root": "/opt/pln/src/petta_chainer", "swipl_bin": "/opt/pln/bin/swipl"},
     }

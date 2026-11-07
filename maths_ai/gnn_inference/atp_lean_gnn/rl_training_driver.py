@@ -15,7 +15,6 @@ Design decisions and alternatives are recorded in
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import random
 import time
@@ -46,7 +45,6 @@ from .actor_critic import ActorCriticWithArgsClassifier
 from .checkpointing import build_model_from_checkpoint, checkpoint_payload
 from .graph_contract import GraphRepresentationSpec
 from .graph import dag_fingerprint, model_goal_to_dag
-from .dataset import DATASET_NAME, DATASET_REVISION
 from .pln_reward import RewardConfig
 from .pln_rl_training import train_step_htps_style, train_step_onpolicy
 from .reporting import console_print
@@ -61,17 +59,12 @@ from .search_harvest import (
 from .policy_actions import ArgumentReference, CandidatePoolSnapshot
 from .retrieval_artifacts import RetrievalConfig
 from dataclasses import asdict
-from .seed_admission import (
-    AdmissionReport,
-    TheoremItem,
-    ValidationCache,
-    dataset_candidates,
-    environment_identity,
-    file_candidates,
-    preflight,
-    write_report,
-)
+from .seed_admission import TheoremItem
 from .training import load_prepared_metadata
+from .theorem_sources import (
+    TheoremSourceConfig, RETIRED_SOURCE_FIELDS, DATA_CONTRACT_VERSION, admit_source,
+    configured_sources, data_contract, ordered_items, validate_source_separation, overlap_diagnostics,
+)
 from .evaluation_archive import EvaluationArchive
 from .evaluation_runtime import (
     subset_identity,
@@ -97,32 +90,17 @@ from .live_runtime import (
 
 @dataclass
 class RLTrainingConfig:
-    """Configuration for the RL training driver (flat JSON, ``from_json`` below).
+    """Configuration for the RL training driver and independent input sources.
 
-    ``warmstart_checkpoint`` is a version-3, self-describing supervised
-    actor-critic checkpoint. Its manifest owns the encoder architecture.
+    The source-aware checkpoint manifest owns the encoder architecture.
     """
 
     warmstart_checkpoint: Path
     prepared_root: Path
 
-    # Theorem sourcing: "dataset" replays rows from their raw expression and
-    # local-context columns; "file" reads a JSONL of
-    # {"goal": str, "hypotheses": [declaration, ...], "tactic"?: str} rows.
-    data_source: str = "dataset"
-    theorem_file: Path | None = None
-    dataset_name: str = DATASET_NAME
-    dataset_revision: str | None = DATASET_REVISION
-    leandojo_split: str = "train"
-    max_pool_size: int = 5000
-    max_state_chars: int | None = 400
-    # Admission: rows read from the source, independent of the pool size, and
-    # the wall-clock budget for replaying candidates in Lean before training.
-    max_scan_rows: int = 20000
-    max_replay_chars: int | None = 50000
-    admission_time_budget_s: float = 1800.0
-    seed_cache_path: Path | None = None
-    eval_pool_size: int = 200
+    # Independently admitted rollout and held-out sources. Serving needs neither.
+    training_data: TheoremSourceConfig | None = None
+    evaluation_data: TheoremSourceConfig | None = None
     seed: int = 42
 
     # Evaluation (standalone --eval-only and periodic): how the held-out pool is
@@ -238,7 +216,7 @@ class RLTrainingConfig:
     server_timeout_s: int = 120
 
     _PATH_FIELDS = (
-        "warmstart_checkpoint", "prepared_root", "theorem_file", "seed_cache_path",
+        "warmstart_checkpoint", "prepared_root",
         "run_root", "source_root", "pantograph_repl",
     )
 
@@ -288,8 +266,14 @@ class RLTrainingConfig:
     def from_json(cls, path: str | Path) -> "RLTrainingConfig":
         with open(path) as f:
             payload = json.load(f)
+        retired = sorted(set(payload) & RETIRED_SOURCE_FIELDS)
+        if retired:
+            raise ValueError(f"Retired flat source fields {retired}; migrate to training_data/evaluation_data source blocks")
         kwargs: dict[str, Any] = {}
         for key, value in payload.items():
+            if key in ("training_data", "evaluation_data"):
+                kwargs[key] = TheoremSourceConfig(**value) if value is not None else None
+                continue
             if key == "retrieval":
                 kwargs[key] = RetrievalConfig(**value) if value is not None else None
                 continue
@@ -306,6 +290,9 @@ class RLTrainingConfig:
         out: dict[str, Any] = {}
         for key, value in self.__dict__.items():
             if key.startswith("_"):
+                continue
+            if isinstance(value, TheoremSourceConfig):
+                out[key] = value.to_dict()
                 continue
             out[key] = (
                 {
@@ -394,28 +381,13 @@ def apply_evaluation_overrides(
 
 
 class TheoremPool:
-    """Size-sorted pool of rollout roots with a sliding curriculum window.
+    """Explicit independent input pools and a training-only curriculum."""
 
-    The eval pool is carved from the pool by hash BEFORE sorting windows are
-    served, is fixed for the whole run, and never enters a training batch.
-    """
-
-    def __init__(self, items: list[TheoremItem], *, eval_pool_size: int, curriculum_size: int, seed: int) -> None:
+    def __init__(self, train_items: list[TheoremItem], eval_items: list[TheoremItem], *, curriculum_size: int, seed: int):
         self._rng = random.Random(seed)
-        # Set by build_theorem_pool: the admission report this pool came from.
-        self.admission: dict[str, object] | None = None
-        items = sorted(items, key=lambda t: t.size)
-        # Deterministic held-out split: every k-th item of the size-sorted pool, so the
-        # eval set spans all difficulty levels and is identical across runs/resumes
-        # (the pool itself is deterministic: same source, same filters, same sort).
-        if eval_pool_size > 0 and items:
-            stride = max(len(items) // eval_pool_size, 1)
-            eval_indices = set(list(range(0, len(items), stride))[:eval_pool_size])
-            self.eval_items = [t for i, t in enumerate(items) if i in eval_indices]
-            self.train_items = [t for i, t in enumerate(items) if i not in eval_indices]
-        else:
-            self.eval_items = []
-            self.train_items = list(items)
+        self.admission: dict[str, object] = {}
+        self.train_items = ordered_items(train_items)
+        self.eval_items = ordered_items(eval_items)
         self.curriculum_size = min(max(curriculum_size, 1), len(self.train_items)) if self.train_items else 0
 
     def sample_batch(self, batch_size: int) -> list[TheoremItem]:
@@ -429,79 +401,33 @@ class TheoremPool:
 
 
 async def build_theorem_pool(
-    cfg: RLTrainingConfig,
-    env: PantographEnv,
-    *,
-    report_dir: Path | None = None,
-    client_factory=None,
+    cfg: RLTrainingConfig, env: PantographEnv, *, report_dir: Path | None = None,
+    client_factory=None, evaluation_only: bool = False,
 ) -> TheoremPool:
-    """Build the pool from Lean-validated seeds of the configured source.
-
-    A dedicated preflight client (not a collection worker's scope) replays the
-    candidates. Rows that cannot be reconstructed are quarantined with their
-    reason and written to a new report in ``report_dir``; they never enter
-    the pool.
-    """
-    report = AdmissionReport()
-    report.environment = environment_identity(env)
-    if cfg.data_source == "file":
-        if cfg.theorem_file is None:
-            raise ValueError("data_source='file' requires theorem_file")
-        candidates = file_candidates(
-            cfg.theorem_file,
-            max_scan_rows=cfg.max_scan_rows,
-            max_state_chars=cfg.max_state_chars,
-            report=report,
-        )
-    elif cfg.data_source == "dataset":
-        candidates = dataset_candidates(
-            dataset_name=cfg.dataset_name,
-            split=cfg.leandojo_split,
-            revision=cfg.dataset_revision,
-            max_scan_rows=cfg.max_scan_rows,
-            max_state_chars=cfg.max_state_chars,
-            report=report,
-        )
-    else:
-        raise ValueError(f"Unknown data_source '{cfg.data_source}' (use 'dataset' or 'file')")
-    cache = ValidationCache(cfg.seed_cache_path, report.environment)
-    items = await preflight(
-        candidates,
-        client_factory or (lambda: create_model_sexpr_client(env)),
-        max_admitted=cfg.max_pool_size,
-        time_budget_s=cfg.admission_time_budget_s,
-        report=report,
-        cache=cache,
-        max_replay_chars=cfg.max_replay_chars,
-    )
-    console_print(report.summary())
-    if report_dir is not None:
-        console_print(f"Admission report: {write_report(report, report_dir)}")
-    if not items:
-        raise RuntimeError(
-            "No seed passed Lean validation; see the admission report for the "
-            "quarantine and operational skip reasons "
-            f"({report.skipped.get('replay-resource', 0)} resource-limited rows). "
-            "Training requires a nonempty validated pool."
-        )
-    if len(items) < cfg.max_pool_size:
-        console_print(
-            f"Pool is undersized: {len(items)} validated seeds of the "
-            f"{cfg.max_pool_size} requested."
-        )
-    pool = TheoremPool(
-        items,
-        eval_pool_size=cfg.eval_pool_size,
-        curriculum_size=cfg.curriculum_start_size,
-        seed=cfg.seed,
-    )
-    report_body = json.dumps(report.as_dict(), sort_keys=True, ensure_ascii=False, default=str)
-    pool.admission = {
-        "source": report.source,
-        "admitted": report.admitted,
-        "report_sha256": hashlib.sha256(report_body.encode("utf-8")).hexdigest(),
-    }
+    """Admit only the independent sources used by this execution purpose."""
+    sources = {"evaluation": cfg.evaluation_data} if evaluation_only else {"training": cfg.training_data}
+    if not evaluation_only and cfg.eval_every > 0:
+        sources["evaluation"] = cfg.evaluation_data
+    if any(source is None for source in sources.values()):
+        raise ValueError(f"Required source blocks are missing: {list(sources)}")
+    if not evaluation_only:
+        validate_source_separation(cfg.training_data, sources.get("evaluation"))
+    admitted = {}
+    for role, source in sources.items():
+        result = await admit_source(source, env, report_dir=report_dir / role if report_dir else None,
+                                    client_factory=client_factory)
+        admitted[role] = result
+        console_print(f"{role.capitalize()} admission: {result.provenance['summary']}")
+        console_print(f"{role.capitalize()} source: {len(result.items)}/{source.max_pool_size} Lean-validated states, split={source.split}")
+    train = admitted["training"].items if "training" in admitted else []
+    evaluation = admitted["evaluation"].items if "evaluation" in admitted else []
+    pool = TheoremPool(train, evaluation, curriculum_size=cfg.curriculum_start_size, seed=cfg.seed)
+    pool.admission = {role: result.provenance for role, result in admitted.items()}
+    if train and evaluation:
+        pool.admission["overlap"] = overlap_diagnostics(train, evaluation)
+        console_print(f"Source overlap diagnostics: {pool.admission['overlap']}")
     return pool
+
 
 
 # ---------------------------------------------------------------------------
@@ -582,6 +508,7 @@ def save_checkpoint(
     saved_search_settings: dict[str, object],
     evaluation_contract: dict[str, object],
     pln_runtime_identity: dict | None,
+    saved_data_contract: dict,
 ) -> None:
     """Write the resume state (Decision 1.4: optimizer-htps + queues included).
 
@@ -599,6 +526,7 @@ def save_checkpoint(
         # version; a resume refuses statistics recorded under another meaning.
         "search_evidence": SEARCH_EVIDENCE_VERSION,
         "evaluation_contract": evaluation_contract,
+        "data_contract": saved_data_contract,
         "pln_runtime": pln_runtime_identity,
         "onpolicy_steps": onpolicy_steps,
         "search_settings": saved_search_settings,
@@ -749,6 +677,11 @@ async def _run_rl_training_impl(
                 "measured (evaluation mode, seed, repeats, or metric version), so it "
                 "cannot stay the incumbent. Start a fresh RL run from the model weights."
             )
+        saved_data = state.get("data_contract")
+        if not saved_data or saved_data.get("version") != DATA_CONTRACT_VERSION:
+            raise ValueError("Checkpoint lacks the independent-source data contract; use a weight-only warm start for a fresh run")
+        if saved_data["sources"] != configured_sources(cfg):
+            raise ValueError("Resume changes training/evaluation sources; start a fresh run")
         resumed_model, _resume_manifest, resume_spec = build_model_from_checkpoint(
             state,
             node_vocab=node_vocab,
@@ -791,9 +724,7 @@ async def _run_rl_training_impl(
         torch.set_rng_state(state["torch_rng_state"].cpu())
         start_round = int(state["round"]) + 1
         onpolicy_steps = int(state["onpolicy_steps"])
-        best_proof_rate = float(state.get("best_proof_rate", -1.0))
         curriculum_size_override = int(state.get("curriculum_size", 0)) or None
-        console_print(f"Resumed {run_dir} at round {start_round} (best proof rate {best_proof_rate:.3f})")
     else:
         resumed_tactic_rows = []
         run_dir = _create_run_dir(cfg.run_root)
@@ -866,6 +797,13 @@ async def _run_rl_training_impl(
         f"Pool: {len(pool.train_items)} train / {len(pool.eval_items)} eval; "
         f"curriculum window {pool.curriculum_size}"
     )
+
+    current_data_contract = data_contract(cfg, pool)
+    if resume_run_dir is not None and state["data_contract"] != current_data_contract:
+        raise ValueError("Resume admitted different training/evaluation pools; start a fresh run")
+    if resume_run_dir is not None:
+        best_proof_rate = float(state["best_proof_rate"])
+        console_print(f"Resumed {run_dir} at round {start_round} after validating both input pools")
 
     reward_cfg = RewardConfig(
         gamma=cfg.reward_gamma,
@@ -1095,6 +1033,7 @@ async def _run_rl_training_impl(
                 saved_search_settings=search_settings(cfg),
                 evaluation_contract=cfg.evaluation_settings().contract(),
                 pln_runtime_identity=pln_runtime_identity,
+        saved_data_contract=current_data_contract,
             )
 
         if cfg.eval_every > 0 and (round_idx + 1) % cfg.eval_every == 0 and pool.eval_items:
@@ -1108,6 +1047,8 @@ async def _run_rl_training_impl(
                 "search_settings": search_settings(cfg),
                 "evaluation": cfg.evaluation_settings().contract(),
                 "eval_subset_sha256": subset_identity(pool.eval_items),
+                "data_contract": current_data_contract,
+                "evaluation_source": pool.admission.get("evaluation"),
                 "theorem_timeout_s": cfg.theorem_timeout_s,
             })
             console_print(f"Evaluation archive: {archive.path}")
@@ -1152,6 +1093,7 @@ async def _run_rl_training_impl(
                     saved_search_settings=search_settings(cfg),
                     evaluation_contract=cfg.evaluation_settings().contract(),
                     pln_runtime_identity=pln_runtime_identity,
+                    saved_data_contract=current_data_contract,
                 )
                 console_print(f"  New best proof rate {best_proof_rate:.3f} → best.pt")
 
@@ -1169,6 +1111,7 @@ async def _run_rl_training_impl(
         saved_search_settings=search_settings(cfg),
         evaluation_contract=cfg.evaluation_settings().contract(),
         pln_runtime_identity=pln_runtime_identity,
+        saved_data_contract=current_data_contract,
     )
     return last_metrics
 
@@ -1183,18 +1126,9 @@ def driver_main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(description="On-policy RL training over live Lean search")
     parser.add_argument("--config", type=str, required=True, help="Path to the RL training JSON config")
-    parser.add_argument(
-        "--dataset-name",
-        type=str,
-        default=None,
-        help="Hugging Face dataset identifier used for dataset-mode theorem streaming",
-    )
-    parser.add_argument(
-        "--dataset-revision",
-        type=str,
-        default=None,
-        help="Dataset commit to read (default: the pinned DATASET_REVISION)",
-    )
+    for role in ("training", "evaluation"):
+        parser.add_argument(f"--{role}-dataset-name", default=None)
+        parser.add_argument(f"--{role}-dataset-revision", default=None)
     parser.add_argument("--resume", type=str, default=None, help="Run directory to resume (contains last.pt)")
     parser.add_argument("--eval-only", action="store_true", help="Only run the proof-rate evaluation")
     parser.add_argument("--checkpoint", type=str, default=None,
@@ -1218,10 +1152,15 @@ def driver_main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     cfg = RLTrainingConfig.from_json(args.config)
-    if args.dataset_name:
-        cfg.dataset_name = args.dataset_name
-    if args.dataset_revision:
-        cfg.dataset_revision = args.dataset_revision
+    from dataclasses import replace
+    for role in ("training", "evaluation"):
+        changes = {field: getattr(args, f"{role}_{field}") for field in ("dataset_name", "dataset_revision")
+                   if getattr(args, f"{role}_{field}") is not None}
+        if changes:
+            source = getattr(cfg, f"{role}_data")
+            if source is None or source.data_source != "dataset":
+                parser.error(f"--{role}-dataset overrides require a dataset source")
+            setattr(cfg, f"{role}_data", replace(source, **changes))
     settings = apply_evaluation_overrides(
         cfg, mode=args.eval_proposal_mode, seed=args.eval_seed, repeats=args.eval_repeats
     )
@@ -1243,7 +1182,10 @@ def driver_main(argv: list[str] | None = None) -> int:
         async def _eval() -> None:
             async with await open_live_runtime(cfg) as runtime:
                 live_pool = runtime.pool
-                theorem_pool = await build_theorem_pool(cfg, runtime.env)
+                theorem_pool = await build_theorem_pool(
+                    cfg, runtime.env, evaluation_only=True,
+                    report_dir=(Path(args.eval_output_dir).parent if args.eval_output_dir else cfg.run_root) / "admission",
+                )
                 live_pool.assert_generation(0)
                 provenance = {
                     "kind": "standalone", "model_generation": 0,
@@ -1251,6 +1193,7 @@ def driver_main(argv: list[str] | None = None) -> int:
                     "checkpoint_sha256": runtime.policy.checkpoint_sha256,
                     "search_settings": search_settings(cfg), "evaluation": settings.contract(),
                     "eval_subset_sha256": subset_identity(theorem_pool.eval_items),
+                    "evaluation_source": theorem_pool.admission.get("evaluation"),
                     "theorem_timeout_s": cfg.theorem_timeout_s,
                 }
                 archive = (EvaluationArchive(Path(args.eval_output_dir), provenance)

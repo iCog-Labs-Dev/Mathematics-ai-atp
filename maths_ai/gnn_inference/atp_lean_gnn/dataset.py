@@ -24,7 +24,7 @@ _SPLIT_ALIASES = {
 
 _DATASET_SPLIT_NAMES = {
     "train": "train",
-    "val": "validation",
+    "val": "val",
     "test": "test",
 }
 

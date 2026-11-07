@@ -19,7 +19,7 @@ def write_config(tmp: Path, **overrides) -> Path:
         },
         "dataset_profiles": {
             "smoke": {"data_source": "file", "theorem_file": "theorems.jsonl",
-                      "eval_pool_size": 2, "max_pool_size": 4},
+                      "max_pool_size": 2},
         },
         "limits": {"cleanup_grace_s": 2.0, "runtime_start_timeout_s": 60.0,
                    "default_timeout_s": 5.0, "max_timeout_s": 30.0,

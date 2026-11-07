@@ -43,9 +43,8 @@
       "data_source": "dataset",
       "dataset_name": "jajostrains/Mathlib-Normalized-Sexpr",
       "dataset_revision": "f44841f98193c09b20c6092198a22e98ff2cd7a8",
-      "split": "train",
-      "eval_pool_size": 200,
-      "max_pool_size": 5000,
+      "split": "val",
+      "max_pool_size": 200,
       "admission_time_budget_s": 1800
     }
   },

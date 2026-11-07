@@ -67,8 +67,8 @@ def test_retry_publishes_without_copying_and_standard_runtime_loads_the_symlink(
     asyncio.run(load())
     cfg.run_root.mkdir()
     (cfg.run_root / "metrics.jsonl").write_text("{}\n")
-    cfg.seed_cache_path.write_text("{}")
-    cfg.seed_cache_path.with_suffix(".json.tmp").write_text("{}")
+    cfg.training_data.seed_cache_path.write_text("{}")
+    cfg.training_data.seed_cache_path.with_suffix(".json.tmp").write_text("{}")
     assert (backing / "runs/metrics.jsonl").exists()
     assert asyncio.run(migration.publish_retained_bundle(backing, output=output)) == config_path
     assert backing.exists()

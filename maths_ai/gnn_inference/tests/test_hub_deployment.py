@@ -1,3 +1,4 @@
+from maths_ai.gnn_inference.atp_lean_gnn.theorem_sources import TheoremSourceConfig
 """Serving release tests use a local fake Hub; no remote writes occur."""
 
 import asyncio
@@ -193,15 +194,13 @@ def test_container_configurations_validate_and_remove_host_paths():
     from maths_ai.api.config import ServiceConfig
     retrieval = RetrievalConfig(query_artifact="/private/query", lemma_index="/private/index",
                                 corpus_path="/private/corpus", declaration_inventory="/private/inventory", top_k=32)
-    cfg = RLTrainingConfig(warmstart_checkpoint=Path("/private/policy"), prepared_root=Path("/private/data"),
-                           retrieval=retrieval, data_source="file", theorem_file=Path("/private/seeds"),
-                           selection_policy="puct", num_simulations=128, snapshot_retention={"max_retained_snapshots": 12})
+    cfg = RLTrainingConfig(warmstart_checkpoint=Path("/private/policy"), prepared_root=Path("/private/data"), retrieval=retrieval, selection_policy="puct", num_simulations=128, snapshot_retention={"max_retained_snapshots": 12}, training_data=TheoremSourceConfig(data_source="file", theorem_file=Path("/private/seeds")))
     rl, service = hub.container_configs(cfg, "cuda:0")
     assert "/private/" not in json.dumps((rl, service))
     assert rl["warmstart_checkpoint"] == "/artifacts/checkpoint.pt"
     assert rl["retrieval"]["device"] == rl["update_device"] == "cuda:0"
     assert rl["retrieval"]["top_k"] == 32
-    assert rl["data_source"] == "dataset" and rl["theorem_file"] is None
+    assert rl["training_data"] is None and rl["evaluation_data"] is None
     assert rl["snapshot_retention"]["max_retained_snapshots"] == 12
     parsed = ServiceConfig.from_dict(service)
     assert parsed.search_profiles["puct"].num_simulations == 128
