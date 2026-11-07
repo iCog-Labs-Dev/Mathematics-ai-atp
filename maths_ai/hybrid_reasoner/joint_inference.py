@@ -241,6 +241,7 @@ class HybridReasoner:
         self,
         sub_goal: str,
         hypotheses: Optional[List[str]] = None,
+        structured_goal: Optional[Goal] = None,
     ) -> List[TacticCandidate]:
         """
             Args:
@@ -254,13 +255,12 @@ class HybridReasoner:
                 edge case) — callers must treat that as a dead branch, which
                 `_expand` below does via `graph.mark_node_exhausted`.
         """
-        if hypotheses:
-            return self.gnn_engine.inference(
-                sub_goal,
-                top_k=self.top_k_tactics,
-                hypotheses=hypotheses,
-            )
-        return self.gnn_engine.inference(sub_goal, top_k=self.top_k_tactics)
+        return self.gnn_engine.inference(
+            sub_goal,
+            top_k=self.top_k_tactics,
+            hypotheses=hypotheses,
+            structured_goal=structured_goal,
+        )
 
     # PLN side
     def _make_dts_key(self, parent_goal: str, tactic: TacticCandidate, subgoal: Goal) -> str:
@@ -425,6 +425,7 @@ class HybridReasoner:
         candidates = self.predict_next_tactic(
             sanitized.expression,
             sanitized.hypotheses,
+            structured_goal=sanitized,
         )
         if not candidates:
             graph.mark_node_exhausted(node.id, note="GNN returned no viable tactic")

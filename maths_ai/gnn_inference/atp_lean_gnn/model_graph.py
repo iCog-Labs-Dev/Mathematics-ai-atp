@@ -75,13 +75,13 @@ def _build(node: object, dag: DAGBuilder) -> int:
     tag = _tag(node, "S-expression node")
     children = node.items[1:]
     if tag in {":app", ":sapp"}:
-        label = "App" if tag == ":app" else "SApp"
-    elif tag in {":binder", ":sbinder"}:
-        label = "Binder" if tag == ":binder" else "SBinder"
+        label = tag
+    elif tag in {":binder", ":sbinder", ":forall", ":lambda", ":let"}:
+        label = tag
     elif tag in {":c", ":sconst"}:
-        label = _atom(children[0], "constant") if len(children) == 1 else "Const"
+        label = _atom(children[0], "constant") if len(children) == 1 else tag
     elif tag in {":fv", ":bvar"}:
-        label = _atom(children[0], "free variable")
+        label = _atom(children[0], "free variable") if len(children) == 1 else tag
     elif tag in {":mvar", ":meta"}:
         label = _atom(children[0], "metavariable") if children else "Meta"
     elif tag in {":lit", ":value"}:

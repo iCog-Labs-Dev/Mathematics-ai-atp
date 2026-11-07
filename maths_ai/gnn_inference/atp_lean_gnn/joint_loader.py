@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,8 @@ class JointNeuralBundle:
     text_encoder: Any
     lemma_index: LemmaIndex
     lemma_corpus: dict[int, Any]
+    node_vocab: dict[str, int]
+    tactic_vocab: dict[str, int]
     device: torch.device
 
     @torch.no_grad()
@@ -73,10 +76,8 @@ def _load_policy(bundle: JointBundle, device: torch.device) -> JointSourcePolicy
     model_config = config["model"]
     node_vocab_path = bundle.root / "vocab" / "node_vocab.json"
     tactic_vocab_path = bundle.root / "vocab" / "tactic_vocab.json"
-    import json
-
-    node_vocab = json.loads(node_vocab_path.read_text(encoding="utf-8"))
-    tactic_vocab = json.loads(tactic_vocab_path.read_text(encoding="utf-8"))
+    node_vocab = {str(k): int(v) for k, v in json.loads(node_vocab_path.read_text(encoding="utf-8")).items()}
+    tactic_vocab = {str(k): int(v) for k, v in json.loads(tactic_vocab_path.read_text(encoding="utf-8")).items()}
     model = JointSourcePolicy(
         num_node_labels=len(node_vocab),
         num_tactics=len(tactic_vocab),
@@ -141,5 +142,17 @@ def load_joint_neural_bundle(
         text_encoder=text_encoder,
         lemma_index=index,
         lemma_corpus=corpus,
+        node_vocab={
+            str(k): int(v)
+            for k, v in json.loads(
+                (artifact.root / "vocab" / "node_vocab.json").read_text(encoding="utf-8")
+            ).items()
+        },
+        tactic_vocab={
+            str(k): int(v)
+            for k, v in json.loads(
+                (artifact.root / "vocab" / "tactic_vocab.json").read_text(encoding="utf-8")
+            ).items()
+        },
         device=resolved_device,
     )

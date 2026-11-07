@@ -403,7 +403,14 @@ class JointSourcePolicy(nn.Module):
         self.source_head = nn.Linear(hidden_dim + 4, 2)
 
     def forward(self, data, *, tactic_ids: torch.Tensor | None = None):
-        return self.pointer(data, tactic_ids=tactic_ids)
+        tactic_logits, arg_logits, stop_logits = self.pointer(
+            data, tactic_ids=tactic_ids
+        )
+        state_embeddings = self.pointer.backbone.readout(
+            self.pointer.backbone.encode_nodes(data), data
+        )
+        arg_count_logits = self.arg_count_head(state_embeddings)
+        return tactic_logits, arg_logits, stop_logits, arg_count_logits, state_embeddings
 
 
 # ---------------------------------------------------------------------------
