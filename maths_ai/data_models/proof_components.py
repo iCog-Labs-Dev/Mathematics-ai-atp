@@ -1,7 +1,7 @@
 import re
 from typing import Iterable, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Goal(BaseModel):
@@ -13,6 +13,78 @@ class Goal(BaseModel):
 
     expression: str
     hypotheses: List[str] = Field(default_factory=list)
+    goal_model_sexp: str | None = None
+    locals: List["GoalLocal"] | None = None
+    model_sexp_version: int | None = None
+
+    @model_validator(mode="after")
+    def _validate_structured_state(self) -> "Goal":
+        structured = self.goal_model_sexp is not None or self.locals is not None
+        if not structured:
+            return self
+        if self.goal_model_sexp is None or self.locals is None:
+            raise ValueError("Structured Goal requires goal_model_sexp and locals.")
+        if self.model_sexp_version != 1:
+            raise ValueError(
+                f"Unsupported goal model S-expression version {self.model_sexp_version}."
+            )
+        indices = [local.context_index for local in self.locals]
+        if indices != sorted(indices) or len(indices) != len(set(indices)):
+            raise ValueError("Goal locals must have unique ordered context indices.")
+        derived = [local.declaration_pp for local in self.locals]
+        if self.hypotheses and self.hypotheses != derived:
+            raise ValueError("Goal hypotheses disagree with structured locals.")
+        self.hypotheses = derived
+        return self
+
+    @property
+    def has_model_state(self) -> bool:
+        return self.goal_model_sexp is not None and self.locals is not None
+
+    def require_model_state(self) -> "Goal":
+        if not self.has_model_state:
+            raise ValueError(
+                "The GNN requires normalized lean-model-sexp-v2 state metadata."
+            )
+        return self
+
+
+class GoalLocal(BaseModel):
+    """A local declaration and its normalized model representation."""
+
+    user_name: str
+    internal_name: str = ""
+    context_index: int
+    binder_role: str
+    is_instance: bool = False
+    is_let: bool = False
+    type_pp: str
+    type_model_sexp: str
+    value_pp: str | None = None
+    value_model_sexp: str | None = None
+    model_sexp_version: int = 1
+
+    @model_validator(mode="after")
+    def _validate_local(self) -> "GoalLocal":
+        if self.context_index < 0:
+            raise ValueError("Goal local context_index cannot be negative.")
+        if not self.binder_role or not self.type_model_sexp:
+            raise ValueError("Goal local role and type model S-expression are required.")
+        if self.model_sexp_version != 1:
+            raise ValueError(
+                f"Unsupported local model S-expression version {self.model_sexp_version}."
+            )
+        if self.is_let != (self.value_pp is not None and self.value_model_sexp is not None):
+            raise ValueError("Local lets require both pretty and model values.")
+        return self
+
+    @property
+    def declaration_pp(self) -> str:
+        value = f" := {self.value_pp}" if self.is_let else ""
+        return f"{self.user_name or '_'} : {self.type_pp}{value}"
+
+
+Goal.model_rebuild()
 
 
 class GoalState(BaseModel):

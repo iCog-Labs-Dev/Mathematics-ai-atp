@@ -568,6 +568,7 @@ async def build_default_service(
     from pantograph.server import Server
 
     from maths_ai.hybrid_reasoner.joint_inference import HybridReasoner, PantographExecutor
+    from maths_ai.hybrid_reasoner.pantograph_adapter import model_state_options
     from maths_ai.pln_inference.metta.translator.translator_modules.runner import DynamicThompsonSampler
 
     config_path = config_path or settings.gnn_config_path
@@ -586,7 +587,10 @@ async def build_default_service(
         )
     _validate_v2_bundle_readiness(bundle_path)
 
-    server = await Server.create(project_path=str(settings.lean_project_path))
+    server = await Server.create(
+        project_path=str(settings.lean_project_path),
+        options=model_state_options(),
+    )
     try:
         dts_input = settings.dts_state_file
         dts_sampler = None

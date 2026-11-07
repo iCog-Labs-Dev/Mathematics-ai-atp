@@ -91,7 +91,10 @@ def run_demo(
         server = Server(
             imports=lean_imports,
             project_path=str(settings.lean_project_path),
-            options={"printExprAST": True},
+            options={
+                "printExprAST": True,
+                "printExprModelAST": True,
+            },
         )
     except Exception as e:
         raise RuntimeError(f"Error starting Pantograph server: {e}") from e

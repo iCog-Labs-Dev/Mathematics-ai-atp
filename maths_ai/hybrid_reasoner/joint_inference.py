@@ -23,6 +23,7 @@ from maths_ai.pln_inference.model import PLNInference
 from maths_ai.pln_inference.metta.translator.translator_modules.runner import DynamicThompsonSampler
 
 from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph, ProofNode, TacticExecutor, TacticOutcome
+from maths_ai.hybrid_reasoner.pantograph_adapter import model_state_options, pantograph_state_to_goals
 from maths_ai.core.config import settings
 
 _INACCESSIBLE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_']*✝[⁰-⁹¹²³]*")
@@ -129,10 +130,7 @@ class PantographExecutor(TacticExecutor):
         except Exception as e:
             return TacticOutcome(success=False, subgoals=[], error=str(e))
 
-        subgoals = [
-            Goal(expression=str(g.target), hypotheses=[str(v) for v in g.variables])
-            for g in new_state.goals
-        ]
+        subgoals = pantograph_state_to_goals(new_state)
         return TacticOutcome(success=True, subgoals=subgoals, error=None)
 
 
@@ -501,7 +499,10 @@ async def main(
     top_k_subgoals: int = 3,
 
 ) -> None:
-    server = await Server.create(project_path=str(settings.lean_project_path))
+    server = await Server.create(
+        project_path=str(settings.lean_project_path),
+        options=model_state_options(),
+    )
     
     # Auto-load DTS state from default location if not specified
     if dts_state_input is None and settings.dts_state_file.exists():
