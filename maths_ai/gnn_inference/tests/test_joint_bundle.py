@@ -20,7 +20,10 @@ def _write_bundle(root: Path) -> None:
                 "live_pantograph_parity_verified": False,
             }
         },
-        "retriever/config.json": {"embedding_dim": 384},
+        "retriever/config.json": {
+            "embedding_dim": 384,
+            "encoder_config": {"model_type": "bert", "hidden_size": 384},
+        },
         "retriever/index/manifest.json": {"state_text_policy": "goal_first_v1"},
         "policy/model.safetensors": "weights",
     }

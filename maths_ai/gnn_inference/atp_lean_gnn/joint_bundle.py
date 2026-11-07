@@ -125,6 +125,8 @@ def load_joint_source_bundle(
         raise ValueError("Joint bundle must require original proof-state text.")
     if retriever_config.get("embedding_dim") != 384:
         raise ValueError("Joint bundle retriever must use 384-dimensional text vectors.")
+    if not isinstance(retriever_config.get("encoder_config"), dict):
+        raise ValueError("Joint bundle retriever is missing encoder_config metadata.")
     if index_manifest.get("state_text_policy") != "goal_first_v1":
         raise ValueError("Joint bundle index must use the goal_first_v1 text policy.")
 
