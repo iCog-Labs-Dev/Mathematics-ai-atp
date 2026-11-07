@@ -77,10 +77,16 @@ class GraphStats:
 def _classify_label(label: str) -> str:
     if not label:
         return "var"
-    if label in ("App", "Arrow", "Forall", "Explicit"):
+    if label in ("App", "SApp", "Arrow", "Forall", "Explicit", ":app"):
         return "app"
-    if label in ("Hyp", "Goal", "State"):
+    if label in ("Binder", "SBinder", ":forall", ":lambda", ":let"):
+        return "binder"
+    if label in ("Hyp", "Goal", "State", "Meta"):
         return "meta"
+    if label in ("Type", "Sort", ":sort"):
+        return "type"
+    if label in ("Const", "SConst", ":c"):
+        return "const"
     if label == "\u2115" or (label[0].isupper() and len(label) <= 2):
         return "type"
     if label[0].isupper():

@@ -12,6 +12,11 @@ NODE_TYPE_TO_ID = {
     "operator": 3,
     "app": 4,
     "meta": 5,
+    "binder": 6,
+    "const": 7,
+    "sconst": 8,
+    "sbinder": 9,
+    "sapp": 10,
 }
 
 

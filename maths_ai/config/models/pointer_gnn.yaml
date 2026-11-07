@@ -1,7 +1,6 @@
-name: pointer_gnn
+name: mathlib_sexpr_gnn_v2
 source: huggingface
 repo_type: model
-repo_id: jajostrains/Mathlib-Sexpr-GNN
-revision: 53ccfea5927d70286a5211ae6936ead9db69f70a
-subfolder: pointer-gat-gru
+repo_id: iCogLabs-Dev/Mathlib-Sexpr-GNN
+revision: 8aba62625dfeb833e4591498700f351f3bc60af9
 local_subdir: maths_ai/gnn_inference/models/mathlib_sexpr_gnn

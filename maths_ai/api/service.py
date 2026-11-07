@@ -32,13 +32,31 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from maths_ai.core.config import settings
-from maths_ai.data_models.proof_components import TacticCandidate
-from maths_ai.data_models.proof_components import Goal
+from maths_ai.data_models.proof_components import (
+    Goal,
+    TacticCandidate,
+    filter_executable_tactic_candidates,
+)
+from maths_ai.gnn_inference.atp_lean_gnn.joint_bundle import load_joint_source_bundle
 from maths_ai.pln_inference.model import PLNInference, PLNResult
 
 logger = logging.getLogger(__name__)
 
+_V2_REVISION = "8aba62625dfeb833e4591498700f351f3bc60af9"
 
+
+def _validate_v2_bundle_readiness(bundle_path: Path) -> None:
+    """Reject incomplete or unverified v2 bundles before Lean starts."""
+    bundle = load_joint_source_bundle(
+        bundle_path,
+        expected_revision=_V2_REVISION,
+    )
+    if not bundle.live_pantograph_parity_verified:
+        raise RuntimeError(
+            "Mathlib-Sexpr-GNN v2 serving is disabled: the published bundle "
+            "does not verify live Pantograph graph parity for "
+            "lean-model-sexp-v2."
+        )
 @dataclass
 class InferenceService:
     """Owns the loaded inference components plus the API-level locks.
@@ -237,10 +255,33 @@ class InferenceService:
             error = (completed.stderr or completed.stdout).strip()
             raise ValueError(error[-4000:] or "Lean rejected the proof declaration")
 
-    async def predict_tactics(self, goal: str, top_k: int) -> List[TacticCandidate]:
+    async def predict_tactics(
+        self,
+        goal: str,
+        top_k: int,
+        *,
+        hypotheses: Optional[List[str]] = None,
+    ) -> List[TacticCandidate]:
         """Predict tactics for a goal using the GNN engine."""
         async with self.gnn_lock:
-            return await asyncio.to_thread(self.reasoner.gnn_engine.inference, goal, top_k=top_k)
+            if hypotheses:
+                candidates = await asyncio.to_thread(
+                    self.reasoner.gnn_engine.inference,
+                    goal,
+                    top_k=top_k,
+                    hypotheses=hypotheses,
+                )
+            else:
+                candidates = await asyncio.to_thread(
+                    self.reasoner.gnn_engine.inference, goal, top_k=top_k
+                )
+        filtered = filter_executable_tactic_candidates(candidates)
+        if len(filtered) != len(candidates):
+            logger.warning(
+                "Filtered %d GNN candidate(s) containing unresolved lemma placeholders.",
+                len(candidates) - len(filtered),
+            )
+        return filtered
 
     async def evaluate(self, expression: str, hypotheses: Optional[List[str]] = None) -> PLNResult:
         """Evaluate an expression using PLN inference."""
@@ -527,6 +568,7 @@ async def build_default_service(
     from pantograph.server import Server
 
     from maths_ai.hybrid_reasoner.joint_inference import HybridReasoner, PantographExecutor
+    from maths_ai.hybrid_reasoner.pantograph_adapter import model_state_options
     from maths_ai.pln_inference.metta.translator.translator_modules.runner import DynamicThompsonSampler
 
     config_path = config_path or settings.gnn_config_path
@@ -536,7 +578,19 @@ async def build_default_service(
     corpus_path = corpus_path if corpus_path is not None else settings.lemma_corpus_path
     bundle_path = bundle_path if bundle_path is not None else settings.gnn_bundle_path
 
-    server = await Server.create(project_path=str(settings.lean_project_path))
+    if not bundle_path.is_dir():
+        raise FileNotFoundError(
+            "Configured v2 GNN bundle is unavailable at "
+            f"'{bundle_path}'. Fetch revision "
+            "8aba62625dfeb833e4591498700f351f3bc60af9 before starting the API; "
+            "the legacy checkpoint fallback is disabled."
+        )
+    _validate_v2_bundle_readiness(bundle_path)
+
+    server = await Server.create(
+        project_path=str(settings.lean_project_path),
+        options=model_state_options(),
+    )
     try:
         dts_input = settings.dts_state_file
         dts_sampler = None
@@ -552,7 +606,7 @@ async def build_default_service(
             config_path=config_path,
             tactic_model_path=tactic_model_path,
             argument_model_path=argument_model_path,
-            bundle_path=bundle_path if bundle_path.exists() else None,
+            bundle_path=bundle_path,
             index_path=index_path,
             corpus_path=corpus_path,
             executor=PantographExecutor(server=server),
@@ -563,6 +617,11 @@ async def build_default_service(
             dts_sampler=dts_sampler,
             dts_c=dts_c,
             dts_random_seed=dts_random_seed,
+        )
+        logger.info(
+            "loaded GNN bundle root=%s release=v2.0.0 revision=%s profile=base",
+            bundle_path,
+            _V2_REVISION,
         )
     except Exception:
         server._close()

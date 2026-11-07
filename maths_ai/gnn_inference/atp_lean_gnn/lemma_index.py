@@ -37,6 +37,8 @@ class LemmaIndex:
             raise ValueError("lemma_ids length must match lemma_vectors rows.")
         if hasattr(self.index, "d") and int(self.index.d) != int(self.lemma_vectors.shape[1]):
             raise ValueError("FAISS index dimension does not match lemma_vectors.")
+        if hasattr(self.index, "ntotal") and int(self.index.ntotal) != len(self.lemma_ids):
+            raise ValueError("FAISS index size must match lemma_ids and lemma_vectors rows.")
 
     @classmethod
     def load(

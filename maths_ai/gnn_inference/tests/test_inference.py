@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import torch
 
-from maths_ai.gnn_inference.atp_lean_gnn.inference import _top_tactic_candidates
+from maths_ai.gnn_inference.atp_lean_gnn.inference import (
+    _fresh_arguments_for_tactic,
+    _top_tactic_candidates,
+)
+
+
+def test_fresh_arguments_allows_bare_intro() -> None:
+    assert _fresh_arguments_for_tactic("intro", [], 1) == []
 
 
 def test_top_tactic_candidates_returns_sorted_top_k() -> None:

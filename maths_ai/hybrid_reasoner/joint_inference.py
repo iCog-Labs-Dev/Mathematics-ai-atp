@@ -11,12 +11,23 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from pantograph.server import Server, GoalState
 
-from maths_ai.data_models.proof_components import Goal, RankedSubgoal, STV, TacticCandidate
+from maths_ai.data_models.proof_components import (
+    Goal,
+    RankedSubgoal,
+    STV,
+    TacticCandidate,
+    has_unresolved_lemma_argument,
+)
 from maths_ai.gnn_inference.inference_engine import GNNModelEngine
 from maths_ai.pln_inference.model import PLNInference
 from maths_ai.pln_inference.metta.translator.translator_modules.runner import DynamicThompsonSampler
 
 from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph, ProofNode, TacticExecutor, TacticOutcome
+from maths_ai.hybrid_reasoner.pantograph_adapter import (
+    has_model_state_payload,
+    model_state_options,
+    pantograph_state_to_goals,
+)
 from maths_ai.core.config import settings
 
 _INACCESSIBLE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_']*✝[⁰-⁹¹²³]*")
@@ -104,6 +115,13 @@ class PantographExecutor(TacticExecutor):
             On a Lean-side error (the tactic doesn't apply), returns
             ``TacticOutcome(success=False, error=...)``.
         """
+        if has_unresolved_lemma_argument(tactic):
+            return TacticOutcome(
+                success=False,
+                subgoals=[],
+                error="tactic contains an unresolved lemma placeholder",
+            )
+
         arguments = " ".join(arg.rstrip(":") for arg in tactic.arguments)
         tactic_cmd = " ".join([tactic.tactic_name, arguments]).strip()
 
@@ -116,10 +134,16 @@ class PantographExecutor(TacticExecutor):
         except Exception as e:
             return TacticOutcome(success=False, subgoals=[], error=str(e))
 
-        subgoals = [
-            Goal(expression=str(g.target), hypotheses=[str(v) for v in g.variables])
-            for g in new_state.goals
-        ]
+        if has_model_state_payload(new_state):
+            subgoals = pantograph_state_to_goals(new_state)
+        else:
+            # The pinned PyPantograph client currently strips model-AST fields
+            # while parsing responses. Keep the legacy CLI path usable, but
+            # never present it as a v2-compatible live state.
+            subgoals = [
+                Goal(expression=str(g.target), hypotheses=[str(v) for v in g.variables])
+                for g in new_state.goals
+            ]
         return TacticOutcome(success=True, subgoals=subgoals, error=None)
 
 
@@ -213,7 +237,12 @@ class HybridReasoner:
         self.max_nodes = max_nodes
 
     # GNN side
-    def predict_next_tactic(self, sub_goal: str) -> List[TacticCandidate]:
+    def predict_next_tactic(
+        self,
+        sub_goal: str,
+        hypotheses: Optional[List[str]] = None,
+        structured_goal: Optional[Goal] = None,
+    ) -> List[TacticCandidate]:
         """
             Args:
                 sub_goal: a string expression of the target sub_goal for which tactics are predicated for
@@ -226,7 +255,12 @@ class HybridReasoner:
                 edge case) — callers must treat that as a dead branch, which
                 `_expand` below does via `graph.mark_node_exhausted`.
         """
-        return self.gnn_engine.inference(sub_goal, top_k=self.top_k_tactics)
+        return self.gnn_engine.inference(
+            sub_goal,
+            top_k=self.top_k_tactics,
+            hypotheses=hypotheses,
+            structured_goal=structured_goal,
+        )
 
     # PLN side
     def _make_dts_key(self, parent_goal: str, tactic: TacticCandidate, subgoal: Goal) -> str:
@@ -388,7 +422,11 @@ class HybridReasoner:
 
         sanitized = _sanitize_inaccessible_names(node.goal)
         print(f"  [GNN Input] goal={sanitized.expression}  hyps={sanitized.hypotheses}")
-        candidates = self.predict_next_tactic(sanitized.expression)
+        candidates = self.predict_next_tactic(
+            sanitized.expression,
+            sanitized.hypotheses,
+            structured_goal=sanitized,
+        )
         if not candidates:
             graph.mark_node_exhausted(node.id, note="GNN returned no viable tactic")
             return
@@ -475,7 +513,10 @@ async def main(
     top_k_subgoals: int = 3,
 
 ) -> None:
-    server = await Server.create(project_path=str(settings.lean_project_path))
+    server = await Server.create(
+        project_path=str(settings.lean_project_path),
+        options=model_state_options(),
+    )
     
     # Auto-load DTS state from default location if not specified
     if dts_state_input is None and settings.dts_state_file.exists():
