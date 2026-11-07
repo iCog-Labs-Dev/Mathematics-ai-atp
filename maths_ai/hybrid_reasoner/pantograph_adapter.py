@@ -27,6 +27,14 @@ def _read(value: Any, name: str) -> Any:
     return getattr(value, name, None)
 
 
+def _read_first(value: Any, *names: str) -> Any:
+    for name in names:
+        result = _read(value, name)
+        if result is not None:
+            return result
+    return None
+
+
 def _expression_payload(value: Any, owner: str) -> dict[str, Any]:
     payload = {
         "pp": _read(value, "pp"),
@@ -40,7 +48,7 @@ def _expression_payload(value: Any, owner: str) -> dict[str, Any]:
 
 def _goal_payload(value: Any) -> dict[str, Any]:
     target = _expression_payload(_read(value, "target"), "goal target")
-    variables = _read(value, "variables")
+    variables = _read_first(value, "variables", "vars")
     if not isinstance(variables, list):
         raise ValueError("Pantograph goal is missing its variables list.")
 
@@ -50,7 +58,7 @@ def _goal_payload(value: Any) -> dict[str, Any]:
         raw_value = _read(variable, "value")
         normalized_variables.append(
             {
-                "userName": _read(variable, "userName") or _read(variable, "name"),
+                "userName": _read_first(variable, "userName", "name"),
                 "name": _read(variable, "name"),
                 "contextIndex": _read(variable, "contextIndex"),
                 "binderRole": _read(variable, "binderRole"),
@@ -70,6 +78,15 @@ def _goal_payload(value: Any) -> dict[str, Any]:
 def pantograph_goal_to_goal(value: Any) -> Goal:
     """Convert one Pantograph goal object into the strict internal contract."""
     return goal_payload_to_goal(_goal_payload(value))
+
+
+def has_model_state_payload(state: Any) -> bool:
+    """Return whether a state appears to carry v2 metadata."""
+    goals = _read(state, "goals")
+    if not isinstance(goals, list) or not goals:
+        return False
+    target = _read(goals[0], "target")
+    return _read(target, "modelSexp") is not None
 
 
 def pantograph_state_to_goals(state: Any) -> list[Goal]:

@@ -23,7 +23,11 @@ from maths_ai.pln_inference.model import PLNInference
 from maths_ai.pln_inference.metta.translator.translator_modules.runner import DynamicThompsonSampler
 
 from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph, ProofNode, TacticExecutor, TacticOutcome
-from maths_ai.hybrid_reasoner.pantograph_adapter import model_state_options, pantograph_state_to_goals
+from maths_ai.hybrid_reasoner.pantograph_adapter import (
+    has_model_state_payload,
+    model_state_options,
+    pantograph_state_to_goals,
+)
 from maths_ai.core.config import settings
 
 _INACCESSIBLE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_']*✝[⁰-⁹¹²³]*")
@@ -130,7 +134,16 @@ class PantographExecutor(TacticExecutor):
         except Exception as e:
             return TacticOutcome(success=False, subgoals=[], error=str(e))
 
-        subgoals = pantograph_state_to_goals(new_state)
+        if has_model_state_payload(new_state):
+            subgoals = pantograph_state_to_goals(new_state)
+        else:
+            # The pinned PyPantograph client currently strips model-AST fields
+            # while parsing responses. Keep the legacy CLI path usable, but
+            # never present it as a v2-compatible live state.
+            subgoals = [
+                Goal(expression=str(g.target), hypotheses=[str(v) for v in g.variables])
+                for g in new_state.goals
+            ]
         return TacticOutcome(success=True, subgoals=subgoals, error=None)
 
 

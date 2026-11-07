@@ -53,3 +53,19 @@ def test_pantograph_state_conversion_fails_closed_when_model_fields_missing() ->
     )
     with pytest.raises(ValueError, match="modelSexp"):
         pantograph_state_to_goals(state)
+
+
+def test_pantograph_state_conversion_accepts_raw_client_vars_name() -> None:
+    state = {
+        "goals": [
+            {
+                "target": {
+                    "pp": "p",
+                    "modelSexp": "(sort Prop)",
+                    "modelSexpVersion": 1,
+                },
+                "vars": [],
+            }
+        ]
+    }
+    assert pantograph_state_to_goals(state)[0].goal_model_sexp == "(sort Prop)"
