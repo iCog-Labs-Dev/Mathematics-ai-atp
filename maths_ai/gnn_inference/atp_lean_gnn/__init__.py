@@ -7,6 +7,7 @@ from .argument_selector import (
 )
 from .bundle import PointerBundle, load_pointer_bundle
 from .joint_loader import JointNeuralBundle, load_joint_neural_bundle
+from .argument_selector import JointSourcePolicy
 from .argument_training import (
     evaluate_model_with_args,
     train_one_epoch_with_args,
@@ -142,4 +143,5 @@ __all__ = [
     "write_dag_json",
     "JointNeuralBundle",
     "load_joint_neural_bundle",
+    "JointSourcePolicy",
 ]

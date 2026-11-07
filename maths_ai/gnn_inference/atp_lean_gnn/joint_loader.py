@@ -9,7 +9,7 @@ from typing import Any
 import torch
 from safetensors.torch import load_file
 
-from .argument_selector import PublishedPointerClassifier
+from .argument_selector import JointSourcePolicy
 from .joint_bundle import JointBundle, load_joint_source_bundle
 from .lemma_corpus import load_lemma_corpus
 from .lemma_index import LemmaIndex
@@ -32,7 +32,7 @@ class JointNeuralBundle:
     """Constructed v2 policy and text-retrieval components."""
 
     artifact: JointBundle
-    policy: PublishedPointerClassifier
+    policy: JointSourcePolicy
     tokenizer: Any
     text_encoder: Any
     lemma_index: LemmaIndex
@@ -68,7 +68,7 @@ def _pointer_config(bundle: JointBundle) -> dict[str, Any]:
     return config
 
 
-def _load_policy(bundle: JointBundle, device: torch.device) -> PublishedPointerClassifier:
+def _load_policy(bundle: JointBundle, device: torch.device) -> JointSourcePolicy:
     config = _pointer_config(bundle)
     model_config = config["model"]
     node_vocab_path = bundle.root / "vocab" / "node_vocab.json"
@@ -77,7 +77,7 @@ def _load_policy(bundle: JointBundle, device: torch.device) -> PublishedPointerC
 
     node_vocab = json.loads(node_vocab_path.read_text(encoding="utf-8"))
     tactic_vocab = json.loads(tactic_vocab_path.read_text(encoding="utf-8"))
-    model = PublishedPointerClassifier(
+    model = JointSourcePolicy(
         num_node_labels=len(node_vocab),
         num_tactics=len(tactic_vocab),
         num_node_types=len(bundle.policy_config["input_contract"]["node_type_to_id"]),

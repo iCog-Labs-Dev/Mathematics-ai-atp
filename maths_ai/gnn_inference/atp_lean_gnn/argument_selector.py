@@ -302,6 +302,109 @@ class PublishedPointerClassifier(nn.Module):
         self.max_args = max_args
         self.hidden_dim = hidden_dim
 
+    def forward(self, data, *, tactic_ids: torch.Tensor | None = None):
+        """Run the published flat GRU decoder over one or more PyG graphs.
+
+        ``arg_logits`` are padded per-graph node scores.  The decoder keeps
+        its recurrent state per graph and uses the selected node embedding as
+        the next input, matching the release's flat argument contract.
+        """
+        node_embeddings = self.backbone.encode_nodes(data)
+        state_embeddings = self.backbone.readout(node_embeddings, data)
+        tactic_logits = self.backbone.classifier(state_embeddings)
+        batch_size = int(state_embeddings.size(0))
+        if tactic_ids is None:
+            tactic_ids = tactic_logits.argmax(dim=-1)
+        tactic_embeddings = self.tactic_embedding(tactic_ids)
+        hidden = torch.tanh(
+            self.argument_selector.init_proj(
+                torch.cat([state_embeddings, tactic_embeddings], dim=-1)
+            )
+        )
+        batch_index = data.batch
+        premise_mask = getattr(data, "premise_mask", None)
+        if premise_mask is None:
+            premise_mask = torch.ones(
+                node_embeddings.size(0), dtype=torch.bool, device=node_embeddings.device
+            )
+        counts = torch.bincount(batch_index, minlength=batch_size)
+        max_nodes = int(counts.max().item())
+        padded_nodes = torch.zeros(
+            batch_size,
+            max_nodes,
+            node_embeddings.size(-1),
+            device=node_embeddings.device,
+            dtype=node_embeddings.dtype,
+        )
+        padded_mask = torch.zeros(
+            batch_size, max_nodes, dtype=torch.bool, device=node_embeddings.device
+        )
+        offsets = torch.zeros_like(batch_index)
+        for graph_id in range(batch_size):
+            selected = batch_index == graph_id
+            count = int(selected.sum().item())
+            offsets[selected] = torch.arange(count, device=batch_index.device)
+        padded_nodes[batch_index, offsets] = node_embeddings
+        padded_mask[batch_index, offsets] = premise_mask
+
+        arg_logits: list[torch.Tensor] = []
+        stop_logits: list[torch.Tensor] = []
+        for _ in range(self.max_args):
+            query = self.argument_selector.out_proj(hidden)
+            scores = torch.bmm(
+                query.unsqueeze(1), padded_nodes.transpose(1, 2)
+            ).squeeze(1) / max(self.hidden_dim, 1) ** 0.5
+            scores = scores.masked_fill(~padded_mask, float("-inf"))
+            arg_logits.append(scores)
+            selected = scores.argmax(dim=-1)
+            selected_embeddings = padded_nodes[
+                torch.arange(batch_size, device=node_embeddings.device), selected
+            ]
+            stop_logits.append(self.stop_head(hidden).squeeze(-1))
+            hidden = self.argument_selector.gru(selected_embeddings, hidden)
+        return tactic_logits, arg_logits, torch.stack(stop_logits, dim=1)
+
+
+class JointSourcePolicy(nn.Module):
+    """Exact module layout of the published joint-source v2 checkpoint."""
+
+    def __init__(
+        self,
+        *,
+        num_node_labels: int,
+        num_tactics: int,
+        num_node_types: int,
+        hidden_dim: int,
+        num_layers: int,
+        heads: int,
+        dropout: float,
+        use_node_type: bool,
+        max_args: int,
+    ) -> None:
+        super().__init__()
+        self.pointer = PublishedPointerClassifier(
+            num_node_labels=num_node_labels,
+            num_tactics=num_tactics,
+            num_node_types=num_node_types,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+            heads=heads,
+            dropout=dropout,
+            use_node_type=use_node_type,
+            max_args=max_args,
+        )
+        self.arg_count_head = nn.Linear(hidden_dim, max_args + 1)
+        self.lemma_adapter = nn.Sequential(
+            nn.Linear(384, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+        )
+        self.library_residual_scale = nn.Parameter(torch.tensor(1.0))
+        self.log_inverse_text_temperature = nn.Parameter(torch.tensor(0.0))
+        self.source_head = nn.Linear(hidden_dim + 4, 2)
+
+    def forward(self, data, *, tactic_ids: torch.Tensor | None = None):
+        return self.pointer(data, tactic_ids=tactic_ids)
+
 
 # ---------------------------------------------------------------------------
 # Combined loss computation
@@ -408,4 +511,3 @@ def compute_combined_loss(
         "arg_loss": float(arg_loss.item()),
         "total_loss": float(total_loss.item()),
     }
-
