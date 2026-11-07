@@ -226,7 +226,11 @@ class HybridReasoner:
         self.max_nodes = max_nodes
 
     # GNN side
-    def predict_next_tactic(self, sub_goal: str) -> List[TacticCandidate]:
+    def predict_next_tactic(
+        self,
+        sub_goal: str,
+        hypotheses: Optional[List[str]] = None,
+    ) -> List[TacticCandidate]:
         """
             Args:
                 sub_goal: a string expression of the target sub_goal for which tactics are predicated for
@@ -239,6 +243,12 @@ class HybridReasoner:
                 edge case) — callers must treat that as a dead branch, which
                 `_expand` below does via `graph.mark_node_exhausted`.
         """
+        if hypotheses:
+            return self.gnn_engine.inference(
+                sub_goal,
+                top_k=self.top_k_tactics,
+                hypotheses=hypotheses,
+            )
         return self.gnn_engine.inference(sub_goal, top_k=self.top_k_tactics)
 
     # PLN side
@@ -401,7 +411,10 @@ class HybridReasoner:
 
         sanitized = _sanitize_inaccessible_names(node.goal)
         print(f"  [GNN Input] goal={sanitized.expression}  hyps={sanitized.hypotheses}")
-        candidates = self.predict_next_tactic(sanitized.expression)
+        candidates = self.predict_next_tactic(
+            sanitized.expression,
+            sanitized.hypotheses,
+        )
         if not candidates:
             graph.mark_node_exhausted(node.id, note="GNN returned no viable tactic")
             return

@@ -156,12 +156,21 @@ class PredictTacticRequest(BaseModel):
     """Request body for ``POST /gnn/predict_tactic``."""
 
     goal: str = Field(description="Lean goal expression to predict tactics for.")
+    hypotheses: List[str] = Field(
+        default_factory=list,
+        description="Local context entries, each rendered as `name : type`.",
+    )
     top_k: int = Field(default=3, ge=1, le=20)
 
     @field_validator("goal", mode="after")
     @classmethod
     def _validate_goal(cls, value: str) -> str:
         return _strip_or_raise(value, "goal")
+
+    @field_validator("hypotheses", mode="after")
+    @classmethod
+    def _validate_hypotheses(cls, value: List[str]) -> List[str]:
+        return [_strip_or_raise(hypothesis, "hypotheses") for hypothesis in value]
 
 
 class PredictTacticResponse(BaseModel):

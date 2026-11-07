@@ -17,5 +17,7 @@ safetensors
 pantograph @ git+https://github.com/stanford-centaur/PyPantograph
 torch
 torch-geometric
+transformers>=4.45.0
+tokenizers>=0.20.0
 typing-extensions
 typing-inspection

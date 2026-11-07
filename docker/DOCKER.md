@@ -52,11 +52,11 @@ docker build -f docker/Dockerfile --target experimental -t maths_ai-experimental
 
 The entrypoint fetches assets into `/data` unless the first argument is
 `skip-fetch`. The default model configuration downloads the pinned public
-`jajostrains/Mathlib-Sexpr-GNN` pointer bundle, including its Safetensors
+`iCogLabs-Dev/Mathlib-Sexpr-GNN` v2 joint bundle, including its Safetensors
 weights and shared vocabularies. The runtime bundle is stored at:
 
 ```text
-/data/maths_ai/gnn_inference/models/mathlib_sexpr_gnn/pointer-gat-gru
+/data/maths_ai/gnn_inference/models/mathlib_sexpr_gnn
 ```
 
 To persist downloaded assets, mount a host directory at `/data`:
@@ -133,7 +133,7 @@ docker build --target core \
 |----------|---------|-------------|
 | `MATHS_AI_LEAN_PROJECT` | `/opt/lean_project` | Lean project root |
 | `MATHS_AI_DATA_ROOT` | `/data` | Data directory for assets |
-| `MATHS_AI_GNN_BUNDLE` | `/data/maths_ai/gnn_inference/models/mathlib_sexpr_gnn/pointer-gat-gru` | Published pointer bundle directory |
+| `MATHS_AI_GNN_BUNDLE` | `/data/maths_ai/gnn_inference/models/mathlib_sexpr_gnn` | Pinned Mathlib-Sexpr-GNN v2 clean-root bundle |
 | `PATH` | `/opt/venv/bin:...` | Includes venv, elan, uv |
 | `PYTHONPATH` | `/workspace` | Python module path |
 

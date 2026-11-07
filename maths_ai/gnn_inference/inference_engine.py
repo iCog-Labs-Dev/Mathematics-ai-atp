@@ -145,7 +145,13 @@ class GNNModelEngine:
                 f"{preview}{suffix}."
             )
 
-    def inference(self, goal_expression: str, top_k: int = 3) -> List[TacticCandidate]:
+    def inference(
+        self,
+        goal_expression: str,
+        top_k: int = 3,
+        *,
+        hypotheses: Optional[List[str]] = None,
+    ) -> List[TacticCandidate]:
         """Predict ranked tactic candidates for ``goal_expression``.
 
         Contract (depended on by ``HybridReasoner.predict_next_tactic``):
@@ -154,7 +160,11 @@ class GNNModelEngine:
         names, and the model's predicted probability — sorted by
         probability, descending.
         """
-        predictions = self.gnn_inference.predict_tactics_with_arguments(goal_expression, top_k=top_k)
+        predictions = self.gnn_inference.predict_tactics_with_arguments(
+            goal_expression,
+            top_k=top_k,
+            hypotheses=hypotheses,
+        )
         print(*predictions, "\n")
         return [
             TacticCandidate(

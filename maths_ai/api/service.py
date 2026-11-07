@@ -40,6 +40,47 @@ from maths_ai.data_models.proof_components import (
 from maths_ai.pln_inference.model import PLNInference, PLNResult
 
 logger = logging.getLogger(__name__)
+
+_V2_REVISION = "8aba62625dfeb833e4591498700f351f3bc60af9"
+
+
+def _validate_v2_bundle_readiness(bundle_path: Path) -> None:
+    """Reject incomplete or unverified v2 bundles before Lean starts."""
+    manifest_path = bundle_path / "bundle.json"
+    policy_path = bundle_path / "policy" / "config.json"
+    revision_path = bundle_path / ".snapshot_revision"
+    try:
+        revision = revision_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        revision = ""
+    if revision != _V2_REVISION:
+        raise ValueError(
+            "Configured GNN bundle is not the pinned Mathlib-Sexpr-GNN v2 "
+            f"revision {_V2_REVISION}."
+        )
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            f"v2 bundle at '{bundle_path}' is incomplete; expected bundle.json "
+            "and policy/config.json"
+        ) from exc
+
+    if manifest.get("format") != "joint_source_system_v1":
+        raise ValueError(
+            "Configured bundle is not Mathlib-Sexpr-GNN v2 "
+            "(expected format joint_source_system_v1)."
+        )
+    if manifest.get("model_type") != "joint_source_flat_decoder_v2":
+        raise ValueError("Configured bundle has an incompatible v2 model type.")
+    input_contract = policy.get("input_contract", {})
+    if input_contract.get("live_pantograph_parity_verified") is not True:
+        raise RuntimeError(
+            "Mathlib-Sexpr-GNN v2 serving is disabled: the published bundle "
+            "does not verify live Pantograph graph parity for "
+            f"{input_contract.get('graph_format', 'the required graph format')}."
+        )
 @dataclass
 class InferenceService:
     """Owns the loaded inference components plus the API-level locks.
@@ -238,12 +279,26 @@ class InferenceService:
             error = (completed.stderr or completed.stdout).strip()
             raise ValueError(error[-4000:] or "Lean rejected the proof declaration")
 
-    async def predict_tactics(self, goal: str, top_k: int) -> List[TacticCandidate]:
+    async def predict_tactics(
+        self,
+        goal: str,
+        top_k: int,
+        *,
+        hypotheses: Optional[List[str]] = None,
+    ) -> List[TacticCandidate]:
         """Predict tactics for a goal using the GNN engine."""
         async with self.gnn_lock:
-            candidates = await asyncio.to_thread(
-                self.reasoner.gnn_engine.inference, goal, top_k=top_k
-            )
+            if hypotheses:
+                candidates = await asyncio.to_thread(
+                    self.reasoner.gnn_engine.inference,
+                    goal,
+                    top_k=top_k,
+                    hypotheses=hypotheses,
+                )
+            else:
+                candidates = await asyncio.to_thread(
+                    self.reasoner.gnn_engine.inference, goal, top_k=top_k
+                )
         filtered = filter_executable_tactic_candidates(candidates)
         if len(filtered) != len(candidates):
             logger.warning(
@@ -546,6 +601,15 @@ async def build_default_service(
     corpus_path = corpus_path if corpus_path is not None else settings.lemma_corpus_path
     bundle_path = bundle_path if bundle_path is not None else settings.gnn_bundle_path
 
+    if not bundle_path.is_dir():
+        raise FileNotFoundError(
+            "Configured v2 GNN bundle is unavailable at "
+            f"'{bundle_path}'. Fetch revision "
+            "8aba62625dfeb833e4591498700f351f3bc60af9 before starting the API; "
+            "the legacy checkpoint fallback is disabled."
+        )
+    _validate_v2_bundle_readiness(bundle_path)
+
     server = await Server.create(project_path=str(settings.lean_project_path))
     try:
         dts_input = settings.dts_state_file
@@ -562,7 +626,7 @@ async def build_default_service(
             config_path=config_path,
             tactic_model_path=tactic_model_path,
             argument_model_path=argument_model_path,
-            bundle_path=bundle_path if bundle_path.exists() else None,
+            bundle_path=bundle_path,
             index_path=index_path,
             corpus_path=corpus_path,
             executor=PantographExecutor(server=server),
@@ -573,6 +637,11 @@ async def build_default_service(
             dts_sampler=dts_sampler,
             dts_c=dts_c,
             dts_random_seed=dts_random_seed,
+        )
+        logger.info(
+            "loaded GNN bundle root=%s release=v2.0.0 revision=%s profile=base",
+            bundle_path,
+            _V2_REVISION,
         )
     except Exception:
         server._close()

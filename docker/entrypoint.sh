@@ -19,21 +19,12 @@ export PYTHONPATH="$WORKSPACE_DIR:${PYTHONPATH:-}"
 # If /data contains the expected directories, skip the fetch
 DATA_ROOT="/data"
 ASSETS_EXIST=false
+EXPECTED_REVISION="8aba62625dfeb833e4591498700f351f3bc60af9"
 
-# Check for model directories (from config yaml files)
-if [ -d "$DATA_ROOT/maths_ai/gnn_inference/models/mathlib_sexpr_gnn/pointer-gat-gru" ] || \
-    [ -d "$DATA_ROOT/maths_ai/gnn_inference/models/mathlib_sexpr_gnn/tactic-baseline-gat" ] || \
-    [ -d "$DATA_ROOT/gnn_inference/runs/premise_gnn" ] || \
-    [ -d "$DATA_ROOT/gnn_inference/runs/pointer_gnn" ] || \
-   [ -d "$DATA_ROOT/gnn_inference/runs/lemma_corpus_v1" ]; then
-    ASSETS_EXIST=true
-fi
-
-# Also check for .snapshot_revision marker files
-if [ -f "$DATA_ROOT/maths_ai/gnn_inference/models/mathlib_sexpr_gnn/.snapshot_revision" ] || \
-    [ -f "$DATA_ROOT/gnn_inference/runs/premise_gnn/.snapshot_revision" ] || \
-    [ -f "$DATA_ROOT/gnn_inference/runs/pointer_gnn/.snapshot_revision" ] || \
-   [ -f "$DATA_ROOT/gnn_inference/runs/lemma_corpus_v1/.snapshot_revision" ]; then
+# Only a complete clean-root v2 snapshot counts as pre-loaded.
+if [ -f "$DATA_ROOT/maths_ai/gnn_inference/models/mathlib_sexpr_gnn/bundle.json" ] && \
+   [ -f "$DATA_ROOT/maths_ai/gnn_inference/models/mathlib_sexpr_gnn/.snapshot_revision" ] && \
+   [ "$(cat "$DATA_ROOT/maths_ai/gnn_inference/models/mathlib_sexpr_gnn/.snapshot_revision")" = "$EXPECTED_REVISION" ]; then
     ASSETS_EXIST=true
 fi
 
