@@ -890,9 +890,10 @@ class RoundLoopTests(unittest.TestCase):
         model = _make_model(node_vocab)
         inner = _make_reasoner(model, node_vocab, _QEDExecutor(), top_k=2)
         reasoner = _RaisingReasoner(inner, raise_on={1})  # second theorem dies
-        results, stats = asyncio.run(
+        collected = asyncio.run(
             collect_round(reasoner, _items(3), timeout_s=10.0, proposals=_proposals(3))
         )
+        results, stats = collected.results, collected.stats
         self.assertEqual(stats["attempted"], 3.0)
         self.assertEqual(stats["collected"], 2.0)
         self.assertEqual(stats["searches_failed"], 1.0)
@@ -1209,6 +1210,13 @@ class EvaluationSettingsTests(unittest.TestCase):
             best = torch.load(run_dir / "best.pt", weights_only=False)
             self.assertEqual(best["evaluation_contract"], cfg.evaluation_settings().contract())
             self.assertEqual(best["rl_target_schema_version"], 4)
+            archive = Path(evaluation["archive"])
+            manifest = json.loads((archive / "evaluation.json").read_text())
+            self.assertEqual(manifest["status"], "completed")
+            self.assertEqual(manifest["exported_proofs"], evaluation["solved"])
+            attempts = [json.loads(line) for line in (archive / "attempts.jsonl").read_text().splitlines()]
+            self.assertEqual({row["repeat"] for row in attempts}, {0, 1})
+            self.assertEqual(len(attempts), 4)
 
     def test_resume_rejects_a_changed_evaluation_contract(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1307,7 +1315,8 @@ class InadmissibleRootTests(unittest.TestCase):
     def test_an_inadmissible_root_is_not_a_failed_search(self):
         node_vocab = _build_node_vocab()
         reasoner = _make_reasoner(_make_model(node_vocab), node_vocab, _InadmissibleExecutor())
-        results, stats = asyncio.run(collect_round(reasoner, _items(2), timeout_s=10.0, proposals=_proposals(2)))
+        collected = asyncio.run(collect_round(reasoner, _items(2), timeout_s=10.0, proposals=_proposals(2)))
+        results, stats = collected.results, collected.stats
         self.assertEqual(results, [])
         self.assertEqual(stats["seeds_inadmissible"], 2.0)
         self.assertEqual(stats["searches_failed"], 0.0)
@@ -1620,3 +1629,54 @@ class LivePoolDriverTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EvaluationArchiveDriverTests(unittest.TestCase):
+    def test_eval_only_exports_to_requested_directory_without_training(self):
+        from contextlib import asynccontextmanager
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        with tempfile.TemporaryDirectory() as temporary:
+            tmp = Path(temporary)
+            cfg = _write_config(tmp, num_rounds=1)
+            vocab = _build_node_vocab()
+            reasoner = _make_reasoner(_make_model(vocab), vocab, _QEDExecutor(), top_k=2)
+            theorem_pool = TheoremPool(_items(20), eval_pool_size=2, curriculum_size=4, seed=0)
+
+            class Pool:
+                primary = reasoner
+                pln_identity = None
+
+                def assert_generation(self, generation):
+                    assert generation == 0
+
+                async def collect_round(self, batch, **kwargs):
+                    return await collect_round(reasoner, batch, **kwargs)
+
+            @asynccontextmanager
+            async def runtime_context():
+                yield SimpleNamespace(pool=Pool(), env=None, policy=SimpleNamespace(checkpoint_sha256="loaded-policy-digest"))
+
+            async def open_runtime(cfg):
+                return runtime_context()
+
+            target = tmp / "export"
+            aggregate = tmp / "report.json"
+            with (
+                patch.object(RLTrainingConfig, "from_json", return_value=cfg),
+                patch.object(rl_training_driver, "open_live_runtime", open_runtime),
+                patch.object(rl_training_driver, "build_theorem_pool", AsyncMock(return_value=theorem_pool)),
+                patch.object(rl_training_driver, "train_step_onpolicy") as update,
+            ):
+                rl_training_driver.driver_main([
+                    "--config", "unused.json", "--eval-only", "--eval-output-dir", str(target),
+                    "--eval-report", str(aggregate),
+                ])
+                update.assert_not_called()
+            manifest = json.loads((target / "evaluation.json").read_text())
+            report = json.loads(aggregate.read_text())
+            self.assertEqual(manifest["status"], "completed")
+            self.assertEqual(manifest["exported_proofs"], report["result"]["solved"])
+            self.assertEqual(report["result"]["archive"], str(target))
+            self.assertEqual(len(list((target / "proofs").glob("*.json"))), report["result"]["solved"])

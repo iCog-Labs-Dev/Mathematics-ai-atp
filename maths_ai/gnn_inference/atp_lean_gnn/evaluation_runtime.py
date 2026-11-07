@@ -16,7 +16,7 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from maths_ai.hybrid_reasoner.hypergraph import (
     PRIOR_ALIAS_POLICY,
@@ -32,15 +32,17 @@ from maths_ai.hybrid_reasoner.proposal import (
     proposal_specs,
 )
 from maths_ai.lean_replay import ReplayInputError
+from maths_ai.hybrid_reasoner.resource_outcomes import resource_from_exception
 from pantograph_async import PantographRequestTimeout, PantographTransportError, PantographResourceError
 
 from .reporting import console_print
-from .rl_live_collection import FATAL_SESSION_ERRORS, LiveReasonerPool
+from .rl_live_collection import FATAL_SESSION_ERRORS, LiveReasonerPool, CollectionRecord, CollectionRound
 from .rl_reasoner import ACTOR_PRIOR, RLHybridReasoner, RLSearchResult
 from .seed_admission import TheoremItem
 
 if TYPE_CHECKING:
     from .rl_training_driver import RLTrainingConfig, TheoremPool
+    from .evaluation_archive import EvaluationArchive
 
 
 def search_settings(cfg: RLTrainingConfig) -> dict[str, object]:
@@ -159,7 +161,8 @@ async def collect_round(
     proposals: list[ProposalSpec],
     reasoner_pool: LiveReasonerPool | None = None,
     model_generation: int = 0,
-) -> tuple[list[RLSearchResult], dict[str, float]]:
+    on_record: Callable[[CollectionRecord], Awaitable[None]] | None = None,
+) -> CollectionRound:
     """Collect with per-theorem fault isolation.
 
     ``proposals[i]`` is the proposal mode and seed of ``batch[i]``'s search.
@@ -182,8 +185,12 @@ async def collect_round(
             timeout_s=timeout_s,
             proposals=proposals,
             model_generation=model_generation,
+            on_record=on_record,
         )
-        return collected.results, {**collected.stats, **search_counters(collected.results)}
+        return CollectionRound(
+            collected.results, collected.records,
+            {**collected.stats, **search_counters(collected.results)},
+        )
     results: list[RLSearchResult] = []
     solved = 0
     failed = 0
@@ -195,24 +202,39 @@ async def collect_round(
         raise ValueError(
             f"Expected one proposal per item: {len(proposals)} for {len(batch)} items."
         )
-    for item, proposal in zip(batch, proposals):
+    records: list[CollectionRecord] = []
+    for index, (item, proposal) in enumerate(zip(batch, proposals)):
+        started = time.perf_counter()
+        resource = None
+        outcome = "error"
+        exception_category = None
+        result = None
         try:
             deadline = time.monotonic() + timeout_s
             async with asyncio.timeout(timeout_s * 1.25):
                 result = await reasoner.prove(item.seed, proposal=proposal, deadline=deadline)
             results.append(result)
+            outcome = "solved" if result.graph.is_solved() else "unsolved"
             if result.graph.end_reason == SearchEndReason.RESOURCE_LIMIT:
                 resource_limited += 1
+                outcome = "resource_limit"
             if result.graph.is_solved():
                 solved += 1
             if result.graph.end_reason == SearchEndReason.DEADLINE:
                 cooperative_deadlines += 1
+                outcome = "cooperative_deadline"
         except ReplayInputError as exc:
             # The seed itself failed to replay: no search ran, so nothing is learned.
             inadmissible += 1
+            outcome = "inadmissible"
+            exception_category = type(exc).__name__
             console_print(f"  [collect] inadmissible seed {_describe(item)}: {exc}")
         except PantographResourceError as exc:
             resource_limited += 1
+            outcome = "resource_limit"
+            exception_category = type(exc).__name__
+            diagnostic = resource_from_exception(exc)
+            resource = diagnostic.as_dict() if diagnostic else None
             server = getattr(reasoner, "server", None)
             if server is not None and not server.is_usable:
                 raise PantographTransportError("Resource error cleanup retired the only client.") from exc
@@ -220,6 +242,8 @@ async def collect_round(
         except (asyncio.TimeoutError, PantographRequestTimeout) as exc:
             failed += 1
             hard_timeouts += 1
+            outcome = "hard_timeout"
+            exception_category = type(exc).__name__
             console_print(f"  [collect] timeout on: {_describe(item)}")
             server = getattr(reasoner, "server", None)
             if server is not None and not server.is_usable:
@@ -231,7 +255,16 @@ async def collect_round(
             raise
         except Exception as exc:  # noqa: BLE001 — a single search may not kill the run
             failed += 1
+            exception_category = type(exc).__name__
             console_print(f"  [collect] error on: {_describe(item)} — {exc}")
+        record = CollectionRecord(
+            batch_index=index, worker_id=0, queue_wait_s=0.0,
+            search_s=time.perf_counter() - started, outcome=outcome,
+            result=result, exception_category=exception_category, resource=resource,
+        )
+        records.append(record)
+        if on_record is not None:
+            await on_record(record)
     stats = {
         "attempted": float(len(batch)),
         "collected": float(len(results)),
@@ -243,7 +276,7 @@ async def collect_round(
         "searches_resource_limited": float(resource_limited),
         **search_counters(results),
     }
-    return results, stats
+    return CollectionRound(results, records, stats)
 
 
 def search_counters(results: list[RLSearchResult]) -> dict[str, float]:
@@ -392,6 +425,7 @@ async def evaluate_proof_rate(
     timeout_s: float = 60.0,
     reasoner_pool: LiveReasonerPool | None = None,
     model_generation: int = 0,
+    archive: EvaluationArchive | None = None,
 ) -> dict[str, Any]:
     """Proof rate on the fixed held-out pool — the model-selection metric.
 
@@ -411,20 +445,28 @@ async def evaluate_proof_rate(
     try:
         for repeat in range(settings.repeats):
             proposals = settings.proposals(eval_items, repeat)
-            _results, stats = await collect_round(
+            async def save_record(record):
+                if archive is not None:
+                    archive.write_attempt(record, eval_items, proposals, repeat)
+
+            collected = await collect_round(
                 reasoner,
                 eval_items,
                 timeout_s=timeout_s,
                 proposals=proposals,
                 reasoner_pool=reasoner_pool,
                 model_generation=model_generation,
+                on_record=save_record if archive is not None else None,
             )
-            repeats.append(repeat_row(repeat, proposals, stats))
+            repeats.append(repeat_row(repeat, proposals, collected.stats))
     finally:
         if was_training:
             reasoner.model.train()
     report = summarize_evaluation(settings, eval_items, repeats)
     report["pln_runtime"] = getattr(reasoner_pool, "pln_identity", None)
+    if archive is not None:
+        report["archive"] = str(archive.path)
+        report["exported_proofs"] = archive.proof_count
     return report
 
 

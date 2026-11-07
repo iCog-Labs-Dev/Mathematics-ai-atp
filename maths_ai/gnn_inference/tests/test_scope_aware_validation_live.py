@@ -12,7 +12,7 @@ from pantograph_async import (
     PantographClient, PantographEnv, PantographProtocolError,
     TRANSITION_VALIDATION_VERSION, TRANSITION_VALIDATION_SCOPE,
 )
-from maths_ai.api.results import graph_view
+from maths_ai.hybrid_reasoner.search_results import graph_view
 from maths_ai.gnn_inference.atp_lean_gnn.evaluation_runtime import (
     collect_round, evaluate_proof_rate, EvaluationSettings,
 )
@@ -114,9 +114,10 @@ def test_rl_collection_and_shared_evaluation_accept_valid_tauto(live_env, policy
                 candidate_provider=LocalCandidateProvider(), use_pln=False, **settings(policy),
             )
             item = TheoremItem(CONJUNCTION, tactic_label="", size=1)
-            results, stats = await collect_round(
+            collected = await collect_round(
                 reasoner, [item], proposals=[ProposalSpec(mode="greedy", seed=0)], timeout_s=60,
             )
+            results, stats = collected.results, collected.stats
             assert stats["solved"] == 1 and len(results) == 1
             assert results[0].certified and results[0].observations
             assert all(o.outcome.value == "accepted" for o in results[0].observations)

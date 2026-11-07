@@ -14,7 +14,7 @@ import pytest
 import torch
 
 from pantograph_async import PantographClient, PantographProtocolError, TRANSITION_VALIDATION_VERSION
-from maths_ai.api.results import graph_view
+from maths_ai.hybrid_reasoner.search_results import graph_view
 from maths_ai.gnn_inference.atp_lean_gnn.evaluation_runtime import (
     collect_round, evaluate_proof_rate, EvaluationSettings,
 )
@@ -134,9 +134,10 @@ def test_learning_update_then_shared_evaluation_accepts_compiler_tactics(live_en
                 candidate_provider=LocalCandidateProvider(), use_pln=False, **settings(policy),
             )
             item = TheoremItem(POW, tactic_label="", size=1)
-            results, stats = await collect_round(
+            collected = await collect_round(
                 reasoner, [item], proposals=[ProposalSpec(mode="sample", seed=0)], timeout_s=60,
             )
+            results, stats = collected.results, collected.stats
             assert stats["solved"] == 1 and results[0].certified
             assert all(o.outcome.value == "accepted" for o in results[0].observations)
             optimizer = torch.optim.AdamW(model.parameters(), lr=0.01)

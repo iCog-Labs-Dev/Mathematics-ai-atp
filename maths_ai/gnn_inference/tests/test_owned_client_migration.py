@@ -361,5 +361,16 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
         if entry["path"] in expected:
             assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
         expected[entry["path"]] = entry["sha256"]
+    proof_export = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "evaluation_proof_export/source_manifest.json").read_text()
+    )
+    for entry in proof_export["sources"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        if entry["sha256"] is None:
+            expected.pop(entry["path"], None)
+            assert not (root / entry["path"]).exists(), entry["path"]
+        else:
+            expected[entry["path"]] = entry["sha256"]
     for path, digest in expected.items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path

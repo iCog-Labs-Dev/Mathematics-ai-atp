@@ -35,7 +35,7 @@ from maths_ai.hybrid_reasoner.proposal import proposal_specs, input_identity
 from maths_ai.lean_replay import ReplayInputError, seed_from_text
 
 from .config import DatasetProfile, SearchProfile, ServiceConfig
-from .results import plain, record_view
+from maths_ai.hybrid_reasoner.search_results import plain, record_view
 
 
 class BackendError(RuntimeError):

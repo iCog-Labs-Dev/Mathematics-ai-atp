@@ -729,3 +729,29 @@ def test_rebind_is_rejected_during_collection_and_while_searching():
                 pool.rebind(lambda *args: _Reasoner(*args[:1], args[2], args[3]))
 
     asyncio.run(run())
+
+
+def test_completion_observer_is_incremental_and_errors_abort_collection():
+    async def run():
+        pool, _model, _servers = await _create_pool(workers=2, delays={"slow": 0.05})
+        seen = []
+        async def observe(record):
+            seen.append(record.batch_index)
+        try:
+            collected = await pool.collect_round(
+                ["slow", "solve-fast"], timeout_s=1, model_generation=0,
+                proposals=[None, None], on_record=observe,
+            )
+            assert seen == [1, 0]
+            assert [record.batch_index for record in collected.records] == [0, 1]
+            async def fail(record):
+                raise OSError("archive unavailable")
+            with pytest.raises(OSError, match="archive unavailable"):
+                await pool.collect_round(
+                    ["solve-fast", "slow"], timeout_s=1, model_generation=0,
+                    proposals=[None, None], on_record=fail,
+                )
+            assert not pool._collecting
+        finally:
+            await pool.close()
+    asyncio.run(run())

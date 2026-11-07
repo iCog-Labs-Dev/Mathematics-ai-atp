@@ -72,7 +72,9 @@ from .seed_admission import (
     write_report,
 )
 from .training import load_prepared_metadata
+from .evaluation_archive import EvaluationArchive
 from .evaluation_runtime import (
+    subset_identity,
     EvaluationSettings,
     _searched,
     collect_round,
@@ -883,7 +885,7 @@ async def _run_rl_training_impl(
             console_print(f"Round {round_idx}: empty curriculum window — stopping.")
             break
 
-        results, collect_stats = await collect_round(
+        collected = await collect_round(
             reasoner,
             batch,
             timeout_s=cfg.theorem_timeout_s,
@@ -892,6 +894,7 @@ async def _run_rl_training_impl(
             model_generation=model_generation,
         )
 
+        results, collect_stats = collected.results, collected.stats
         bc_weight = bc_weight_at_round(onpolicy_steps, cfg)
         onpolicy_started = time.perf_counter()
         if results:
@@ -1097,14 +1100,37 @@ async def _run_rl_training_impl(
         if cfg.eval_every > 0 and (round_idx + 1) % cfg.eval_every == 0 and pool.eval_items:
             if live_reasoner_pool is not None:
                 live_reasoner_pool.assert_generation(model_generation)
-            eval_stats = await evaluate_proof_rate(
-                reasoner,
-                pool.eval_items,
-                settings=cfg.evaluation_settings(),
-                timeout_s=cfg.theorem_timeout_s,
-                reasoner_pool=live_reasoner_pool,
-                model_generation=model_generation,
-            )
+            archive = EvaluationArchive.unique(run_dir / "evaluation", f"round-{round_idx:06d}", {
+                "kind": "periodic", "round": round_idx, "run_dir": str(run_dir),
+                "model_generation": model_generation,
+                "initial_checkpoint": str(cfg.warmstart_checkpoint),
+                "initial_checkpoint_sha256": policy.checkpoint_sha256,
+                "search_settings": search_settings(cfg),
+                "evaluation": cfg.evaluation_settings().contract(),
+                "eval_subset_sha256": subset_identity(pool.eval_items),
+                "theorem_timeout_s": cfg.theorem_timeout_s,
+            })
+            console_print(f"Evaluation archive: {archive.path}")
+            try:
+                eval_stats = await evaluate_proof_rate(
+                    reasoner,
+                    pool.eval_items,
+                    settings=cfg.evaluation_settings(),
+                    timeout_s=cfg.theorem_timeout_s,
+                    reasoner_pool=live_reasoner_pool,
+                    model_generation=model_generation,
+                    archive=archive,
+                )
+                archive.complete(evaluation_report(
+                    cfg, eval_stats, pool=pool, checkpoint=None,
+                    model_generation=model_generation,
+                ))
+            except BaseException as exc:
+                try:
+                    archive.fail(exc)
+                except OSError as export_error:
+                    exc.add_note(f"Could not mark evaluation archive failed: {export_error}")
+                raise
             console_print(
                 f"  Eval ({cfg.eval_proposal_mode}, {cfg.eval_repeats} repeat(s)): "
                 f"proof rate {eval_stats['proof_rate']:.3f}"
@@ -1187,6 +1213,8 @@ def driver_main(argv: list[str] | None = None) -> int:
                         help="Seeded passes over the evaluation pool (default: eval_repeats)")
     parser.add_argument("--eval-report", type=str, default=None,
                         help="New JSON file for the --eval-only report (never overwritten)")
+    parser.add_argument("--eval-output-dir", type=str, default=None,
+                        help="New directory for per-attempt evaluation traces (never overwritten)")
     args = parser.parse_args(argv)
 
     cfg = RLTrainingConfig.from_json(args.config)
@@ -1199,6 +1227,10 @@ def driver_main(argv: list[str] | None = None) -> int:
     )
     if args.eval_report and not args.eval_only:
         parser.error("--eval-report applies to --eval-only; periodic results go to metrics.jsonl")
+    if args.eval_output_dir and not args.eval_only:
+        parser.error("--eval-output-dir applies to --eval-only")
+    if args.eval_output_dir and Path(args.eval_output_dir).exists():
+        parser.error("--eval-output-dir already exists; archives are never overwritten")
     report_path = Path(args.eval_report) if args.eval_report else None
     if report_path is not None and report_path.exists():
         parser.error(f"--eval-report {report_path} already exists; reports are never overwritten")
@@ -1213,14 +1245,38 @@ def driver_main(argv: list[str] | None = None) -> int:
                 live_pool = runtime.pool
                 theorem_pool = await build_theorem_pool(cfg, runtime.env)
                 live_pool.assert_generation(0)
-                stats = await evaluate_proof_rate(
-                    live_pool.primary,
-                    theorem_pool.eval_items,
-                    settings=settings,
-                    timeout_s=cfg.theorem_timeout_s,
-                    reasoner_pool=live_pool,
-                    model_generation=0,
-                )
+                provenance = {
+                    "kind": "standalone", "model_generation": 0,
+                    "checkpoint": str(cfg.warmstart_checkpoint),
+                    "checkpoint_sha256": runtime.policy.checkpoint_sha256,
+                    "search_settings": search_settings(cfg), "evaluation": settings.contract(),
+                    "eval_subset_sha256": subset_identity(theorem_pool.eval_items),
+                    "theorem_timeout_s": cfg.theorem_timeout_s,
+                }
+                archive = (EvaluationArchive(Path(args.eval_output_dir), provenance)
+                           if args.eval_output_dir else
+                           EvaluationArchive.unique(cfg.run_root / "evaluations", "eval", provenance))
+                console_print(f"Evaluation archive: {archive.path}")
+                try:
+                    stats = await evaluate_proof_rate(
+                        live_pool.primary,
+                        theorem_pool.eval_items,
+                        settings=settings,
+                        timeout_s=cfg.theorem_timeout_s,
+                        reasoner_pool=live_pool,
+                        model_generation=0,
+                        archive=archive,
+                    )
+                    archive.complete(evaluation_report(
+                        cfg, stats, pool=theorem_pool,
+                        checkpoint=str(cfg.warmstart_checkpoint), model_generation=0,
+                    ))
+                except BaseException as exc:
+                    try:
+                        archive.fail(exc)
+                    except OSError as export_error:
+                        exc.add_note(f"Could not mark evaluation archive failed: {export_error}")
+                    raise
                 for row in stats["repeats"]:
                     console_print(
                         f"  repeat {row['repeat']}: proof rate {row['proof_rate']:.3f} "

@@ -451,6 +451,7 @@ class LiveReasonerPool:
         timeout_s: float,
         model_generation: int,
         proposals: Sequence[Any],
+        on_record: Callable[[CollectionRecord], Awaitable[None]] | None = None,
     ) -> CollectionRound:
         """Collect one bounded round and return records in input order.
 
@@ -458,7 +459,9 @@ class LiveReasonerPool:
         including a replacement worker, so an item's draws do not depend on
         scheduling. The round runs as one task that shutdown can cancel and
         join, and the pool rejects an overlapping round or a weight update
-        while it runs.
+        while it runs. The awaited completion observer runs outside search
+        fault isolation; persistence errors abort collection rather than
+        becoming theorem failures.
         """
         if len(proposals) != len(batch):
             raise ValueError(
@@ -473,6 +476,7 @@ class LiveReasonerPool:
                 timeout_s=timeout_s,
                 model_generation=model_generation,
                 proposals=proposals,
+                on_record=on_record,
             ),
             name="pantograph-pool-collection",
         )
@@ -489,6 +493,7 @@ class LiveReasonerPool:
         timeout_s: float,
         model_generation: int,
         proposals: Sequence[Any],
+        on_record: Callable[[CollectionRecord], Awaitable[None]] | None = None,
     ) -> CollectionRound:
 
         if self._closed:
@@ -523,6 +528,7 @@ class LiveReasonerPool:
                 index, theorem, enqueued_at = item
                 search_started = time.perf_counter()
                 queue_wait = search_started - enqueued_at
+                record = None
                 backstop = asyncio.timeout(timeout_s * 1.25)
                 try:
                     cooperative_deadline = time.monotonic() + timeout_s
@@ -539,28 +545,24 @@ class LiveReasonerPool:
                         outcome = "resource_limit"
                     else:
                         outcome = "solved" if self.is_solved(result) else "unsolved"
-                    records.append(
-                        CollectionRecord(
-                            batch_index=index,
-                            worker_id=worker.worker_id,
-                            queue_wait_s=queue_wait,
-                            search_s=time.perf_counter() - search_started,
-                            outcome=outcome,
-                            result=result,
-                        )
+                    record = CollectionRecord(
+                        batch_index=index,
+                        worker_id=worker.worker_id,
+                        queue_wait_s=queue_wait,
+                        search_s=time.perf_counter() - search_started,
+                        outcome=outcome,
+                        result=result,
                     )
                 except ReplayInputError as exc:
                     # A property of the theorem, not of the session: the
                     # client stays usable, so the worker is kept.
-                    records.append(
-                        CollectionRecord(
-                            batch_index=index,
-                            worker_id=worker.worker_id,
-                            queue_wait_s=queue_wait,
-                            search_s=time.perf_counter() - search_started,
-                            outcome="inadmissible",
-                            exception_category=exc.reason.value,
-                        )
+                    record = CollectionRecord(
+                        batch_index=index,
+                        worker_id=worker.worker_id,
+                        queue_wait_s=queue_wait,
+                        search_s=time.perf_counter() - search_started,
+                        outcome="inadmissible",
+                        exception_category=exc.reason.value,
                     )
                     self.log(
                         f"  [collect worker={worker.worker_id}] inadmissible seed: {exc}"
@@ -572,16 +574,14 @@ class LiveReasonerPool:
                         exc, (asyncio.TimeoutError, PantographRequestTimeout)
                     )
                     diagnostic = resource_from_exception(exc)
-                    records.append(
-                        CollectionRecord(
-                            batch_index=index,
-                            worker_id=worker.worker_id,
-                            queue_wait_s=queue_wait,
-                            search_s=time.perf_counter() - search_started,
-                            outcome="resource_limit" if diagnostic else ("hard_timeout" if hard_timeout else "error"),
-                            exception_category=type(exc).__name__,
-                            resource=diagnostic.as_dict() if diagnostic else None,
-                        )
+                    record = CollectionRecord(
+                        batch_index=index,
+                        worker_id=worker.worker_id,
+                        queue_wait_s=queue_wait,
+                        search_s=time.perf_counter() - search_started,
+                        outcome="resource_limit" if diagnostic else ("hard_timeout" if hard_timeout else "error"),
+                        exception_category=type(exc).__name__,
+                        resource=diagnostic.as_dict() if diagnostic else None,
                     )
                     if isinstance(exc, PantographResourceError) and worker.server.is_usable:
                         self.log(f"  [collect worker={worker.worker_id}] resource-limited root; session retained")
@@ -608,20 +608,24 @@ class LiveReasonerPool:
                 except FATAL_SESSION_ERRORS:
                     raise
                 except Exception as exc:
-                    records.append(
-                        CollectionRecord(
-                            batch_index=index,
-                            worker_id=worker.worker_id,
-                            queue_wait_s=queue_wait,
-                            search_s=time.perf_counter() - search_started,
-                            outcome="error",
-                            exception_category=type(exc).__name__,
-                        )
+                    record = CollectionRecord(
+                        batch_index=index,
+                        worker_id=worker.worker_id,
+                        queue_wait_s=queue_wait,
+                        search_s=time.perf_counter() - search_started,
+                        outcome="error",
+                        exception_category=type(exc).__name__,
                     )
                     self.log(
                         f"  [collect worker={worker.worker_id}] "
                         f"{type(exc).__name__}: {exc}"
                     )
+
+                finally:
+                    if record is not None:
+                        records.append(record)
+                        if on_record is not None:
+                            await on_record(record)
 
         producer = asyncio.create_task(produce())
         tasks = [asyncio.create_task(run_worker(worker)) for worker in workers]
