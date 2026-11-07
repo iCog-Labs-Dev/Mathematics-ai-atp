@@ -166,6 +166,52 @@ def test_health_degraded_when_initialization_failed():
         assert "checkpoint missing" in body["error"]
 
 
+def test_health_reports_degraded_when_petta_not_ready():
+    """PeTTa failing its startup probe must downgrade readiness, not masquerade."""
+    reasoner = SimpleNamespace(
+        gnn_engine=FakeGnnEngine(),
+        petta_chainer=SimpleNamespace(
+            evaluate=lambda expression, hypotheses=None: PLNResult(
+                stv=STV(strength=0.0, confidence=0.0),
+                status="petta_unavailable",
+                is_fallback=True,
+            ),
+            is_available=False,
+            initialization_error="PeTTa startup probe failed: petta_unavailable",
+        ),
+        dts_sampler=None,
+    )
+    service = InferenceService(reasoner=reasoner)
+
+    async def factory():
+        return service
+
+    with TestClient(create_app(service_factory=factory)) as client:
+        response = client.get("/health")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ready"] is False
+        assert body["status"] == "degraded"
+        assert body["petta_available"] is False
+        assert "PeTTa startup probe failed" in body["error"]
+
+
+def test_health_exposes_petta_when_available(api, tmp_path: Path):
+    class AvailablePln(FakePlnChainer):
+        is_available = True
+        initialization_error = None
+
+    api.reasoner.petta_chainer = AvailablePln()
+
+    response = api.client.get("/health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["ready"] is True
+    assert body["petta_available"] is True
+
+
 def test_endpoints_return_503_while_uninitialized():
     async def failing_factory():
         raise RuntimeError("checkpoint missing")
