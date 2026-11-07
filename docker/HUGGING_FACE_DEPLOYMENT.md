@@ -22,10 +22,10 @@ Run all commands on the Docker host from the application repository root. If you
 
 ## Release identifiers and the upload receipt
 
-The default model repository is **`iCogLabs-Dev/Mathlib-Sexpr-GNN`**. Its serving releases use this layout:
+The repository used in this guide is **`iCogLabs-Dev/Lean-Proof-Search-Checkpoints`**. Pass it explicitly through `--repo` when fetching; the CLI still defaults to the older repository. Its serving releases use this layout:
 
 ```text
-deployments/mcts/v2.0.1/
+deployments/mcts/v1.0.0/
 ├── release.json
 ├── README.md
 ├── artifacts/
@@ -45,7 +45,7 @@ Obtain these values from the release publisher:
 | Value | Meaning |
 | --- | --- |
 | Model repository | Hugging Face model repository containing the release |
-| Version | Release prefix version, for example `v2.0.1` |
+| Version | Release prefix version, for example `v1.0.0` |
 | Full release commit | Exact 40-character Hugging Face commit to download; this is not the application GitHub commit |
 | Manifest SHA-256 | Trusted checksum of the published `release.json`, preferably provided through release notes or another trusted channel |
 | Application revision | Compatible GitHub code revision used to build the service image |
@@ -100,8 +100,8 @@ The build does not download the model release. The commands below perform that o
 Replace the commit and checksum placeholders with real values. These exports apply to your current terminal:
 
 ```bash
-export HF_MODEL_REPO="iCogLabs-Dev/Mathlib-Sexpr-GNN"
-export HF_RELEASE_VERSION="v2.0.1"
+export HF_MODEL_REPO="iCogLabs-Dev/Lean-Proof-Search-Checkpoints"
+export HF_RELEASE_VERSION="v1.0.0"
 export HF_RELEASE_COMMIT="REPLACE_WITH_FULL_HUGGING_FACE_COMMIT"
 export HF_RELEASE_MANIFEST="REPLACE_WITH_RELEASE_JSON_SHA256"
 
@@ -147,7 +147,7 @@ For a private or restricted repository, provide an externally set `HF_TOKEN` wit
 If the command fails, stop here and inspect its error. Do not start the API against a partial download. The error identifies a retained backing directory for retry. Rerun the same download command with an additional argument after the output argument:
 
 ```text
---resume /downloads/.v2.0.1.bundle-REPLACE_WITH_RETAINED_DIRECTORY
+--resume /downloads/.v1.0.0.bundle-REPLACE_WITH_RETAINED_DIRECTORY
 ```
 
 Use the actual **container path** printed by the failed download, with the same host mount and original arguments. Completed verified files are reused. A new invocation without `--resume` can allocate another backing directory and consume more space.
@@ -156,12 +156,12 @@ After success, the host layout is approximately:
 
 ```text
 $DEPLOY_PARENT/
-├── .v2.0.1.bundle-<unique-id>/
+├── .v1.0.0.bundle-<unique-id>/
 │   ├── artifacts/
 │   ├── config/
 │   ├── release.json
 │   └── download-receipt.json
-└── v2.0.1 -> .v2.0.1.bundle-<unique-id>
+└── v1.0.0 -> .v1.0.0.bundle-<unique-id>
 ```
 
 Keep the hidden backing directory. Deleting it breaks the published deployment link. `download-receipt.json` is generated on the deployment host and records verified download identities; it is distinct from the uploader's local `upload-receipt.json`.

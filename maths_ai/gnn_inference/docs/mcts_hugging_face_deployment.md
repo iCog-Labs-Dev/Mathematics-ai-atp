@@ -6,7 +6,7 @@ The local `upload-receipt.json` described below is specific to publishing;
 deployment users can obtain the release commit and manifest digest from the
 publisher without receiving that receipt.
 
-The upload command publishes a selected RL checkpoint and its matching serving artifacts to a **new branch** in `iCogLabs-Dev/Mathlib-Sexpr-GNN`. The default release is `v2.0.1`. It preserves `main`, earlier versions, and unrelated inherited files. It does not create a tag with the same name.
+The upload command publishes a selected RL checkpoint and its matching serving artifacts to a **new branch** in `iCogLabs-Dev/Lean-Proof-Search-Checkpoints`. The examples explicitly select release `v1.0.0`; the CLI defaults remain unchanged, so supply both `--repo` and `--version`. It preserves `main`, earlier versions, and unrelated inherited files. It does not create a tag with the same name.
 
 The download command verifies every file and the model/retrieval bindings, then exposes a persistent deployment directory for the existing Docker mounts. Neither API startup nor the Docker image build automatically downloads this release.
 
@@ -30,12 +30,35 @@ conda activate atp-mcts
 cd /home/jovyan/Nol/Mathematics-ai-atp
 
 python - <<'PY'
+from getpass import getpass
 from huggingface_hub import login
-login()
+login(token=getpass("Hugging Face token: "), add_to_git_credential=False)
 PY
 ```
 
-Enter a token with write access to `iCogLabs-Dev/Mathlib-Sexpr-GNN`. Do not paste it into a script or a committed JSON file. Existing Hugging Face login or an externally supplied `HF_TOKEN` also works. A public release can be downloaded without that write token; use a read token when private access is required.
+Enter a token with write access to `iCogLabs-Dev/Lean-Proof-Search-Checkpoints`. Do not paste it into a script or a committed JSON file. Existing Hugging Face login or an externally supplied `HF_TOKEN` also works. A public release can be downloaded without that write token; use a read token when private access is required.
+
+## Create the organization repository once
+
+If this repository has not been created yet, run the following while logged in with the account that will publish its releases. It creates a private model repository and refuses an existing name:
+
+```bash
+python - <<'PYCREATE'
+from huggingface_hub import HfApi
+print(HfApi().create_repo(
+    repo_id="iCogLabs-Dev/Lean-Proof-Search-Checkpoints",
+    repo_type="model",
+    private=True,
+    exist_ok=False,
+))
+PYCREATE
+```
+
+An organization Contributor normally has write access to repositories they create, subject to organization policies and token scopes. For a private repository, deployment hosts also need a token with read access.
+
+Release names must have the form `v1.0.0`. The publisher uses that name for both the branch and `deployments/mcts/v1.0.0/`; names such as `puct-no-pln-v1` are rejected. Use separate version numbers for PUCT and best-first checkpoints and describe each run in the repository overview. The current publisher does not accept a separate descriptive branch name. Both search profiles can use the same compatible checkpoint.
+
+Keep old receipts and choose a fresh receipt directory for a different destination or release. This tool publishes directly to a new version branch; PR submission is not supported.
 
 ## 2. Select the run and generate a local plan
 
@@ -44,13 +67,14 @@ Replace the timestamp below with the actual completed run directory printed by R
 ```bash
 export RUN="/home/jovyan/Nol/Mathematics-ai-atp/runs/rl_puct_no_pln_full/REPLACE_WITH_RUN_TIMESTAMP"
 export CHECKPOINT="$RUN/last.pt"
-export RECEIPT="$HOME/mcts-release-receipts/v2.0.1"
+export RECEIPT="$HOME/mcts-release-receipts/v1.0.0"
 
 python -m maths_ai.gnn_inference.scripts.publish_mcts_deployment \
+  --repo iCogLabs-Dev/Lean-Proof-Search-Checkpoints \
   --run-dir "$RUN" \
   --checkpoint "$CHECKPOINT" \
   --receipt-dir "$RECEIPT" \
-  --version v2.0.1 \
+  --version v1.0.0 \
   --device cpu
 ```
 
@@ -70,26 +94,27 @@ prepared/metadata/graph_representation.json
 
 Prepared graph shards and retrieval training caches are excluded. The complete exported query artifact, six index files including its deployment manifest, corpus, and declaration inventory are included.
 
-## 3. Publish v2.0.1
+## 3. Publish v1.0.0
 
 Run the same command with `--upload`:
 
 ```bash
 python -m maths_ai.gnn_inference.scripts.publish_mcts_deployment \
+  --repo iCogLabs-Dev/Lean-Proof-Search-Checkpoints \
   --run-dir "$RUN" \
   --checkpoint "$CHECKPOINT" \
   --receipt-dir "$RECEIPT" \
-  --version v2.0.1 \
+  --version v1.0.0 \
   --device cpu \
   --upload
 ```
 
-The tool creates `v2.0.1` from the resolved `main` commit and adds the release in one parent-commit-protected commit. It refuses an existing version unless the same local receipt proves a retry of this operation. Retry an interrupted upload using the identical command and receipt directory. If source files, generated configuration, application provenance, or manifest contents change, use a fresh receipt and a new release name when the previous version has already been published. Never remove the receipt to force an existing release overwrite.
+The tool creates `v1.0.0` from the resolved `main` commit and adds the release in one parent-commit-protected commit. It refuses an existing version unless the same local receipt proves a retry of this operation. Retry an interrupted upload using the identical command and receipt directory. If source files, generated configuration, application provenance, or manifest contents change, use a fresh receipt and a new release name when the previous version has already been published. Never remove the receipt to force an existing release overwrite.
 
 The resulting branch contains:
 
 ```text
-deployments/mcts/v2.0.1/
+deployments/mcts/v1.0.0/
 ├── release.json
 ├── README.md
 ├── artifacts/
@@ -127,15 +152,16 @@ PY
 )"
 
 python -m maths_ai.gnn_inference.scripts.fetch_mcts_deployment \
+  --repo iCogLabs-Dev/Lean-Proof-Search-Checkpoints \
   --revision "$HF_RELEASE_COMMIT" \
   --manifest-sha256 "$HF_RELEASE_MANIFEST" \
-  --version v2.0.1 \
-  --output /home/jovyan/mcts-deployments/v2.0.1
+  --version v1.0.0 \
+  --output /home/jovyan/mcts-deployments/v1.0.0
 ```
 
 Use persistent storage, not `/tmp`. Downloading on the same JupyterHub host still needs space for the downloaded copy. On a different deployment host, transfer the small upload receipt or securely provide its commit and manifest digest, then run the same fetch command there. You do not need the source training run on the download host.
 
-If interrupted, the error identifies the retained backing directory. Rerun with the identical arguments plus `--resume /absolute/path/to/.v2.0.1.bundle-...`. Verified completed files are reused. A corrupt existing file is rejected rather than silently accepted. After success the output is a relative symlink to its hidden sibling backing directory; **retain that sibling directory**. Do not move or delete it independently.
+If interrupted, the error identifies the retained backing directory. Rerun with the identical arguments plus `--resume /absolute/path/to/.v1.0.0.bundle-...`. Verified completed files are reused. A corrupt existing file is rejected rather than silently accepted. After success the output is a relative symlink to its hidden sibling backing directory; **retain that sibling directory**. Do not move or delete it independently.
 
 The default maximum declared serving size is 100 GiB. Set `--max-bytes` explicitly if a valid release exceeds that bound. Existing unrelated output paths are never replaced.
 
@@ -144,16 +170,16 @@ The default maximum declared serving size is 100 GiB. Set `--max-bytes` explicit
 Run from the application repository on a host with Docker access:
 
 ```bash
-MATHS_AI_ARTIFACTS=/home/jovyan/mcts-deployments/v2.0.1/artifacts \
-MATHS_AI_CONFIG=/home/jovyan/mcts-deployments/v2.0.1/config \
+MATHS_AI_ARTIFACTS=/home/jovyan/mcts-deployments/v1.0.0/artifacts \
+MATHS_AI_CONFIG=/home/jovyan/mcts-deployments/v1.0.0/config \
 docker compose up --build mcts-api
 ```
 
 For a release generated with `--device cuda:0`, use the GPU service on a host with the NVIDIA container runtime:
 
 ```bash
-MATHS_AI_ARTIFACTS=/home/jovyan/mcts-deployments/v2.0.1/artifacts \
-MATHS_AI_CONFIG=/home/jovyan/mcts-deployments/v2.0.1/config \
+MATHS_AI_ARTIFACTS=/home/jovyan/mcts-deployments/v1.0.0/artifacts \
+MATHS_AI_CONFIG=/home/jovyan/mcts-deployments/v1.0.0/config \
 docker compose --profile gpu up --build mcts-api-gpu
 ```
 
@@ -173,13 +199,14 @@ docker run --rm \
   -v /home/jovyan/mcts-deployments:/downloads \
   maths-ai-mcts-api \
   -m maths_ai.gnn_inference.scripts.fetch_mcts_deployment \
+  --repo iCogLabs-Dev/Lean-Proof-Search-Checkpoints \
   --revision "$HF_RELEASE_COMMIT" \
   --manifest-sha256 "$HF_RELEASE_MANIFEST" \
-  --version v2.0.1 \
-  --output /downloads/v2.0.1
+  --version v1.0.0 \
+  --output /downloads/v1.0.0
 ```
 
-The container's `/downloads/v2.0.1` appears at `/home/jovyan/mcts-deployments/v2.0.1` on the host. A failed download prints a container path for `--resume`; rerun the same initialization container with that path. After it succeeds, start Compose with the host mounts above. The API entrypoint is deliberately bypassed for initialization because no model config is mounted yet.
+The container's `/downloads/v1.0.0` appears at `/home/jovyan/mcts-deployments/v1.0.0` on the host. A failed download prints a container path for `--resume`; rerun the same initialization container with that path. After it succeeds, start Compose with the host mounts above. The API entrypoint is deliberately bypassed for initialization because no model config is mounted yet.
 
 For private releases, supply an externally set read token with `-e HF_TOKEN` to this initialization container. Do not put it in the Dockerfile or image. Public releases do not require passing a token. The API does not need the upload token to serve files already downloaded.
 

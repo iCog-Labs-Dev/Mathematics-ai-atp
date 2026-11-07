@@ -1,0 +1,20 @@
+{
+  "kind": "mcts-hub-repository-documentation",
+  "sources": [
+    {
+      "path": "docker/HUGGING_FACE_DEPLOYMENT.md",
+      "target_base_sha256": "f1ac2047402df25f5d2511052913255c8755852d50621a2ea7fdc650218c5d5b",
+      "sha256": "f3f7c2c8c9f98b5c4dd941003a07b3f62e8e74284e9c1b97b9497c17363c4088"
+    },
+    {
+      "path": "maths_ai/gnn_inference/docs/mcts_hugging_face_deployment.md",
+      "target_base_sha256": "5d474e18648e0a24f848ea5ff3786568f09dbe35c26ce1b1deca81cec99b6beb",
+      "sha256": "d12a58625c9386f8f0d426807f3eaba10822080b48792bbf76f575ea8c25384d"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
+      "target_base_sha256": "438bb5263e3c471b83764f5b514cdceb832f51c050d9d2b797933518d1a5ec75",
+      "sha256": "56d9e648dd200995de85b03c10914cce964a8ae1d7ed1f195cf2c3bd031eec67"
+    }
+  ]
+}
