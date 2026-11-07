@@ -53,6 +53,19 @@ def _extract_fresh_names_from_dag(dag: DAGBuilder) -> list[str]:
     ]
 
 
+def _fresh_arguments_for_tactic(
+    tactic_name: str,
+    fresh_names: list[str],
+    required_arity: int,
+) -> list[str] | None:
+    """Return fresh-name arguments, allowing Lean's bare ``intro`` form."""
+    if not fresh_names and tactic_name == "intro":
+        return []
+    if len(fresh_names) < required_arity:
+        return None
+    return fresh_names
+
+
 def _top_tactic_candidates(
     tactic_probs: torch.Tensor,
     id_to_tactic: dict[int, str],
@@ -240,6 +253,11 @@ class InferencePipeline:
             # ── Tactic-aware argument filtering ──────────────────────────
             if tactic_name in _FRESH_NAME_TACTICS:
                 fresh_names = _extract_fresh_names_from_dag(dag)
+                fresh_arguments = _fresh_arguments_for_tactic(tactic_name, fresh_names, arity)
+                if fresh_arguments is None:
+                    filtered_candidate_count += 1
+                    filtered_arity_count += 1
+                    continue
                 if len(fresh_names) < arity:
                     filtered_candidate_count += 1
                     filtered_arity_count += 1
@@ -249,10 +267,10 @@ class InferencePipeline:
                         "tactic_id": tactic_id,
                         "tactic_name": tactic_name,
                         "probability": float(candidate["probability"]),
-                        "selected_arguments": fresh_names,
+                        "selected_arguments": fresh_arguments,
                         "selected_argument_details": [
                             ArgumentPrediction(source="fresh", candidate_id=0, label=name, score=0.0)
-                            for name in fresh_names
+                            for name in fresh_arguments
                         ],
                     }
                 )

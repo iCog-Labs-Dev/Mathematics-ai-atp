@@ -24,7 +24,6 @@ import hashlib
 import json
 import logging
 import re
-import re
 import subprocess
 import tempfile
 import uuid
@@ -33,14 +32,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from maths_ai.core.config import settings
-from maths_ai.data_models.proof_components import TacticCandidate
-from maths_ai.data_models.proof_components import Goal
+from maths_ai.data_models.proof_components import (
+    Goal,
+    TacticCandidate,
+    filter_executable_tactic_candidates,
+)
 from maths_ai.pln_inference.model import PLNInference, PLNResult
 
 logger = logging.getLogger(__name__)
-_UNRESOLVED_LEMMA_RE = re.compile(r"^<lemma_[^>]+>$")
-
-
 @dataclass
 class InferenceService:
     """Owns the loaded inference components plus the API-level locks.
@@ -245,11 +244,7 @@ class InferenceService:
             candidates = await asyncio.to_thread(
                 self.reasoner.gnn_engine.inference, goal, top_k=top_k
             )
-        filtered = [
-            candidate
-            for candidate in candidates
-            if not any(_UNRESOLVED_LEMMA_RE.fullmatch(argument) for argument in candidate.arguments)
-        ]
+        filtered = filter_executable_tactic_candidates(candidates)
         if len(filtered) != len(candidates):
             logger.warning(
                 "Filtered %d GNN candidate(s) containing unresolved lemma placeholders.",

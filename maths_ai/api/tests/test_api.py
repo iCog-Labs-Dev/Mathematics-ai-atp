@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from maths_ai.api.app import create_app
 from maths_ai.api.service import InferenceService
 from maths_ai.data_models.proof_components import STV, TacticCandidate
+from maths_ai.hybrid_reasoner.joint_inference import PantographExecutor
 from maths_ai.pln_inference.model import PLNResult
 
 
@@ -339,6 +340,37 @@ def test_predict_tactic_rejects_empty_goal(api):
     response = api.client.post("/gnn/predict_tactic", json={"goal": "  "})
 
     assert response.status_code == 422
+
+
+def test_pantograph_executor_rejects_placeholder_before_server_call():
+    class FakeServer:
+        def __init__(self):
+            self.called = False
+
+        async def goal_tactic_async(self, *_args):
+            self.called = True
+            raise AssertionError("server must not receive placeholder tactics")
+
+    server = FakeServer()
+    executor = PantographExecutor(server)
+
+    import asyncio
+
+    outcome = asyncio.run(
+        executor.apply(
+            server,
+            SimpleNamespace(goals=[SimpleNamespace()]),
+            TacticCandidate(
+                tactic_name="exact",
+                arguments=["<lemma_-1>"],
+                probability=1.0,
+            ),
+        )
+    )
+
+    assert outcome.success is False
+    assert "unresolved lemma placeholder" in outcome.error
+    assert server.called is False
 
 
 def test_predict_tactic_filters_unresolved_lemma_placeholders(tmp_path: Path):
