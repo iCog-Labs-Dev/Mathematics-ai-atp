@@ -89,15 +89,24 @@ RUN git init /opt/pantograph && \
     install -m 0755 /opt/pantograph/.lake/build/bin/repl "${pantograph_package}/pantograph-repl.bin" && \
     install -m 0755 /tmp/pantograph-repl-wrapper "${pantograph_package}/pantograph-repl"
 
-# Install petta into the project virtualenv, not the system Python
-ARG PETTA_REF=v1.0.3
+# Install petta into the project virtualenv, not the system Python.
+# PeTTa >= v1.0.4 ships a functional Python package (console-script `petta`,
+# runtime resources bundled into the wheel); v1.0.3's wheel was empty, which
+# left the API without a petta executable -> petta_unavailable fallback scores.
+ARG PETTA_REF=v1.0.6
 RUN git clone --depth 1 --branch ${PETTA_REF} https://github.com/trueagi-io/PeTTa.git /opt/petta \
     && uv pip install --python /opt/venv/bin/python /opt/petta
 
-# Install PeTTaChainer (vendor at pinned commit, replace git-import in MeTTa)
-ARG PETTACHAINER_REF=HEAD
+# Install PeTTaChainer (vendor at pinned commit, replace git-import in MeTTa).
+# PLNInference imports the chainer directly from the vendored layout
+# (`!(import! &self petta_chainer)` from a workspace that links these files);
+# a runtime `git-import!` (network access) and the `(library Name "<abs path>")`
+# form are both unsupported by PeTTa's import resolution.
+ARG PETTACHAINER_REF=b1678e97c4498b376b91e8cce215f5ab0398ddef
 RUN git clone --depth 1 https://github.com/123nol/petta_chainer.git /opt/pettachainer \
     && if [ "${PETTACHAINER_REF}" != "HEAD" ]; then git -C /opt/pettachainer checkout "${PETTACHAINER_REF}"; fi
+
+ENV PETTA_CHAINER_DIR=/opt/pettachainer/pettachainer/metta
 
 ENV PATH="/workspace/docker/commands:/opt/venv/bin:/root/.local/bin:${PATH}"
 ENV PYTHONPATH="/workspace"

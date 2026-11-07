@@ -64,6 +64,13 @@ class InferenceService:
     pln_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     dts_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
+    @property
+    def petta_available(self) -> Optional[bool]:
+        """Expose PeTTa startup state to the readiness endpoint."""
+        petta = getattr(self.reasoner, "petta_chainer", None)
+        available = getattr(petta, "is_available", None)
+        return available if isinstance(available, bool) else None
+
     async def prove(
         self,
         goal: str,
@@ -564,6 +571,7 @@ async def build_default_service(
             dts_c=dts_c,
             dts_random_seed=dts_random_seed,
         )
+        reasoner.petta_chainer.initialize()
     except Exception:
         server._close()
         raise
