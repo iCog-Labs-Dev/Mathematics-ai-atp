@@ -111,7 +111,8 @@ def test_canonical_scope_forms_preserve_shadow_and_repeated_name_structure():
     assert shape("h0", "x") != shape("fresh", "x")
 
 
-def test_native_runner_binds_optional_semantic_hashes_into_resume(tmp_path, monkeypatch):
+@pytest.mark.parametrize("renderer", ["template-v6", "template-v7"])
+def test_native_runner_binds_optional_semantic_hashes_into_resume(tmp_path, monkeypatch, renderer):
     from maths_ai.gnn_inference.atp_lean_gnn.dataset import DatasetRow
     from maths_ai.gnn_inference.atp_lean_gnn.preparation import ModelSExprCache, SExprCache, SourceSyntaxTraceCache
     from maths_ai.gnn_inference.scripts import replay_gold_actions as runner
@@ -155,15 +156,26 @@ def test_native_runner_binds_optional_semantic_hashes_into_resume(tmp_path, monk
         "original": {"status": "executed", "goals": []}, "rendered": {"status": "executed", "goals": []}}]})
     output = tmp_path / "replay"
     argv = ["--source-root", str(source_root), "--pantograph-root", str(source_root), "--cache-root", str(cache),
-            "--output-dir", str(output), "--renderer", "template-v6", "--semantic-cache-root", str(overlay)]
+            "--output-dir", str(output), "--renderer", renderer]
+    if renderer == "template-v6":
+        argv += ["--semantic-cache-root", str(overlay)]
     assert runner.main(argv) == 0
     report = json.loads((output / "report.json").read_text())
-    assert report["manifest"]["rows"][0]["cache_hashes"]["action_trace_v2"]
-    assert report["summary"]["semantic_trace_status_counts"] == {"bound": 1}
-    assert report["summary"]["semantic_reconstructed_steps"] == 1
-    assert report["summary"]["scoped_tactic_parsed_steps"] == 1
-    assert report["manifest"]["semantic_cache_root"] == str(overlay)
+    if renderer == "template-v6":
+        assert report["manifest"]["rows"][0]["cache_hashes"]["action_trace_v2"]
+        assert report["summary"]["semantic_trace_status_counts"] == {"bound": 1}
+        assert report["summary"]["semantic_reconstructed_steps"] == 1
+        assert report["summary"]["scoped_tactic_parsed_steps"] == 1
+        assert report["manifest"]["semantic_cache_root"] == str(overlay)
+    else:
+        assert "action_trace_v2" not in report["manifest"]["rows"][0]["cache_hashes"]
+        assert report["summary"]["source_selector_tactic_parsed_steps"] == report["summary"]["method_selector_steps"] == 1
+        assert report["manifest"]["semantic_cache_used"] is False
+        assert report["manifest"]["semantic_cache_root"] is None
     assert runner.main([*argv, "--resume"]) == 0
     overlay_path.write_bytes(overlay_path.read_bytes() + b" ")  # Same parsed content still has a different immutable binding.
-    with pytest.raises(ValueError, match="resume bindings changed"):
-        runner.main([*argv, "--resume"])
+    if renderer == "template-v6":
+        with pytest.raises(ValueError, match="resume bindings changed"):
+            runner.main([*argv, "--resume"])
+    else:
+        assert runner.main([*argv, "--resume"]) == 0  # An unrelated V2 change cannot affect V7.

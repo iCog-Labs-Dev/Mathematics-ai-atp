@@ -332,6 +332,10 @@ def summarize_replays(rows: list[dict]) -> dict:
         "extended_tactic_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "extended_tactic_v1" for r in rows),
         "scoped_tactic_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "scoped_tactic_v1" for r in rows),
         "scoped_pattern_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "scoped_pattern_tactic_v1" for r in rows),
+        "source_selector_tactic_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "source_selector_tactic_v1" for r in rows),
+        "source_selector_pattern_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "source_selector_pattern_v1" for r in rows),
+        "method_selector_steps": sum(bool(r.get("method_selector_count")) for r in rows),
+        "method_selector_nodes": sum(r.get("method_selector_count", 0) for r in rows),
         "applied_rule_parsed_steps": sum(any(rule.get("arguments") for rule in (r.get("template_target") or {}).get("rules", []))
                                          for r in rows),
         "named_rule_parsed_steps": sum(any(argument.get("parameter") is not None

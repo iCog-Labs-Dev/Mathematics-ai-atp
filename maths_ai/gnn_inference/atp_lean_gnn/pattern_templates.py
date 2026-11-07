@@ -11,6 +11,7 @@ from .wrapper_templates import _single_root
 
 
 PATTERN_SCHEMA = "scoped_pattern_tactic_v1"
+SELECTOR_PATTERN_SCHEMA = "source_selector_pattern_v1"
 PATTERN_FAMILIES = {"rcases", "obtain", "rintro", "by_cases", "ext"}
 MAX_PATTERN_NODES = 128
 
@@ -174,13 +175,13 @@ class PatternTactic:
                 "binder_name": self.binder_name}
 
 
-def parse_pattern_trace(trace, semantic_terms=()):
+def parse_pattern_trace(trace, semantic_terms=(), *, allow_method_selectors=False):
     try:
         compile_source_syntax_trace(trace, allow_parameter_labels=True)
     except (ActionTargetError, KeyError, TypeError) as error:
         raise TemplateError("invalid_source_trace", str(error)) from error
     root = _single_root(trace["source_syntax"])
-    terms = ScopedTermParser(trace["local_context"], semantic_terms)
+    terms = ScopedTermParser(trace["local_context"], semantic_terms, allow_method_selectors=allow_method_selectors)
     patterns = _PatternParser(terms)
     kind = root.get("kind")
     if kind == "Lean.Parser.Tactic.rcases":

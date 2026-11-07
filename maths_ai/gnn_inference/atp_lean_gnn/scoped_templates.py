@@ -1,4 +1,4 @@
-"""V6 lexical binder slots and safe reuse of V5 wrappers."""
+"""V6 lexical binders and opt-in V7 cached-syntax method selectors."""
 
 from dataclasses import asdict, dataclass
 
@@ -11,6 +11,7 @@ from .wrapper_templates import (
 
 
 SCOPED_SCHEMA = "scoped_tactic_v1"
+SELECTOR_SCHEMA = "source_selector_tactic_v1"
 MAX_BINDERS = 32
 _NOTATIONS = {"ℕ", "ℤ", "ℚ", "ℝ", "ℂ", "ℕ∞", "ℝ≥0", "ℝ≥0∞"}
 
@@ -44,9 +45,12 @@ class BinderGroup:
 class ScopedTerm(ExtendedTerm):
     groups: tuple[BinderGroup, ...] = ()
     tail_type_child: int | None = None
+    selector_style: str | None = None
 
     def __post_init__(self):
-        kinds = {"bound_reference", "lambda", "forall", "arrow", "explicit", "type_sort", "notation", "substitute"}
+        if self.kind != "method_selector" and self.selector_style is not None:
+            raise TemplateError("method_selector", "only selectors carry source selector style")
+        kinds = {"bound_reference", "lambda", "forall", "arrow", "explicit", "type_sort", "notation", "substitute", "method_selector"}
         if self.kind not in kinds:
             return super().__post_init__()
         if (type(self.children) is not tuple or any(not isinstance(child, RecursiveTerm) for child in self.children)
@@ -74,22 +78,76 @@ class ScopedTerm(ExtendedTerm):
             raise TemplateError("universe_level", "only unqualified Type/Prop are supported")
         if self.kind == "notation" and (self.children or self.value not in _NOTATIONS):
             raise TemplateError("notation", "unrecognized atomic notation")
+        if self.kind == "method_selector":
+            if (len(self.children) != 1 or not isinstance(self.value, str) or len(self.value) > 256
+                    or self.selector_style not in {"dotted_identifier", "projection"}):
+                raise TemplateError("method_selector", "selector requires one receiver and a bounded name label")
+            _quoted_name(self.value)
+            if self.selector_style == "dotted_identifier":
+                receiver = self.children[0]
+                if (len(_name_parts(self.value)) != 1
+                        or not (receiver.kind == "bound_reference"
+                                or (receiver.kind == "reference" and receiver.reference.source == "local")
+                                or (receiver.kind == "method_selector" and receiver.selector_style == "dotted_identifier"))):
+                    raise TemplateError("method_selector", "dotted syntax must stay rooted in an input or lexical name")
 
     def to_target(self):
         result = super().to_target()
         if self.groups:
             result["groups"] = tuple(asdict(group) for group in self.groups)
             result["tail_type_child"] = self.tail_type_child
+        if self.kind == "method_selector":
+            result["selector_style"] = self.selector_style
         return result
 
 
 class ScopedTermParser(_ExtendedTermParser):
-    def __init__(self, context, semantic_terms=()):
+    def __init__(self, context, semantic_terms=(), *, allow_method_selectors=False):
         super().__init__(context)
         self.environment = []
         self.next_binder = 0
         self.semantic_terms = semantic_terms
         self.semantic_reconstructions = 0
+        self.allow_method_selectors = allow_method_selectors
+
+    def _source_method(self, syntax, depth):
+        """V7 source selector labels need no guessed global declaration identity."""
+        if not self.allow_method_selectors or syntax.get("semanticRole") is not None:
+            return None
+        parts = _name_parts(syntax["source"])
+        if len(parts) < 2 or parts[0] == "_root_":
+            return None
+        lexical = {}
+        for name, slot in reversed(self.environment):
+            lexical.setdefault(name, slot)
+        if tuple(parts) in lexical:
+            return None  # An exact lexical name is not a selector chain.
+        candidates = [(name, "bound", slot) for name, slot in lexical.items()
+                      if len(name) < len(parts) and tuple(parts[:len(name)]) == name]
+        for entry in self.context:
+            if not entry.get("user_name"):
+                continue
+            name = tuple(_name_parts(entry["user_name"]))
+            if name == tuple(parts):
+                return None
+            if name not in lexical and len(name) < len(parts) and tuple(parts[:len(name)]) == name:
+                candidates.append((name, "local", entry["context_index"]))
+        if not candidates:
+            return None
+        longest = max(len(name) for name, _, _ in candidates)
+        candidates = [item for item in candidates if len(item[0]) == longest]
+        if len(candidates) != 1:
+            raise TemplateError("method_receiver", "source selector receiver is ambiguous")
+        name, source, identity = candidates[0]
+        labels = parts[len(name):]
+        for offset in range(len(labels) + 1):
+            self._consume(depth + offset)
+        receiver = (ScopedTerm("bound_reference", value=str(identity)) if source == "bound" else
+                    RecursiveTerm("reference", reference=FlatReference("local", identity)))
+        for label in labels:
+            value = "«" + label + "»" if label.startswith('"') or "." in label else label
+            receiver = ScopedTerm("method_selector", (receiver,), value=value, selector_style="dotted_identifier")
+        return receiver
 
     def _local_method(self, syntax, depth):
         """Represent an explicitly written local receiver; never replace it by its head."""
@@ -194,6 +252,9 @@ class ScopedTermParser(_ExtendedTermParser):
     def _parse_syntax(self, syntax, depth=0, *, allow_named=False):
         syntax = _strip_parens(syntax)
         if syntax.get("tag") == "identifier":
+            selector = self._source_method(syntax, depth)
+            if selector is not None:
+                return selector
             method = self._local_method(syntax, depth)
             if method is not None:
                 return method
@@ -205,6 +266,13 @@ class ScopedTermParser(_ExtendedTermParser):
             if slot is not None and syntax.get("semanticRole") == "local":
                 raise TemplateError("scope_capture_conflict", "input reference would be captured by lexical binder")
         kind = syntax.get("kind")
+        if self.allow_method_selectors and kind == "Lean.Parser.Term.proj":
+            receiver, dot, member = _children(syntax, kind, 3)
+            if member.get("tag") == "identifier" and member.get("semanticRole") is None:
+                _atom(dot, ".")
+                self._consume(depth)
+                return ScopedTerm("method_selector", (self.parse(receiver, depth + 1),),
+                                  value=member["source"], selector_style="projection")
         if kind in {"Lean.Parser.Term.fun", "Lean.Parser.Term.forall"}:
             self._consume(depth)
             if kind.endswith(".fun"):
@@ -291,8 +359,8 @@ class ScopedTermParser(_ExtendedTermParser):
             return term
 
 
-def parse_scoped_wrapper(trace, semantic_terms=()):
-    parser = ScopedTermParser(trace["local_context"], semantic_terms)
+def parse_scoped_wrapper(trace, semantic_terms=(), *, allow_method_selectors=False):
+    parser = ScopedTermParser(trace["local_context"], semantic_terms, allow_method_selectors=allow_method_selectors)
     action = parse_wrapper_trace(trace, parser_factory=lambda _: parser)
     return action, parser.semantic_reconstructions
 
@@ -307,6 +375,11 @@ def render_scoped_term(term, context, environment=None):
         if next(key for key, value in reversed(list(environment.items())) if _name_parts(value) == _name_parts(name)) != slot:
             raise TemplateError("scope_capture_conflict", "outer lexical slot would be captured by a later binder")
         return _quoted_name(name)
+    if term.kind == "method_selector":
+        receiver = render_scoped_term(term.children[0], context, environment)
+        if term.selector_style == "projection":
+            receiver = "(" + receiver + ")"
+        return receiver + "." + _quoted_name(term.value)
     if term.kind in {"lambda", "forall"}:
         local = dict(environment)
         rendered = []

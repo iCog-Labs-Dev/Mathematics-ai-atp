@@ -336,7 +336,7 @@ def render_rw_simp_template(action: RwSimpTemplate, local_context: list[dict]) -
 def prepare_gold_rendering(raw_tactic: str, trace: dict, *, renderer: str = "flat",
                            reference_lookup: str = "semantic", semantic_trace: dict | None = None) -> dict:
     """Keep syntax extraction separate from name resolution and old-flat coverage."""
-    if renderer not in {"flat", "template-v1", "template-v2", "template-v3", "template-v4", "template-v5", "template-v6"}:
+    if renderer not in {"flat", "template-v1", "template-v2", "template-v3", "template-v4", "template-v5", "template-v6", "template-v7"}:
         raise ValueError("unknown gold renderer mode")
     result = {"rendered_tactic": None, "render_error": None, "render_path": "flat",
               "flat_renderable": False, "flat_render_error": None, "template_target": None,
@@ -348,7 +348,7 @@ def prepare_gold_rendering(raw_tactic: str, trace: dict, *, renderer: str = "fla
         flat_text = None
         result["flat_render_error"] = str(error)
     family = normalize_tactic(clean_tactic_markup(raw_tactic))
-    if renderer in {"template-v3", "template-v4", "template-v5", "template-v6"} and family in {"intro", "intros"}:
+    if renderer in {"template-v3", "template-v4", "template-v5", "template-v6", "template-v7"} and family in {"intro", "intros"}:
         from .intro_templates import INTRO_TEMPLATE_SCHEMA, parse_intro_trace, render_intro_template
 
         result["render_path"] = INTRO_TEMPLATE_SCHEMA
@@ -362,29 +362,43 @@ def prepare_gold_rendering(raw_tactic: str, trace: dict, *, renderer: str = "fla
             result["render_error"] = str(error)
             result["template_error_code"] = error.code if isinstance(error, TemplateError) else "binder_rendering"
         return result
-    if renderer == "template-v6":
-        from .pattern_templates import PATTERN_FAMILIES, PATTERN_SCHEMA, parse_pattern_trace, render_pattern_tactic
-        from .scoped_templates import SCOPED_SCHEMA, parse_scoped_wrapper, render_scoped_wrapper
+    if renderer in {"template-v6", "template-v7"}:
+        from .pattern_templates import PATTERN_FAMILIES, PATTERN_SCHEMA, SELECTOR_PATTERN_SCHEMA, parse_pattern_trace, render_pattern_tactic
+        from .scoped_templates import SCOPED_SCHEMA, SELECTOR_SCHEMA, parse_scoped_wrapper, render_scoped_wrapper
         from .wrapper_templates import WRAPPER_FAMILIES
 
-        terms = semantic_trace.get("terms", []) if semantic_trace and semantic_trace.get("status") == "bound" else []
+        selectors = renderer == "template-v7"
+        terms = semantic_trace.get("terms", []) if not selectors and semantic_trace and semantic_trace.get("status") == "bound" else []
         if family in PATTERN_FAMILIES or family in WRAPPER_FAMILIES:
-            result["render_path"] = PATTERN_SCHEMA if family in PATTERN_FAMILIES else SCOPED_SCHEMA
+            result["render_path"] = ((SELECTOR_PATTERN_SCHEMA if selectors else PATTERN_SCHEMA) if family in PATTERN_FAMILIES
+                                     else SELECTOR_SCHEMA if selectors else SCOPED_SCHEMA)
             try:
                 if family in PATTERN_FAMILIES:
-                    action, semantic_count = parse_pattern_trace(trace, terms)
+                    action, semantic_count = parse_pattern_trace(trace, terms, allow_method_selectors=selectors)
                     target = action.to_target()
+                    if selectors:
+                        target["schema"] = SELECTOR_PATTERN_SCHEMA
                     result["template_target"] = target
                     rendered = render_pattern_tactic(action, trace["local_context"])
                 else:
-                    action, semantic_count = parse_scoped_wrapper(trace, terms)
+                    action, semantic_count = parse_scoped_wrapper(trace, terms, allow_method_selectors=selectors)
                     target = action.to_target()
-                    target["schema"] = SCOPED_SCHEMA
+                    target["schema"] = SELECTOR_SCHEMA if selectors else SCOPED_SCHEMA
                     result["template_target"] = target
                     rendered = render_scoped_wrapper(action, trace["local_context"])
                 if action.family != family:
                     raise TemplateError("family_mismatch", "raw family disagrees with scoped syntax")
                 result.update(template_target=target, rendered_tactic=rendered, semantic_reconstructions=semantic_count)
+                if selectors:
+                    pending, count = [target], 0
+                    while pending:
+                        node = pending.pop()
+                        if isinstance(node, dict):
+                            count += node.get("kind") == "method_selector"
+                            pending.extend(node.values())
+                        elif isinstance(node, (list, tuple)):
+                            pending.extend(node)
+                    result["method_selector_count"] = count
             except (RenderError, KeyError, TypeError) as error:
                 result["render_error"] = str(error)
                 result["template_error_code"] = error.code if isinstance(error, TemplateError) else "reference_resolution"

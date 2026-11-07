@@ -47,7 +47,8 @@ def test_scoped_unbound_names_and_explicit_universes_stay_unsupported():
         parser.parse(node("Lean.Parser.Term.type", atom("Type"), node("null", atom("1"))))
 
 
-def test_native_v6_scope_and_patterns_preserve_all_goals():
+@pytest.mark.parametrize("renderer", ["template-v6", "template-v7"])
+def test_native_v6_scope_and_patterns_preserve_all_goals(renderer):
     configured = os.environ.get("MATHS_AI_PANTOGRAPH_ROOT")
     if not configured:
         pytest.skip("set MATHS_AI_PANTOGRAPH_ROOT for pinned native V6 replay")
@@ -65,6 +66,8 @@ def test_native_v6_scope_and_patterns_preserve_all_goals():
         "rewrite [inst₁.shift_zero, inst₂.shift_zero]", "rewrite [inst₁.shift_one, inst₂.shift_one]",
         "have hx := h.named (m := 0) (Nat.le_refl 1)", "have hx := h.typed (1 : Nat)",
         "specialize hn (n + 1) (n.le_add_right 1)"}
+    if renderer == "template-v7":
+        supported.remove("exact reverseProof h")
     with tempfile.TemporaryDirectory(prefix="TemplateV6_", dir=root) as directory:
         path = Path(directory) / "Example.lean"
         path.write_bytes(fixture.read_bytes())
@@ -96,15 +99,18 @@ def test_native_v6_scope_and_patterns_preserve_all_goals():
                 raw = {**row.metadata(), "repo_commit": row.repo_commit}
                 data = _make_source_syntax_trace_record(row, {"invocation": invocation}, raw)
                 semantic = _make_action_trace_record(row, {"invocation": invocation}, raw)
-                (cache / "val/action_trace_v2" / f"{row.row_index:09d}.json").write_text(json.dumps(semantic))
-                bound = load_semantic_trace(cache, "val", row.row_index, raw, data)
-                assert bound["status"] == "bound", bound
-                syntax_only = prepare_gold_rendering(text, data, renderer="template-v6")
-                if text in semantic_only:
+                if renderer == "template-v6":
+                    (cache / "val/action_trace_v2" / f"{row.row_index:09d}.json").write_text(json.dumps(semantic))
+                    bound = load_semantic_trace(cache, "val", row.row_index, raw, data)
+                    assert bound["status"] == "bound", bound
+                else:
+                    bound = None
+                syntax_only = prepare_gold_rendering(text, data, renderer=renderer)
+                if renderer == "template-v6" and text in semantic_only:
                     assert syntax_only["rendered_tactic"] is None
                 else:
                     assert syntax_only["rendered_tactic"] is not None, (text, syntax_only)
-                result = prepare_gold_rendering(text, data, renderer="template-v6", semantic_trace=bound)
+                result = prepare_gold_rendering(text, data, renderer=renderer, semantic_trace=bound)
                 semantic_count += result.get("semantic_reconstructions", 0)
                 assert result["rendered_tactic"] is not None, (text, result)
                 if text.startswith("have hx := h.named"):
@@ -116,10 +122,10 @@ def test_native_v6_scope_and_patterns_preserve_all_goals():
                 requests.append({"rowIndex": row.row_index, "unitIndex": u, "invocationIndex": v,
                     "sourceStart": syntax["sourceStart"], "sourceEnd": syntax["sourceEnd"], "renderedTactic": result["rendered_tactic"]})
         assert seen == supported
-        assert semantic_count == 5
+        assert semantic_count == (5 if renderer == "template-v6" else 0)
         response = run_native_file(path, requests, source_root=root, pantograph_root=root, timeout=120)
     assert not response["frontend_errors"], response
-    assert len(response["rows"]) == len(requests) == 45
+    assert len(response["rows"]) == len(requests) == (45 if renderer == "template-v6" else 44)
     for request, native in zip(requests, response["rows"]):
         assert native["original"]["status"] == "executed", (texts[request["rowIndex"]], native)
         assert goal_signature(native["original"]["goals"]) == goal_signature(native["source_after"])
