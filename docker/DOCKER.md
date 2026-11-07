@@ -171,6 +171,11 @@ The image builds the Lean Pantograph executable from
 [jajos12/Pantograph](https://github.com/jajos12/Pantograph) and installs it
 alongside the Python Pantograph client used by the API.
 
+The image also installs PeTTa's `run.sh` as `/usr/local/bin/petta` and vendors
+PeTTaChainer under `/opt/pettachainer`. The API runs a PeTTa startup probe
+before marking the service ready; `/health` includes `petta_available` and
+reports degraded readiness if the probe fails.
+
 ## GPU Support (training target)
 
 ### NVIDIA Host Setup

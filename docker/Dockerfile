@@ -92,7 +92,8 @@ RUN git init /opt/pantograph && \
 # Install petta into the project virtualenv, not the system Python
 ARG PETTA_REF=v1.0.3
 RUN git clone --depth 1 --branch ${PETTA_REF} https://github.com/trueagi-io/PeTTa.git /opt/petta \
-    && uv pip install --python /opt/venv/bin/python /opt/petta
+    && uv pip install --python /opt/venv/bin/python /opt/petta \
+    && install -m 0755 /opt/petta/run.sh /usr/local/bin/petta
 
 # Install PeTTaChainer (vendor at pinned commit, replace git-import in MeTTa)
 ARG PETTACHAINER_REF=HEAD

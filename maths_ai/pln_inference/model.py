@@ -71,6 +71,7 @@ class PLNInference:
         fallback_low: float = 0.0,
         fallback_high: float = 1.0,
         random_seed: Optional[int] = None,
+        fallback_enabled: bool = False,
         normalize_variables: bool = False,
     ) -> None:
         self.petta_bin = petta_bin or os.environ.get("PETTA_BIN") or shutil.which("petta")
@@ -82,8 +83,34 @@ class PLNInference:
         self.timeout = timeout
         self.fallback_low = fallback_low
         self.fallback_high = fallback_high
+        self.fallback_enabled = fallback_enabled
         self._rng = random.Random(random_seed)
         self._normalizer = VariableNormalizer(normalize=normalize_variables)
+        self._initialized = False
+        self._initialization_error: Optional[str] = None
+
+    @property
+    def is_available(self) -> bool:
+        """Whether the PeTTa executable passed its startup probe."""
+        return self._initialized and self._initialization_error is None
+
+    @property
+    def initialization_error(self) -> Optional[str]:
+        return self._initialization_error
+
+    def initialize(self) -> None:
+        """Verify that PeTTa and its bundled PLN libraries can execute."""
+        if self.petta_bin is None:
+            self._initialization_error = "PeTTa executable was not found on PATH"
+            raise RuntimeError(self._initialization_error)
+
+        source = self._render_query_source(parse_simple_pp("True", self._normalizer), [])
+        _, launch_status = self._run_petta(source)
+        if launch_status is not None:
+            self._initialization_error = f"PeTTa startup probe failed: {launch_status}"
+            raise RuntimeError(self._initialization_error)
+        self._initialized = True
+        self._initialization_error = None
 
      
     # Public API
@@ -107,6 +134,9 @@ class PLNInference:
         source = self._render_query_source(formula, hypotheses or [])
         log_text, launch_status = self._run_petta(source)
         if launch_status is not None:
+            if launch_status == "petta_unavailable":
+                self._initialized = False
+                self._initialization_error = "PeTTa process could not be executed"
             return self._fallback(status=launch_status)
 
         stvs = extract_stv_scores(log_text)
@@ -137,6 +167,9 @@ class PLNInference:
             lines.append(self.import_header_path.read_text(encoding="utf-8").strip())
         if self.axioms_path.exists():
             lines.append(f"!(import! &self {self.axioms_path})")
+
+        if formula == "True":
+            lines.append("!(compileadd kb (: builtin-true (True) (STV 1.0 1.0)))")
 
         for index, raw_hypothesis in enumerate(hypotheses):
             try:
@@ -177,7 +210,10 @@ class PLNInference:
             except OSError:
                 return "", "petta_unavailable"
 
-            return completed.stdout + completed.stderr, None
+            output = completed.stdout + completed.stderr
+            if completed.returncode != 0:
+                return output, "petta_unavailable"
+            return output, None
         finally:
             try:
                 os.unlink(handle.name)
@@ -185,7 +221,11 @@ class PLNInference:
                 pass
 
     def _fallback(self, *, status: str, raw_output: str = "") -> PLNResult:
-        score = sample_fallback_score(self._rng, low=self.fallback_low, high=self.fallback_high)
+        score = (
+            sample_fallback_score(self._rng, low=self.fallback_low, high=self.fallback_high)
+            if self.fallback_enabled
+            else 0.0
+        )
         return PLNResult(
             stv=STV(strength=score, confidence=1.0),
             status=status,
