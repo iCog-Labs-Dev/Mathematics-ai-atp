@@ -37,6 +37,7 @@ from maths_ai.data_models.proof_components import (
     TacticCandidate,
     filter_executable_tactic_candidates,
 )
+from maths_ai.gnn_inference.atp_lean_gnn.joint_bundle import load_joint_source_bundle
 from maths_ai.pln_inference.model import PLNInference, PLNResult
 
 logger = logging.getLogger(__name__)
@@ -46,40 +47,15 @@ _V2_REVISION = "8aba62625dfeb833e4591498700f351f3bc60af9"
 
 def _validate_v2_bundle_readiness(bundle_path: Path) -> None:
     """Reject incomplete or unverified v2 bundles before Lean starts."""
-    manifest_path = bundle_path / "bundle.json"
-    policy_path = bundle_path / "policy" / "config.json"
-    revision_path = bundle_path / ".snapshot_revision"
-    try:
-        revision = revision_path.read_text(encoding="utf-8").strip()
-    except OSError:
-        revision = ""
-    if revision != _V2_REVISION:
-        raise ValueError(
-            "Configured GNN bundle is not the pinned Mathlib-Sexpr-GNN v2 "
-            f"revision {_V2_REVISION}."
-        )
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        policy = json.loads(policy_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(
-            f"v2 bundle at '{bundle_path}' is incomplete; expected bundle.json "
-            "and policy/config.json"
-        ) from exc
-
-    if manifest.get("format") != "joint_source_system_v1":
-        raise ValueError(
-            "Configured bundle is not Mathlib-Sexpr-GNN v2 "
-            "(expected format joint_source_system_v1)."
-        )
-    if manifest.get("model_type") != "joint_source_flat_decoder_v2":
-        raise ValueError("Configured bundle has an incompatible v2 model type.")
-    input_contract = policy.get("input_contract", {})
-    if input_contract.get("live_pantograph_parity_verified") is not True:
+    bundle = load_joint_source_bundle(
+        bundle_path,
+        expected_revision=_V2_REVISION,
+    )
+    if not bundle.live_pantograph_parity_verified:
         raise RuntimeError(
             "Mathlib-Sexpr-GNN v2 serving is disabled: the published bundle "
             "does not verify live Pantograph graph parity for "
-            f"{input_contract.get('graph_format', 'the required graph format')}."
+            "lean-model-sexp-v2."
         )
 @dataclass
 class InferenceService:
