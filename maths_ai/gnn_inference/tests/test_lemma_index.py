@@ -79,6 +79,17 @@ class TestLemmaIndex(unittest.TestCase):
         # Check that the invalid indices' vectors are zeroed
         self.assertTrue(np.all(retrieved_vecs[0, 2:] == 0.0))
 
+    def test_constructor_rejects_index_size_mismatch(self) -> None:
+        index = faiss.IndexFlatL2(2)
+        index.add(np.array([[1.0, 0.0]], dtype=np.float32))
+
+        with self.assertRaisesRegex(ValueError, "index size"):
+            LemmaIndex(
+                index,
+                [7, 11],
+                np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
