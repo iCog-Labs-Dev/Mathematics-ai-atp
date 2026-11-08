@@ -11,7 +11,13 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from pantograph.server import Server, GoalState
 
-from maths_ai.data_models.proof_components import Goal, RankedSubgoal, STV, TacticCandidate
+from maths_ai.data_models.proof_components import (
+    Goal,
+    RankedSubgoal,
+    STV,
+    TacticCandidate,
+    has_unresolved_lemma_argument,
+)
 from maths_ai.gnn_inference.inference_engine import GNNModelEngine
 from maths_ai.pln_inference.model import PLNInference
 from maths_ai.pln_inference.metta.translator.translator_modules.runner import DynamicThompsonSampler
@@ -104,6 +110,13 @@ class PantographExecutor(TacticExecutor):
             On a Lean-side error (the tactic doesn't apply), returns
             ``TacticOutcome(success=False, error=...)``.
         """
+        if has_unresolved_lemma_argument(tactic):
+            return TacticOutcome(
+                success=False,
+                subgoals=[],
+                error="tactic contains an unresolved lemma placeholder",
+            )
+
         arguments = " ".join(arg.rstrip(":") for arg in tactic.arguments)
         tactic_cmd = " ".join([tactic.tactic_name, arguments]).strip()
 

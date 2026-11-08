@@ -32,13 +32,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from maths_ai.core.config import settings
-from maths_ai.data_models.proof_components import TacticCandidate
-from maths_ai.data_models.proof_components import Goal
+from maths_ai.data_models.proof_components import (
+    Goal,
+    TacticCandidate,
+    filter_executable_tactic_candidates,
+)
 from maths_ai.pln_inference.model import PLNInference, PLNResult
 
 logger = logging.getLogger(__name__)
-
-
 @dataclass
 class InferenceService:
     """Owns the loaded inference components plus the API-level locks.
@@ -240,7 +241,16 @@ class InferenceService:
     async def predict_tactics(self, goal: str, top_k: int) -> List[TacticCandidate]:
         """Predict tactics for a goal using the GNN engine."""
         async with self.gnn_lock:
-            return await asyncio.to_thread(self.reasoner.gnn_engine.inference, goal, top_k=top_k)
+            candidates = await asyncio.to_thread(
+                self.reasoner.gnn_engine.inference, goal, top_k=top_k
+            )
+        filtered = filter_executable_tactic_candidates(candidates)
+        if len(filtered) != len(candidates):
+            logger.warning(
+                "Filtered %d GNN candidate(s) containing unresolved lemma placeholders.",
+                len(candidates) - len(filtered),
+            )
+        return filtered
 
     async def evaluate(self, expression: str, hypotheses: Optional[List[str]] = None) -> PLNResult:
         """Evaluate an expression using PLN inference."""
