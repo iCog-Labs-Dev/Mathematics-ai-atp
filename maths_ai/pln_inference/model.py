@@ -50,7 +50,7 @@ from .metta.translator.translator_modules.normalizer import VariableNormalizer
 from .metta.translator.translator_modules.parser import parse_simple_pp
 from .metta.translator.translator_modules.renderer import build_query, render_formula
 from .metta.translator.translator_modules.runner import (
-    extract_stv_scores,
+    extract_stv_scores_for_formula,
     sample_fallback_score,
     score_from_stv,
 )
@@ -190,7 +190,9 @@ class PLNInference:
                 f"PETTA_WORKSPACE, chainer_dir={self.chainer_dir})"
             )
             raise RuntimeError(self._initialization_error)
-        if not extract_stv_scores(probe_text):
+        if not extract_stv_scores_for_formula(
+            probe_text, render_formula(probe_formula)
+        ):
             self._initialization_error = (
                 "PeTTa startup probe failed: no STV in PeTTa output"
             )
@@ -261,7 +263,7 @@ class PLNInference:
                 self._initialization_error = "PeTTa process could not be executed"
             return self._fallback(status=launch_status)
 
-        stvs = extract_stv_scores(log_text)
+        stvs = extract_stv_scores_for_formula(log_text, render_formula(formula))
         if stvs:
             strength, confidence = max(stvs, key=lambda pair: score_from_stv(*pair))
             return PLNResult(

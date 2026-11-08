@@ -96,6 +96,37 @@ def extract_stv_scores(log_text: str) -> list[tuple[float, float]]:
     return proof_scores
 
 
+def extract_stv_scores_for_formula(
+    log_text: str, formula_text: str
+) -> list[tuple[float, float]]:
+    """Extract STVs attached to a queried formula, not compiled KB facts.
+
+    PeTTa prints STVs while compiling axioms and again for query results.
+    Looking at every STV therefore lets a perfect axiom score unrelated
+    queries. Query result records start with ``(:`` and contain the rendered
+    target before their STV, so restrict extraction to records containing the
+    target formula.
+    """
+    normalized_formula = " ".join(formula_text.split())
+    if not normalized_formula:
+        return []
+
+    number = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+    stv_pattern = re.compile(rf"\(STV\s+({number})\s+({number})\)")
+    scores: list[tuple[float, float]] = []
+
+    for match in stv_pattern.finditer(log_text):
+        record_start = log_text.rfind("(:", 0, match.start())
+        if record_start < 0:
+            continue
+        record = log_text[record_start : match.end()]
+        if normalized_formula not in " ".join(record.split()):
+            continue
+        scores.append((float(match.group(1)), float(match.group(2))))
+
+    return scores
+
+
 def score_from_stv(strength: float, confidence: float) -> float:
     """
     Default ranking score. You can change this if PeTTaChainer returns a more

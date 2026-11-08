@@ -22,6 +22,13 @@ SUCCESSFUL_RUN = (
     ":- findall(A, query(10, kb, [:, _, ['P'], _], A), _).\n"
 )
 
+AXIOM_AND_QUERY_RUN = (
+    "(: (kb MAIN Nil) axiom (Implication (Premises ($phi)) "
+    "(Conclusions ($phi))) (STV 1.0 1.0))\n"
+    "(: (kb MAIN Nil) query-proof (P) (STV 0.35 0.8))\n"
+    ":- findall(A, query(10, kb, [:, _, ['P'], _], A), _).\n"
+)
+
 # A run where the chainer import failed: the query remains an unevaluated
 # echo — no `findall(A, query(...))` prolog goal appears.
 CHAINER_NOT_LOADED_RUN = (
@@ -140,6 +147,21 @@ class TestEvaluate:
         )
         first, second = pln.evaluate("P"), pln.evaluate("P")
         assert (first.status, first.stv == second.stv) == ("ok", True)
+
+    def test_compiled_axiom_stv_does_not_score_unrelated_query(
+        self, tmp_path, axioms_file, chainer_dir
+    ):
+        pln = make_pln(
+            tmp_path,
+            axioms_file,
+            chainer_dir,
+            petta_bin=make_petta_stub(tmp_path, AXIOM_AND_QUERY_RUN),
+        )
+
+        result = pln.evaluate("P")
+
+        assert result.is_fallback is False
+        assert result.stv == STV(strength=0.35, confidence=0.8)
 
 
 class TestFallbackScores:
