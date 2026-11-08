@@ -85,6 +85,28 @@ def write_revision_marker(local_dir: Path, revision: str):
         f.write(revision)
 
 
+def validate_reused_bundle(local_dir: Path, expected_revision: str) -> str | None:
+    """Validate a reused clean-root bundle before trusting it.
+
+    A matching ``.snapshot_revision`` marker alone must not cause a stale or
+    truncated v2 volume to be accepted (the marker is written before anything
+    can verify the payload). Returns ``None`` when the strict manifest/hash
+    validation passes; otherwise a human-readable failure. The strict loader
+    is stdlib-only, so this check is safe inside the fetch environment. If the
+    workspace is not importable the volume is treated as invalid (a redundant
+    re-download is cheap; silently serving a stale bundle is not).
+    """
+    try:
+        from maths_ai.gnn_inference.atp_lean_gnn.joint_bundle import load_joint_source_bundle
+    except Exception as exc:  # pragma: no cover - import-environment dependent
+        return f"bundle validator unavailable ({exc}); rejecting reused volume"
+    try:
+        load_joint_source_bundle(local_dir, expected_revision=expected_revision)
+    except Exception as exc:
+        return f"{type(exc).__name__}: {exc}"
+    return None
+
+
 def fetch_asset(config: dict, data_root: Path, hf_token: str | None = None) -> Path:
     """
     Fetch a single asset (model or dataset) from HuggingFace Hub.
@@ -112,10 +134,20 @@ def fetch_asset(config: dict, data_root: Path, hf_token: str | None = None) -> P
     print(f"Fetching {repo_type} '{name}' from {repo_id}@{revision}...")
     print(f"  Target directory: {local_dir}")
     
-    # Check if already downloaded with correct revision
+    # Check if already downloaded with correct revision. For clean-root model
+    # bundles the marker alone is not sufficient: the payload must also pass
+    # the strict completeness validation before the download is skipped.
     if local_dir.exists() and check_revision_matches(local_dir, revision):
-        print(f"  Already downloaded with matching revision, skipping.")
-        return local_dir
+        if (local_dir / "bundle.json").is_file():
+            validation_error = validate_reused_bundle(local_dir, revision)
+            if validation_error is None:
+                print(f"  Already downloaded with matching revision, skipping.")
+                return local_dir
+            print("  Reused model snapshot failed completeness validation; replacing it.")
+            print(f"    ({validation_error})")
+        else:
+            print(f"  Already downloaded with matching revision, skipping.")
+            return local_dir
 
     if local_dir.exists():
         print("  Existing snapshot is stale or unmarked; replacing it.")

@@ -25,7 +25,18 @@ EXPECTED_REVISION="8aba62625dfeb833e4591498700f351f3bc60af9"
 if [ -f "$DATA_ROOT/maths_ai/gnn_inference/models/mathlib_sexpr_gnn/bundle.json" ] && \
    [ -f "$DATA_ROOT/maths_ai/gnn_inference/models/mathlib_sexpr_gnn/.snapshot_revision" ] && \
    [ "$(cat "$DATA_ROOT/maths_ai/gnn_inference/models/mathlib_sexpr_gnn/.snapshot_revision")" = "$EXPECTED_REVISION" ]; then
-    ASSETS_EXIST=true
+    MODEL_SNAPSHOT="$DATA_ROOT/maths_ai/gnn_inference/models/mathlib_sexpr_gnn"
+    if python - "$WORKSPACE_DIR" "$MODEL_SNAPSHOT" "$EXPECTED_REVISION" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+from maths_ai.gnn_inference.atp_lean_gnn.joint_bundle import load_joint_source_bundle
+load_joint_source_bundle(sys.argv[2], expected_revision=sys.argv[3])
+PY
+    then
+        ASSETS_EXIST=true
+    else
+        echo "Existing volume carries the pinned revision marker but failed bundle validation; refetching..." >&2
+    fi
 fi
 
 # Run asset fetching only if assets don't exist and command is not to skip it

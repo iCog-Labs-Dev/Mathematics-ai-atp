@@ -228,48 +228,143 @@ def test_capability_findings_fail_closed_on_missing_fields() -> None:
 
 
 class _FakeServer:
-    """Minimal async stand-in mirroring the live client's payload contract."""
+    """Minimal async stand-in mirroring the live client's raw payload contract.
 
-    def __init__(self, payloads: dict[str, dict]) -> None:
+    Payloads are keyed by probe name; ``goal.start`` hands back a fresh
+    stateId and ``goal.tactic`` replays return the recorded raw payload.
+    """
+
+    def __init__(self, payloads: dict[str, dict], *, expose_run_async: bool = True) -> None:
         self._payloads = payloads
+        self._current_expression: str | None = None
+        self._replay_calls = 0
+        self.run_async = self._run_async if expose_run_async else None
 
-    async def goal_start_async(self, expression: str) -> dict:
-        payload = self._payloads.get(expression)
-        if payload is None:
-            raise RuntimeError(f"server could not start: {expression!r}")
-        return payload
+    async def _run_async(self, cmd: str, payload: dict) -> dict:
+        if cmd == "goal.start":
+            self._current_expression = payload.get("expr")
+            self._replay_calls = 0
+            return {"stateId": 0, "root": "_fake"}
+        if cmd == "goal.tactic":
+            self._replay_calls += 1
+            # Distinguish probes sharing an expression by their replay length;
+            # the payload is delivered on the probe's final replay step.
+            candidates = {
+                probe.name: probe
+                for probe in DEFAULT_CAPABILITY_PROBES
+                if probe.expression == self._current_expression
+            }
+            for name, probe in candidates.items():
+                if len(probe.replay) == self._replay_calls:
+                    result = self._payloads.get(name)
+                    if result is None:
+                        raise RuntimeError(f"server could not replay: {self._current_expression!r}")
+                    return result
+            if any(len(p.replay) > self._replay_calls for p in candidates.values()):
+                # Intermediate replay step: no goals yet, just advance state.
+                return {"nextStateId": 1}
+            raise RuntimeError(
+                f"server could not replay step {self._replay_calls} of: {self._current_expression!r}"
+            )
+        raise RuntimeError(f"unexpected command: {cmd}")
 
 
 def _live_payloads() -> dict[str, dict]:
-    double_binder = _capability_payload(
-        [
-            _variable(userName="a", name="a✝¹", contextIndex=0),
-            _variable(userName="a", name="a✝²", contextIndex=1),
-        ]
-    )
-    let_goal = _capability_payload(
-        [
-            _variable(
-                userName="x",
-                name="x✝",
-                contextIndex=0,
-                isLet=True,
-                value={"pp": "1", "modelSexp": "(lit 1)", "modelSexpVersion": 1},
-            )
-        ]
-    )
-    let_goal["target"] = {
-        "pp": "x = x",
-        "modelSexp": "(app (lit =) (lit 1))",
-        "modelSexpVersion": 1,
+    """Payloads captured live from the pinned Pantograph fork repl.
+
+    Each is the exact raw ``goal.tactic`` wire payload after the probe's
+    replay tactics with ``printExprAST``/``printExprModelAST`` enabled.
+    """
+    # binders/shadowing/instances-replays: two binder intros on
+    # ∀ (a : Nat), ∀ (a : Nat), a = a — Pantograph renames the shadowed
+    # binder to 'a✝' (inaccessible) at the second intro.
+    shadow_binder_goal = {
+        "name": "_uniq.20",
+        "target": {
+            "sexp": "((:c Eq) (:c Nat) (:fv _uniq.19) (:fv _uniq.19))",
+            "pp": "a = a",
+            "modelSexpVersion": 1,
+            "modelSexp": "(:app (:c Eq) (:arg :implicit-type 0 (:c Nat)) (:arg :explicit 1 (:fv FV1)) (:arg :explicit 2 (:fv FV1)))",
+        },
+        "vars": [
+            {
+                "userName": "a✝",
+                "name": "_uniq.11",
+                "isLet": False,
+                "isInstance": False,
+                "isInaccessible": True,
+                "contextIndex": 0,
+                "binderRole": ":explicit",
+                "type": {"sexp": "(:c Nat)", "pp": "Nat", "modelSexpVersion": 1, "modelSexp": "(:c Nat)"},
+            },
+            {
+                "userName": "a",
+                "name": "_uniq.19",
+                "isLet": False,
+                "isInstance": False,
+                "isInaccessible": False,
+                "contextIndex": 1,
+                "binderRole": ":explicit",
+                "type": {"sexp": "(:c Nat)", "pp": "Nat", "modelSexpVersion": 1, "modelSexp": "(:c Nat)"},
+            },
+        ],
+        "isConversion": False,
+        "fragment": "tactic",
     }
-    wrapped = {
-        DEFAULT_CAPABILITY_PROBES[0].expression: double_binder,
-        DEFAULT_CAPABILITY_PROBES[1].expression: double_binder,
-        DEFAULT_CAPABILITY_PROBES[2].expression: let_goal,
-        DEFAULT_CAPABILITY_PROBES[3].expression: double_binder,
+    let_goal = {
+        "name": "_uniq.44",
+        "target": shadow_binder_goal["target"],
+        "vars": [
+            {
+                "userName": "x",
+                "name": "_uniq.43",
+                "isLet": True,
+                "isInstance": False,
+                "isInaccessible": False,
+                "contextIndex": 0,
+                "binderRole": ":let",
+                "type": {"sexp": "(:c Nat)", "pp": "Nat", "modelSexpVersion": 1, "modelSexp": "(:c Nat)"},
+                "value": {
+                    "sexp": "((:c OfNat.ofNat) (:c Nat) (:lit 2) ((:c instOfNatNat) (:lit 2)))",
+                    "pp": "2",
+                    "modelSexpVersion": 1,
+                    "modelSexp": "(:app (:c OfNat.ofNat) (:arg :implicit-type 0 (:c Nat)) (:arg :explicit 1 (:lit 2)) (:arg :instance 2 (:instance-of (:app (:c OfNat) (:arg :explicit 0 (:c Nat)) (:arg :explicit 1 (:lit 2))))))",
+                },
+            }
+        ],
+        "isConversion": False,
+        "fragment": "tactic",
     }
-    return {expression: {"goals": [goal]} for expression, goal in wrapped.items()}
+    implicit_goal = {
+        "name": "_uniq.9",
+        "target": {
+            "sexp": "((:c Eq) (:c Nat) (:fv _uniq.8) (:fv _uniq.8))",
+            "pp": "a = a",
+            "modelSexpVersion": 1,
+            "modelSexp": "(:app (:c Eq) (:arg :implicit-type 0 (:c Nat)) (:arg :explicit 1 (:fv FV0)) (:arg :explicit 2 (:fv FV0)))",
+        },
+        "vars": [
+            {
+                "userName": "a",
+                "name": "_uniq.8",
+                "isLet": False,
+                "isInstance": False,
+                "isInaccessible": False,
+                "contextIndex": 0,
+                "binderRole": ":implicit",
+                "type": {"sexp": "(:c Nat)", "pp": "Nat", "modelSexpVersion": 1, "modelSexp": "(:c Nat)"},
+            }
+        ],
+        "isConversion": False,
+        "fragment": "tactic",
+    }
+    return {
+        probe.name: {"goals": [goal]}
+        for probe, goal in zip(
+            DEFAULT_CAPABILITY_PROBES,
+            [shadow_binder_goal, shadow_binder_goal, let_goal, implicit_goal],
+        )
+    }
 
 
 def test_probe_live_capabilities_reports_verified_state() -> None:
@@ -281,7 +376,7 @@ def test_probe_live_capabilities_reports_verified_state() -> None:
 
 def test_probe_live_capabilities_fails_closed_on_misbehaving_server() -> None:
     payloads = _live_payloads()
-    let_variables = payloads[DEFAULT_CAPABILITY_PROBES[2].expression]["goals"][0]["variables"]
+    let_variables = payloads[DEFAULT_CAPABILITY_PROBES[2].name]["goals"][0]["vars"]
     let_variables[0]["value"] = None
 
     server = _FakeServer(payloads)
@@ -291,3 +386,80 @@ def test_probe_live_capabilities_fails_closed_on_misbehaving_server() -> None:
     assert results["local_lets"].ok is False and results["local_lets"].detail
     # A crashing server for one probe must not break the whole report.
     assert results["shadowing"].ok is True
+
+
+def test_probe_live_capabilities_fails_closed_without_raw_payload_access() -> None:
+    class _ParsedOnlyServer:
+        """Stands for the pinned client: parses payloads, strips v2 fields."""
+
+        async def goal_start_async(self, expression: str) -> dict:
+            return {"stateId": 0, "goals": [], "messages": []}
+
+    results = asyncio.run(probe_live_capabilities(_ParsedOnlyServer()))
+    assert all_capabilities_verified(results) is False
+    for probe in DEFAULT_CAPABILITY_PROBES:
+        assert "does not expose raw payload access" in results[probe.name].detail
+
+
+# Exact raw goal payload emitted by the pinned PyPantograph rev
+# (3322696b72e...) with "printExprAST" and "printExprModelAST" enabled,
+# captured live against the bundled pantograph-repl with core Lean v4.29.1:
+#   options.set accepted both options, but the payload carries plain "sexp"
+#   and the variables lack every v2-specific field.
+PINNED_REV_PAYLOAD = {
+    "goals": [
+        {
+            "fragment": "tactic",
+            "name": "_uniq.7",
+            "target": {"pp": "True", "sexp": "(:c True)"},
+            "vars": [
+                {
+                    "isInaccessible": False,
+                    "name": "_uniq.6",
+                    "type": {"pp": "Prop", "sexp": "(:sort 0)"},
+                    "userName": "p",
+                }
+            ],
+        }
+    ],
+    "hasSorry": False,
+    "hasUnsafe": False,
+    "messages": [],
+    "nextStateId": 1,
+}
+
+
+def test_pinned_rev_payload_fails_closed_with_actionable_gap_report() -> None:
+    from maths_ai.hybrid_reasoner.pantograph_adapter import (
+        pantograph_state_to_goals,
+        protocol_gap_report,
+    )
+
+    # The pinned client payload fails closed at the adapter normalization
+    # layer; ModelSExprProtocolError (a ValueError) covers the strict layer.
+    with pytest.raises(ValueError, match="modelSexp"):
+        pantograph_state_to_goals(PINNED_REV_PAYLOAD)
+
+    report = protocol_gap_report(PINNED_REV_PAYLOAD)
+    assert "plain-sexp (pinned rev)" in report["expression_style"]
+    # None of the v2 model-S-expression fields exist on the pinned client.
+    assert report["missing_expression_fields"] == [
+        "modelSexp",
+        "modelSexpVersion",
+    ]
+    assert set(report["missing_variable_fields"]) >= {
+        "binderRole",
+        "contextIndex",
+        "isInstance",
+        "isLet",
+    }
+
+
+def test_probe_live_capabilities_attaches_gap_report_for_pinned_rev() -> None:
+    server = _FakeServer(
+        {"binders": {"goals": [PINNED_REV_PAYLOAD["goals"][0]]}}
+    )
+    results = asyncio.run(probe_live_capabilities(server))
+    assert results["binders"].ok is False
+    assert "gap_report=" in results["binders"].detail
+    assert "plain-sexp (pinned rev)" in results["binders"].detail

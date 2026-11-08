@@ -98,29 +98,153 @@ def pantograph_state_to_goals(state: Any) -> list[Goal]:
     return [pantograph_goal_to_goal(goal) for goal in goals]
 
 
-async def probe_model_state(server: Any, expression: str = "∀ (p : Prop), p → p") -> None:
+_PINNED_EXPRESSION_KEYS = ("pp", "sexp")
+
+
+def _expression_style(expression: Any) -> str:
+    if _read(expression, "modelSexp") is not None:
+        return "model-sexp-v2"
+    if _read(expression, "sexp") is not None:
+        # The pinned PyPantograph rev emits plain ``sexp`` under
+        # ``printExprAST`` even when ``printExprModelAST`` is requested; the
+        # normalized-extraction fork is required for the v2 fields.
+        return "plain-sexp (pinned rev)"
+    return "print-only"
+
+
+def protocol_gap_report(state: Any) -> dict[str, Any]:
+    """Inventory the gaps between a live payload and the v2 input contract.
+
+    Returns the strict-conversion error plus a field-level gap inventory so
+    deployments get actionable diagnostics instead of a bare_fail message.
+    """
+    goals = _read(state, "goals")
+    goal = goals[0] if isinstance(goals, list) and goals else None
+    target = _read(goal, "target") if goal is not None else None
+    report: dict[str, Any] = {
+        "conversion": "ok",
+        "expression_style": _expression_style(target) if target is not None else "no-target",
+        "missing_expression_fields": [],
+        "missing_variable_fields": [],
+    }
+    try:
+        pantograph_state_to_goals(state)
+    except Exception as exc:  # noqa: BLE001 - the error text is the report payload.
+        report["conversion"] = f"{type(exc).__name__}: {exc}"
+    missing_expression: set[str] = set()
+    expressions: list[Any] = []
+    if target is not None:
+        expressions.append(target)
+    variables = _read_first(goal, "variables", "vars") if goal is not None else None
+    if isinstance(variables, list):
+        for variable in variables:
+            for owner_key in ("type", "value"):
+                payload = _read(variable, owner_key)
+                if payload is not None:
+                    expressions.append(payload)
+    for expression in expressions:
+        missing_expression.update(
+            field
+            for field in ("modelSexp", "modelSexpVersion")
+            if _read(expression, field) is None
+        )
+    report["missing_expression_fields"] = sorted(missing_expression)
+    if not isinstance(variables, list) or not variables:
+        report["missing_variable_fields"] = [
+            "contextIndex",
+            "binderRole",
+            "isInstance",
+            "isLet",
+            "userName",
+        ]
+        return report
+    missing_variables: set[str] = set()
+    for variable in variables:
+        type_payload = _read(variable, "type")
+        checks = {
+            "userName": _read_first(variable, "userName", "name") is not None,
+            "name": _read(variable, "name") is not None,
+            "contextIndex": isinstance(_read(variable, "contextIndex"), int),
+            "binderRole": isinstance(_read(variable, "binderRole"), str),
+            "isInstance": isinstance(_read(variable, "isInstance"), bool),
+            "isLet": isinstance(_read(variable, "isLet"), bool),
+            "type.modelSexp": type_payload is not None and _read(type_payload, "modelSexp") is not None,
+            "type.modelSexpVersion": type_payload is not None
+            and _read(type_payload, "modelSexpVersion") is not None,
+        }
+        missing_variables.update(field for field, present in checks.items() if not present)
+    report["missing_variable_fields"] = sorted(missing_variables)
+    return report
+
+
+async def _raw_goal_payload(server: Any, expression: str, replay: tuple[str, ...]) -> dict[str, Any]:
+    """Drive the server and return its raw ``goal.tactic`` wire payload.
+
+    The pinned PyPantograph client strips the v2 model-S-expression fields
+    when it parses responses into ``GoalState`` objects, so capability checks
+    and strict conversion must operate on the raw payload obtained through
+    ``run_async``. Each replay tactic advances the state first.
+    """
+    run_async = getattr(server, "run_async", None)
+    if not callable(run_async):
+        raise ValueError(
+            "server does not expose raw payload access (run_async); "
+            "the pinned client parses and strips v2 fields from GoalState."
+        )
+    state_id = (await run_async("goal.start", {"expr": expression})).get("stateId")
+    if not isinstance(state_id, int):
+        raise ValueError("goal.start did not return a numeric stateId.")
+    raw: dict[str, Any] = {}
+    for tactic in replay:
+        raw = dict(await run_async("goal.tactic", {"stateId": state_id, "tactic": tactic}))
+        if raw.get("error") or raw.get("tacticErrors"):
+            raise ValueError(f"replay tactic {tactic!r} failed: {raw}")
+        next_state_id = raw.get("nextStateId")
+        # Keep advancing from freshly minted states; replay tactic order matters.
+        state_id = next_state_id if isinstance(next_state_id, int) else state_id
+    if not raw:
+        raise ValueError("replay produced no goal payload; extend the replay tactics.")
+    return raw
+
+
+async def probe_model_state(
+    server: Any,
+    expression: str = "∀ (p : Prop), p → p",
+    *,
+    replay: tuple[str, ...] = ("intro p",),
+) -> None:
     """Verify that the connected server returns the fields required by v2."""
-    state = await server.goal_start_async(expression)
-    pantograph_state_to_goals(state)
+    raw = await _raw_goal_payload(server, expression, replay)
+    pantograph_state_to_goals(raw)
 
 
 @dataclass(frozen=True)
 class CapabilityProbe:
-    """One live state exercising a v2 payload capability."""
+    """One live state exercising a v2 payload capability.
+
+    ``expression`` starts the state; the ``replay`` tactics drive it through
+    raw ``goal.tactic`` calls so the probed payload contains the fields under
+    test (``goal.start`` alone returns no goals and the pinned client strips
+    v2 fields when it parses responses).
+    """
 
     name: str
     expression: str
     expectation: str
+    replay: tuple[str, ...] = ()
 
 
+# Replays are live-verified against the pinned Pantograph fork
+# (gnn-sexpr-v410 branch on jajos12/Pantograph) with Lean v4.10.0-rc1.
 DEFAULT_CAPABILITY_PROBES: tuple[CapabilityProbe, ...] = (
-    CapabilityProbe("binders", "∀ (a : Nat), a = a", "binders"),
-    CapabilityProbe("shadowing", "∀ (a : Nat), ∀ (a : Nat), a = a", "shadowing"),
-    CapabilityProbe("local_lets", "let x := 1; x = x", "local_lets"),
+    CapabilityProbe("binders", "∀ (a : Nat), a = a", "binders", ("intro a",)),
+    CapabilityProbe("shadowing", "∀ (a : Nat), ∀ (a : Nat), a = a", "shadowing", ("intro a", "intro a")),
+    CapabilityProbe("local_lets", "∀ (a : Nat), a = a", "local_lets", ("intro a", "let x := 2")),
     # Instance binders cannot be constructed through goal_start alone, so the
-    # probe checks that the payload *reports* the isInstance field. Full
-    # instance semantics still require a compatible extractor deployment.
-    CapabilityProbe("instances", "∀ (a : Nat), a = a", "instances"),
+    # probe checks that the payload *reports* the isInstance field (and the
+    # implicit binder role). Full instance semantics still require a compatible
+    # extractor deployment.
+    CapabilityProbe("instances", "∀ {a : Nat}, a = a", "instances", ("intro a",)),
 )
 
 
@@ -156,6 +280,7 @@ def capability_findings(goal: Any) -> dict[str, bool]:
         return findings
     binder_ok = True
     instance_field_present = True
+    shadowed = False
     names: list[str] = []
     internal_names: list[str] = []
     let_with_value = False
@@ -178,8 +303,28 @@ def capability_findings(goal: Any) -> dict[str, bool]:
             names.append(user_name)
         if isinstance(internal_name, str) and internal_name:
             internal_names.append(internal_name)
+    all_names = [
+        _read_first(v, "userName", "name")
+        for v in variables
+        if isinstance(_read_first(v, "userName", "name"), str)
+    ]
+    for variable in variables:
+        if not (
+            _read(variable, "isInaccessible") and isinstance(_read(variable, "userName"), str)
+        ):
+            continue
+        # Pantograph renames a shadowed binder to 'a✝' (inaccessible); the
+        # underlying user name re-appears on another binder in the context.
+        base = _read(variable, "userName").rstrip("✝")
+        other_names = [n for other in variables if other is not variable
+                       for n in [_read_first(other, "userName", "name")] if n]
+        if base and base in other_names:
+            shadowed = True
+            break
     findings["binders"] = binder_ok
-    findings["shadowing"] = len(names) != len(set(names)) and len(internal_names) == len(set(internal_names))
+    findings["shadowing"] = shadowed or (
+        len(names) != len(set(names)) and len(internal_names) == len(set(internal_names))
+    )
     findings["local_lets"] = let_with_value
     findings["instances"] = instance_field_present
     return findings
@@ -190,22 +335,38 @@ async def probe_live_capabilities(
     *,
     probes: tuple[CapabilityProbe, ...] = DEFAULT_CAPABILITY_PROBES,
 ) -> dict[str, CapabilityProbeResult]:
-    """Fail-closed capability report over representative live states."""
+    """Fail-closed capability report over representative live states.
+
+    Probes run against the raw wire payload (the pinned client strips v2
+    fields when it parses responses into GoalState objects), so servers must
+    expose raw payload access; the report fails closed with an actionable
+    message otherwise.
+    """
     results: dict[str, CapabilityProbeResult] = {}
     for probe in probes:
+        raw: dict[str, Any] | None = None
         try:
-            state = await server.goal_start_async(probe.expression)
-            goals = _read(state, "goals")
+            raw = await _raw_goal_payload(server, probe.expression, probe.replay)
+            goals = _read(raw, "goals")
             if not isinstance(goals, list) or not goals:
                 raise ValueError("state carries no goals.")
             findings = capability_findings(goals[0])
             # Strict conversion must also succeed: fail closed on omissions.
-            pantograph_state_to_goals(state)
+            pantograph_state_to_goals(raw)
             ok = bool(findings.get(probe.expectation))
             detail = findings if not ok else ""
             results[probe.name] = CapabilityProbeResult(probe.name, ok, str(detail))
         except Exception as exc:  # noqa: BLE001 - every probe failure is data, not a crash.
-            results[probe.name] = CapabilityProbeResult(probe.name, False, f"{type(exc).__name__}: {exc}")
+            detail = f"{type(exc).__name__}: {exc}"
+            if raw is not None:
+                # Attach the field-level gap inventory when the server did
+                # produce a payload; this distinguishes a pinned-rev client
+                # (plain sexp, missing variable fields) from a one-field gap.
+                try:
+                    detail += f" | gap_report={protocol_gap_report(raw)}"
+                except Exception:  # noqa: BLE001 - reporting must never crash the probe.
+                    pass
+            results[probe.name] = CapabilityProbeResult(probe.name, False, detail)
     return results
 
 

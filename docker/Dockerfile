@@ -48,9 +48,9 @@ RUN git config --global http.lowSpeedLimit 0 && \
     git config --global http.version HTTP/1.1
 
 # Build Lean project and keep the Lake artifacts in the runtime image.
-# BuildKit cache mounts are not persisted to the final image, so we rely on the
-# generated .lake tree staying in the image for the non-root runtime user.
-RUN elan toolchain install leanprover/lean4:v4.15.0 && \
+# Toolchain matches the v2 extraction provenance: Mathlib 29dcec0... is
+# built on Lean v4.10.0-rc1, and the Pantograph runtime below requires it.
+RUN elan toolchain install leanprover/lean4:v4.10.0-rc1 && \
     rm -rf /opt/lean_project/.lake/packages/mathlib && \
     lake update && lake exe cache get && \
     lake build --verbose
@@ -77,7 +77,19 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # The Python package supplies the client API used by this project; its bundled
 # executable is replaced with this build so the client and Lean backend stay
 # wired together.
-ARG PANTOGRAPH_REF=06fdf7e678c1ce2e7a2bb5fe26962c6d89715e22
+#
+# ``PANTOGRAPH_REF`` is the ``gnn-sexpr-v410`` branch tip. The v2
+# extraction-provenance commit is ``73781c2d58456e4bf369dadd4a501e1b78a0b177``
+# ("gnn-sexpr-v410" on jajos12/Pantograph): it emits the normalized
+# model-S-expression fields (modelSexp/modelSexpVersion on every expression,
+# contextIndex/binderRole/isInstance/isLet on variables) required by the v2
+# bundle. Serving additionally needs the client-compatibility commits that
+# follow it on the same branch (goal ``fragment``/``hasSorry``/``messages``
+# fields and optional ``goalId``), which the pinned PyPantograph client
+# requires and a live byte-level comparison confirms do not change any v2
+# model-Sexp serialization (Serial.lean diff: 9 protocol lines, no modelSexp
+# lines). Requires the Lean v4.10.0-rc1 toolchain built above.
+ARG PANTOGRAPH_REF=0dd5d2225e2d093f66a4b6231c1aa35004f2c8f3
 COPY docker/pantograph-repl /tmp/pantograph-repl-wrapper
 RUN git init /opt/pantograph && \
     git -C /opt/pantograph remote add origin https://github.com/jajos12/Pantograph.git && \
