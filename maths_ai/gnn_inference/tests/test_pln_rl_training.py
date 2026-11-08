@@ -26,7 +26,8 @@ from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import (
     supported_structural_labels,
     train_step,
     train_step_htps_style,
-    compute_transition_loss,
+    prepare_transition_update,
+    backward_update,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.pln_reward import RewardConfig
 from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import (
@@ -105,12 +106,12 @@ class PLNRLTrainingTests(unittest.TestCase):
         transitions = extract_transitions(g, RewardConfig(step_penalty=0.0))
         critic_samples = extract_critic_samples(g)
         self.assertEqual(len(transitions), 3)
-        result = compute_transition_loss(
+        result = prepare_transition_update(
             model, transitions, critic_samples, featurize, tactic_to_id
         )
-        self.assertIsNotNone(result)
-        loss, metrics = result
-        self.assertTrue(torch.isfinite(loss))
+        self.assertFalse(result.empty)
+        metrics = backward_update(model, result, featurize)
+        self.assertTrue(torch.isfinite(torch.tensor(metrics["total_loss"])))
         self.assertEqual(metrics["num_transitions"], 3.0)
         # Every attempt is on the certified witness ⇒ value target 1.0.
         self.assertGreater(metrics["mean_value_target"], 0.0)
@@ -133,8 +134,8 @@ class PLNRLTrainingTests(unittest.TestCase):
         g, featurize, model, tactic_to_id = self._setup()
         transitions = extract_transitions(g, RewardConfig(step_penalty=0.0))
         # Empty vocab ⇒ every tactic unknown ⇒ None result.
-        result = compute_transition_loss(model, transitions, [], featurize, {})
-        self.assertIsNone(result)
+        result = prepare_transition_update(model, transitions, [], featurize, {})
+        self.assertTrue(result.empty)
 
 
 class HTPSStyleStepTests(unittest.TestCase):

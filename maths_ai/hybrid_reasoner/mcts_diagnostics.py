@@ -62,6 +62,7 @@ SEARCH_SOURCES = (
     "maths_ai/gnn_inference/atp_lean_gnn/rl_live_collection.py",
     "maths_ai/gnn_inference/atp_lean_gnn/rl_training_driver.py",
     "maths_ai/gnn_inference/atp_lean_gnn/pln_rl_training.py",
+    "maths_ai/gnn_inference/atp_lean_gnn/update_batching.py",
     "maths_ai/hybrid_reasoner/pantograph_adapter.py",
     "maths_ai/hybrid_reasoner/pantograph_model_sexpr.py",
     "maths_ai/hybrid_reasoner/pantograph_diagnostics.py",
@@ -504,6 +505,11 @@ async def verify_learning_round(client: PantographClient) -> dict:
         )
         before = [parameter.detach().clone() for parameter in model.parameters()]
 
+        # Fit one state at a time to exercise accumulation on actual Lean goals.
+        costs = [reasoner.dag_featurize_data(node.goal) for node in result.graph.nodes.values()]
+        batch_nodes = max(int(data.num_nodes) for data in costs)
+        batch_edges = max(1, max(int(data.edge_index.size(1)) for data in costs))
+        del costs
         # The driver's order: one on-policy step, mining, then HTPS steps.
         metrics = train_step_onpolicy(
             model,
@@ -512,8 +518,13 @@ async def verify_learning_round(client: PantographClient) -> dict:
             reasoner.dag_featurize_data,
             reward_cfg=RewardConfig(step_penalty=0.01),
             bc_weight=0.0,
+            max_update_nodes=batch_nodes,
+            max_update_edges=batch_edges,
         )
         onpolicy_steps = int(metrics["onpolicy_optimizer_step"])
+        onpolicy_batches = int(metrics["update_backward_batches"])
+        require(metrics["update_peak_nodes"] <= batch_nodes, "On-policy batch exceeded node budget.")
+        require(metrics["update_peak_edges"] <= batch_edges, "On-policy batch exceeded edge budget.")
         critic_samples = extract_critic_samples(result.graph, visit_threshold=1)
         imitation_samples = extract_minimal_hypertree(result.graph, result.observations)
         htps_steps = 0
@@ -524,11 +535,13 @@ async def verify_learning_round(client: PantographClient) -> dict:
                 imitation_samples,
                 critic_samples,
                 reasoner.dag_featurize_data,
-                max_update_nodes=50000,
-                max_update_edges=250000,
+                max_update_nodes=batch_nodes,
+                max_update_edges=batch_edges,
                 max_update_candidates=100000,
                 max_update_candidate_bytes=268435456,
             )
+            require(htps["update_peak_nodes"] <= batch_nodes, "HTPS batch exceeded node budget.")
+            require(htps["update_peak_edges"] <= batch_edges, "HTPS batch exceeded edge budget.")
             metrics = {**metrics, **htps}
             htps_steps = int(htps["htps_optimizer_step"])
             require(
@@ -559,6 +572,9 @@ async def verify_learning_round(client: PantographClient) -> dict:
             "imitation_samples": len(imitation_samples),
             "critic_samples": len(critic_samples),
             "onpolicy_optimizer_steps": onpolicy_steps,
+            "onpolicy_backward_batches": onpolicy_batches,
+            "computational_node_limit": batch_nodes,
+            "computational_edge_limit": batch_edges,
             "htps_optimizer_steps": htps_steps,
             "model_generation": onpolicy_steps + htps_steps,
         }

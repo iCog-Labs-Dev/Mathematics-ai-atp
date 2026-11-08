@@ -185,10 +185,11 @@ class RLTrainingConfig:
     # HTPS imitation: weight of the arguments' log-probability against the tactic's.
     arg_loss_weight: float = 0.5
     retrieval: RetrievalConfig | None = None
+    # Per-computational-batch limits; logical round totals may exceed these.
     max_update_candidates: int = 100000
     max_update_candidate_bytes: int = 268435456
-    max_update_nodes: int = 0
-    max_update_edges: int = 0
+    max_update_nodes: int = 50000
+    max_update_edges: int = 250000
 
     # Reward (Approach 1 potential shaping lives inside pln_reward).
     reward_gamma: float = 0.99
@@ -229,7 +230,10 @@ class RLTrainingConfig:
         )
         self.widening()
         self.evaluation_settings()
-        for name in ("max_update_candidates", "max_update_candidate_bytes"):
+        for name in (
+            "max_update_nodes", "max_update_edges",
+            "max_update_candidates", "max_update_candidate_bytes",
+        ):
             if type(getattr(self, name)) is not int or getattr(self, name) < 1:
                 raise ValueError(f"{name} must be a positive integer.")
 
@@ -490,6 +494,15 @@ def _pool_from_payload(payload: dict[str, Any], library) -> CandidatePoolSnapsho
     )
 
 
+def training_update_contract(cfg):
+    from .update_batching import UpdateLimits
+
+    return UpdateLimits(
+        cfg.max_update_nodes, cfg.max_update_edges,
+        cfg.max_update_candidates, cfg.max_update_candidate_bytes,
+    ).contract()
+
+
 def save_checkpoint(
     model: ActorCriticWithArgsClassifier,
     optimizer: torch.optim.Optimizer,
@@ -509,6 +522,7 @@ def save_checkpoint(
     evaluation_contract: dict[str, object],
     pln_runtime_identity: dict | None,
     saved_data_contract: dict,
+    saved_update_contract: dict,
 ) -> None:
     """Write the resume state (Decision 1.4: optimizer-htps + queues included).
 
@@ -527,6 +541,7 @@ def save_checkpoint(
         "search_evidence": SEARCH_EVIDENCE_VERSION,
         "evaluation_contract": evaluation_contract,
         "data_contract": saved_data_contract,
+        "training_update_contract": saved_update_contract,
         "pln_runtime": pln_runtime_identity,
         "onpolicy_steps": onpolicy_steps,
         "search_settings": saved_search_settings,
@@ -665,6 +680,8 @@ async def _run_rl_training_impl(
                 "and the stored evaluation contract, so it cannot be resumed exactly. "
                 "Use its model checkpoint as a warm start for a fresh RL run."
             )
+        if state.get("training_update_contract") != training_update_contract(cfg):
+            raise ValueError("Checkpoint training update contract differs or is missing; use weights as a warm start for a fresh run.")
         if state.get("search_settings") != search_settings(cfg):
             raise ValueError(
                 "Resume configuration changes the saved search semantics. Start a fresh "
@@ -893,6 +910,7 @@ async def _run_rl_training_impl(
         metrics["critic_queue_len"] = float(len(critic_queue))
 
         htps_optimizer_steps = 0
+        htps_resources = {}
         htps_started = time.perf_counter()
         for _ in range(cfg.htps_steps_per_round):
             if not tactic_queue and not critic_queue:
@@ -921,6 +939,10 @@ async def _run_rl_training_impl(
             htps_optimizer_steps += int(
                 htps_metrics.get("htps_optimizer_step", 0.0)
             )
+            for key, value in htps_metrics.items():
+                if key.startswith("update_") and ("batches" in key or "peak_" in key):
+                    htps_resources[key] = (max(htps_resources.get(key, 0.0), value)
+                                           if "peak_" in key else htps_resources.get(key, 0.0) + value)
             for key in (
                 "tactic_imitation_loss",
                 "critic_soft_loss",
@@ -940,6 +962,7 @@ async def _run_rl_training_impl(
                 "total_label_count",
             ):
                 metrics[f"htps_{key}"] = htps_metrics[key]
+        metrics.update({f"htps_{key}": value for key, value in htps_resources.items()})
         metrics["htps_update_s"] = time.perf_counter() - htps_started
         metrics["htps_optimizer_steps"] = float(htps_optimizer_steps)
 
@@ -1033,7 +1056,8 @@ async def _run_rl_training_impl(
                 saved_search_settings=search_settings(cfg),
                 evaluation_contract=cfg.evaluation_settings().contract(),
                 pln_runtime_identity=pln_runtime_identity,
-        saved_data_contract=current_data_contract,
+                saved_data_contract=current_data_contract,
+                saved_update_contract=training_update_contract(cfg),
             )
 
         if cfg.eval_every > 0 and (round_idx + 1) % cfg.eval_every == 0 and pool.eval_items:
@@ -1094,6 +1118,7 @@ async def _run_rl_training_impl(
                     evaluation_contract=cfg.evaluation_settings().contract(),
                     pln_runtime_identity=pln_runtime_identity,
                     saved_data_contract=current_data_contract,
+                    saved_update_contract=training_update_contract(cfg),
                 )
                 console_print(f"  New best proof rate {best_proof_rate:.3f} → best.pt")
 
@@ -1112,6 +1137,7 @@ async def _run_rl_training_impl(
         evaluation_contract=cfg.evaluation_settings().contract(),
         pln_runtime_identity=pln_runtime_identity,
         saved_data_contract=current_data_contract,
+        saved_update_contract=training_update_contract(cfg),
     )
     return last_metrics
 

@@ -46,7 +46,8 @@ from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import (
     EdgeAction,
     ObservationOutcome,
     PolicyObservation,
-    compute_onpolicy_loss,
+    prepare_onpolicy_update,
+    backward_update,
     make_dag_featurizer,
     train_step_onpolicy,
 )
@@ -488,12 +489,12 @@ class OnPolicyLossTests(unittest.TestCase):
         result = asyncio.run(reasoner.prove(SEED, proposal=SAMPLE))
         self.assertGreater(len(failed(result)), 0)
 
-        loss_result = compute_onpolicy_loss(
+        loss_result = prepare_onpolicy_update(
             model, [], [], failed(result), reasoner.dag_featurize_data,
         )
-        self.assertIsNotNone(loss_result)
-        loss, metrics = loss_result
-        self.assertTrue(torch.isfinite(loss))
+        self.assertFalse(loss_result.empty)
+        metrics = backward_update(model, loss_result, reasoner.dag_featurize_data)
+        self.assertTrue(torch.isfinite(torch.tensor(metrics["total_loss"])))
         self.assertEqual(metrics["critic_loss"], 0.0)  # a failed ACTION carries no state value
         self.assertEqual(metrics["num_transitions"], 0.0)
         self.assertGreater(metrics["num_failures"], 0.0)
@@ -525,12 +526,13 @@ class OnPolicyLossTests(unittest.TestCase):
                 log_prior=-1.0,
                 provider="test",
             )]
-            out = compute_onpolicy_loss(
+            out = prepare_onpolicy_update(
                 model, transitions, [], [*result.observations, *failures],
                 reasoner.dag_featurize_data, reward_cfg=RewardConfig(step_penalty=0.0),
             )
-            self.assertIsNotNone(out)
-            return float(out[0].item())
+            self.assertFalse(out.empty)
+            model.zero_grad(set_to_none=True)
+            return backward_update(model, out, reasoner.dag_featurize_data)["total_loss"]
 
         self.assertNotAlmostEqual(loss_with(1), loss_with(3))
 

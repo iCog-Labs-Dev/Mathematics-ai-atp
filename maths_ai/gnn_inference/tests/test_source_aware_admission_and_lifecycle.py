@@ -18,7 +18,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import (
     EdgeAction,
     ObservationOutcome,
     PolicyObservation,
-    compute_onpolicy_loss,
+    prepare_onpolicy_update,
     train_step_htps_style,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.policy_actions import LocalCandidateProvider
@@ -69,7 +69,7 @@ def test_both_optimizers_reject_the_same_pool_drift_before_scoring(field, htps):
             observation = PolicyObservation(
                 0, row.goal, action, ObservationOutcome.REJECTED, 1, log_prior=-1.0
             )
-            compute_onpolicy_loss(model, [], [], [observation], featurize)
+            prepare_onpolicy_update(model, [], [], [observation], featurize)
     model.evaluate_actions.assert_not_called()
     optimizer.step.assert_not_called()
 

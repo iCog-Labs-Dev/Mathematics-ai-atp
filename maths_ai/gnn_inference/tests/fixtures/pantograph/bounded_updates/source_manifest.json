@@ -1,0 +1,75 @@
+{
+  "kind": "bounded-rl-gradient-accumulation",
+  "sources": [
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/pln_rl_training.py",
+      "target_base_sha256": "e06689a67cbcd03b15c753a3dd4e2577d70d47ddccfdd08ae885ba973fbb717a",
+      "sha256": "3c68654264ad6a07a1596d6840e6d8bbc89d9c09a51afd866de9a312a2b97055"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/rl_training_driver.py",
+      "target_base_sha256": "7a236d9693fa71429ba912c20610a78ebf9ccda502022ef985162ed7802ed451",
+      "sha256": "a579a6dca5d25c2c77f5f6179bea6d6f0c6de9b64ceefdf55419bc27e524074c"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/update_batching.py",
+      "target_base_sha256": null,
+      "sha256": "93817b0ba5fe03483e68b21d77910c30ae574ee4363e2b77600ce6e56c43e97d"
+    },
+    {
+      "path": "maths_ai/gnn_inference/configs/rl_actor_critic.json",
+      "target_base_sha256": "cf035292a23d9830fb63db029ed53a355a6ba2b7bee21e81f18e20d1185aa68d",
+      "sha256": "e462c5251caa505c00e7d74929c15b237feac86aee085c5b2459c8dca7aa802a"
+    },
+    {
+      "path": "maths_ai/gnn_inference/docs/bounded_rl_updates.md",
+      "target_base_sha256": null,
+      "sha256": "0495cccd0817752cab4a30b06ca803e73b0fbe6a5542aa5cca35e0b28072cbf9"
+    },
+    {
+      "path": "maths_ai/gnn_inference/docs/rl_training_setup.md",
+      "target_base_sha256": "a447366665781b587562e43b6b2b5fa28e8769a46e79711397f35df20a003282",
+      "sha256": "4748108e6fcda07a74b443cc2181bb6a9cbc9b0cd7fcc3aa27e61cc5042ba917"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/rl_update_reference.py",
+      "target_base_sha256": null,
+      "sha256": "fec5bf31fb1d8eae581d99dcb9e0efe70fbf1abad978b880ffcb1f2accb8443c"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
+      "target_base_sha256": "ea8962092e54c7a671afc99cbbdb5e062c57a9d51c278acc007fc6db1f1e2c2c",
+      "sha256": "28653d27f82c25538337160027a9816e2bc0cc0a42423559a5ed5da31d5c4dfb"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_pln_rl_training.py",
+      "target_base_sha256": "2c0f9c1f9c280d1ffe99f8ff24a194a21417a585d363f4c8715e04b7f4a34b14",
+      "sha256": "9b4e0f2e5890836cb33bd287b3a9a3113f2db4e529d7be83f484cb1e93cc7056"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_rl_reasoner.py",
+      "target_base_sha256": "db627e62dc6ffcdea93c2d34d58ee4b195b3002fd9c28ff4b19b17f9e12b0ce4",
+      "sha256": "0e9de287f4277f200fd5e7241de0ac5f0f5226cef6c660bf74e9cfaa8f9e8833"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_source_aware_admission_and_lifecycle.py",
+      "target_base_sha256": "8bfbb204a0acae1508c6b261769ce31305812e9a43c1577cd2bf16925e91d547",
+      "sha256": "bba1d164fe6718a3272c7189e063f262c04019e923bcb49b7c724b13290be527"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_transactional_resource_integration.py",
+      "target_base_sha256": "88d3daeaad59f3afa349a553e763b2b6c65756ab941082adb95cba7109e2e2b5",
+      "sha256": "b62cb974c2d535290dcb69d14d20e723571d933b36c69a04fee9d61a324e5f2d"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_update_batching.py",
+      "target_base_sha256": null,
+      "sha256": "956b2b1f02fc982dccb5f3353d875df998cea1f4ddef72bf7cee7c06a6b55e67"
+    },
+    {
+      "path": "maths_ai/hybrid_reasoner/mcts_diagnostics.py",
+      "target_base_sha256": "551614797aaeb6b65fff3ec478616ff99dfb1dc406fd70e3c62a8da1de851c2f",
+      "sha256": "4640b4f332ee9369481d82940c931f33cd82d98a06acf4b6d19a46f618c9d24e"
+    }
+  ]
+}

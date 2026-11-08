@@ -195,14 +195,14 @@ def test_resource_limited_deletion_retires_the_session_and_invalidates_leases():
 
 def test_resource_observations_do_not_score_or_train_the_actor():
     from maths_ai.gnn_inference.tests.test_pln_rl_training import HTPSStyleStepTests
-    from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import EdgeAction, PolicyObservation, ObservationOutcome, compute_onpolicy_loss
+    from maths_ai.gnn_inference.atp_lean_gnn.pln_rl_training import EdgeAction, PolicyObservation, ObservationOutcome, prepare_onpolicy_update
 
     model, featurize, rows, _ = HTPSStyleStepTests()._setup()
     row = rows[0]
     action = EdgeAction(row.tactic_id, row.candidate_pool, row.graph_fingerprint, row.arguments)
     observation = PolicyObservation(0, row.goal, action, ObservationOutcome.RESOURCE_LIMIT, 1, log_prior=-1.)
     model.evaluate_actions = Mock(side_effect=AssertionError("Scored an operational failure"))
-    assert compute_onpolicy_loss(model, [], [], [observation], featurize) is None
+    assert prepare_onpolicy_update(model, [], [], [observation], featurize).empty
     model.evaluate_actions.assert_not_called()
 
 

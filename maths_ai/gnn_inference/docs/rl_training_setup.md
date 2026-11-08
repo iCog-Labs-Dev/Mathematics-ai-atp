@@ -1,3 +1,5 @@
+> **Update memory limits:** Node, edge, and candidate limits now bound computational batches. Large rounds use gradient accumulation with one on-policy optimizer step. See [bounded RL updates](bounded_rl_updates.md) for metrics, positive limits, and resume migration.
+
 > **Input-source configuration:** RL configs now require independent `training_data` and `evaluation_data` blocks. See [independent training and evaluation inputs](independent_training_and_evaluation_sources.md) for train/val/test setup, migration, and resume rules. Old flat data fields and automatic training-pool partitioning are retired.
 
 # Starting RL training: weights, environment, and launch (remote server / JupyterLab)

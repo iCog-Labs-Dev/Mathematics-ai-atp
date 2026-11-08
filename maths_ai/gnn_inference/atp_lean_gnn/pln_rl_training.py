@@ -25,7 +25,15 @@ import torch
 from torch_geometric.data import Batch, Data
 
 from .actor_critic import ActorCriticWithArgsClassifier
-from .actor_critic_loss import compute_bc_anchor_loss, compute_critic_loss, compute_entropy_bonus
+from .actor_critic_loss import compute_bc_anchor_loss, compute_entropy_bonus
+from .update_batching import (
+    UpdateLimits,
+    UpdateRow,
+    UpdatePlan,
+    prepare_plan,
+    materialize,
+    normalized_advantages,
+)
 from .policy_actions import ArgumentReference, CandidatePoolSnapshot, fingerprint
 from .retrieval_artifacts import goal_query
 from .graph import dag_fingerprint, model_goal_to_dag
@@ -104,51 +112,6 @@ def supported_structural_labels(*, max_locals: int, max_arity: int) -> list[str]
     return labels
 
 
-def _oov_metrics(datas: list[Data]) -> dict[str, float]:
-    return {
-        "unknown_label_count": float(
-            sum(int(data.unknown_label_count) for data in datas)
-        ),
-        "structural_unknown_label_count": float(
-            sum(int(data.structural_unknown_label_count) for data in datas)
-        ),
-        "semantic_unknown_label_count": float(
-            sum(int(data.semantic_unknown_label_count) for data in datas)
-        ),
-        "total_label_count": float(sum(int(data.total_label_count) for data in datas)),
-    }
-
-
-def _require_graph_fingerprint(data: Data, expected: str, owner: str) -> None:
-    actual = str(data.graph_fingerprint)
-    if actual != expected:
-        raise ValueError(
-            f"{owner} graph changed between collection and training: "
-            f"expected {expected}, got {actual}."
-        )
-
-
-def _validate_update_size(
-    datas: list[Data],
-    *,
-    max_update_nodes: int,
-    max_update_edges: int,
-) -> tuple[int, int]:
-    if max_update_nodes < 0 or max_update_edges < 0:
-        raise ValueError("RL update node and edge budgets cannot be negative.")
-    node_count = sum(int(data.num_nodes) for data in datas)
-    edge_count = sum(int(data.edge_index.size(1)) for data in datas)
-    if (max_update_nodes and node_count > max_update_nodes) or (
-        max_update_edges and edge_count > max_update_edges
-    ):
-        raise ValueError(
-            "Collected RL update exceeds its graph budget: "
-            f"graphs={len(datas)}, nodes={node_count}, edges={edge_count}, "
-            f"max_nodes={max_update_nodes}, max_edges={max_update_edges}."
-        )
-    return node_count, edge_count
-
-
 @dataclass(frozen=True)
 class EdgeAction:
     """The integer record of one sampled action — everything the train phase needs to
@@ -162,6 +125,7 @@ class EdgeAction:
     action was applied to Lean once (dedup for the executor) but its policy-gradient term
     must be weighted by ``m`` or high-probability actions are under-weighted.
     """
+
     tactic_id: int
     candidate_pool: CandidatePoolSnapshot
     graph_fingerprint: str
@@ -175,12 +139,15 @@ class EdgeAction:
     @property
     def raw_action_id(self) -> tuple:
         """The concrete choice: tactic id and each argument's source and identity."""
-        return (self.tactic_id, tuple((ref.source, ref.identity) for ref in self.arguments))
+        return (
+            self.tactic_id,
+            tuple((ref.source, ref.identity) for ref in self.arguments),
+        )
 
 
 class ObservationOutcome(str, Enum):
-    ACCEPTED = "accepted"          # Lean accepted the command: it has an edge
-    REJECTED = "rejected"          # Lean checked the command and rejected it
+    ACCEPTED = "accepted"  # Lean accepted the command: it has an edge
+    REJECTED = "rejected"  # Lean checked the command and rejected it
     UNRENDERABLE = "unrenderable"  # the draw could not become a command
     RESOURCE_LIMIT = "resource_limit"  # no negative action evidence
 
@@ -201,6 +168,7 @@ class PolicyObservation:
     proposal-time prior (None when no complete action existed); it is a record,
     and the loss recomputes log-probabilities instead of using it.
     """
+
     node_id: int
     goal: Goal
     action: EdgeAction
@@ -239,6 +207,7 @@ def make_dag_featurizer(node_vocab: dict[str, int]):
     argument strings (``_resolve_local_node_name``) requires the nodes themselves. Collect
     and train MUST featurize through the same path so the stored indices stay aligned.
     """
+
     def featurize(goal: Goal):
         dag = model_goal_to_dag(goal.require_model_state())
         data = dag_to_pyg(dag, node_vocab, add_reverse_edges=True)
@@ -247,7 +216,9 @@ def make_dag_featurizer(node_vocab: dict[str, int]):
             raise ValueError("RL DAG has no State root.")
         data.state_node_index = torch.tensor([dag.state_root_id], dtype=torch.long)
         data.graph_fingerprint = dag_fingerprint(dag)
-        unknown_labels = [node.label for node in dag.nodes if node.label not in node_vocab]
+        unknown_labels = [
+            node.label for node in dag.nodes if node.label not in node_vocab
+        ]
         structural_unknown = sorted(
             {label for label in unknown_labels if _is_structural_label(label)}
         )
@@ -264,122 +235,71 @@ def make_dag_featurizer(node_vocab: dict[str, int]):
         data.structural_label_count = sum(
             _is_structural_label(node.label) for node in dag.nodes
         )
-        data.semantic_label_count = int(data.num_nodes) - int(data.structural_label_count)
+        data.semantic_label_count = int(data.num_nodes) - int(
+            data.structural_label_count
+        )
         data.total_label_count = int(data.num_nodes)
         return dag, data
 
     return featurize
 
 
-def compute_transition_loss(
-    model: ActorCriticWithArgsClassifier,
-    transitions: list[ActorTransition],
-    critic_samples: list[CriticSample],
-    featurize: Callable[[Goal], Data],
-    tactic_to_id: dict[str, int],
+def prepare_transition_update(
+    model,
+    transitions,
+    critic_samples,
+    featurize,
+    tactic_to_id,
     *,
-    device: torch.device | None = None,
-    critic_weight: float = 0.5,
-    entropy_weight: float = 0.01,
-    bc_weight: float = 0.0,
-    max_update_nodes: int = 0,
-    max_update_edges: int = 0,
-) -> tuple[torch.Tensor, dict[str, float]] | None:
-    """One actor-critic loss over a batch of harvested transitions (tactic-level policy grad).
-
-    Advantage ``Â(s,τ) = return − V_pred(s)`` with the AND-OR-backed ``return`` from the
-    harvest; the critic regresses the separately harvested node targets. Transitions whose tactic
-    is outside ``tactic_to_id`` are dropped. Returns
-    ``None`` if nothing survives. The BC anchor uses each transition's own tactic id as the
-    supervised label (the search-chosen action), annealed by ``bc_weight``.
-    """
-    device = device or torch.device("cpu")
-    actor_datas: list[Data] = []
-    action_ids: list[int] = []
-    returns: list[float] = []
+    max_update_nodes=50000,
+    max_update_edges=250000,
+):
+    """Preflight all tactic-level RL rows before any model or optimizer work."""
+    actors = []
     for t in transitions:
         tid = tactic_to_id.get(t.tactic.tactic_name)
-        if tid is None:
-            continue
-        actor_datas.append(featurize(t.goal))
-        action_ids.append(tid)
-        returns.append(t.return_)
-
-    critic_datas = []
-    for sample in critic_samples:
-        data = featurize(sample.goal)
-        _require_graph_fingerprint(data, sample.graph_fingerprint, "Critic sample")
-        critic_datas.append(data)
-    if not actor_datas and not critic_datas:
-        return None
-
-    node_count, edge_count = _validate_update_size(
-        [*actor_datas, *critic_datas],
-        max_update_nodes=max_update_nodes,
-        max_update_edges=max_update_edges,
+        if tid is not None:
+            data = featurize(t.goal)
+            actors.append(
+                UpdateRow(
+                    t.goal, str(data.graph_fingerprint), t.return_, tid, accepted=True
+                )
+            )
+    return _prepare(
+        model,
+        actors,
+        critic_samples,
+        featurize,
+        "transition",
+        max_update_nodes,
+        max_update_edges,
     )
-    zero = next(model.parameters()).sum() * 0.0
-    if actor_datas:
-        actor_batch = Batch.from_data_list(actor_datas).to(device)
-        _node_emb, _state_emb, tactic_logits, actor_values = model.encode(actor_batch)
-        actions = torch.tensor(action_ids, dtype=torch.long, device=device)
-        returns_t = torch.tensor(returns, dtype=torch.float32, device=device)
-        raw_adv = returns_t - actor_values.squeeze(-1).detach()
-        advantages = (raw_adv - raw_adv.mean()) / (raw_adv.std(unbiased=False) + 1e-8)
-        log_probs = torch.log_softmax(tactic_logits, dim=-1)
-        selected_logp = log_probs.gather(1, actions.unsqueeze(1)).squeeze(1)
-        actor_loss = -(selected_logp * advantages).mean()
-        entropy = compute_entropy_bonus(tactic_logits)
-    else:
-        actor_loss = zero
-        entropy = zero
-        returns_t = torch.empty(0, device=device)
-        tactic_logits = None
-        actions = None
 
-    if critic_datas:
-        critic_batch = Batch.from_data_list(critic_datas).to(device)
-        _nodes, _state, _logits, critic_values = model.encode(critic_batch)
-        value_targets_t = torch.tensor(
-            [sample.target for sample in critic_samples],
-            dtype=torch.float32,
-            device=device,
-        )
-        critic_loss = compute_critic_loss(critic_values, value_targets_t)
-    else:
-        critic_loss = zero
-        value_targets_t = torch.empty(0, device=device)
 
-    total = actor_loss + critic_weight * critic_loss - entropy_weight * entropy
-
-    if bc_weight != 0.0 and tactic_logits is not None and actions is not None:
-        bc_loss = compute_bc_anchor_loss(tactic_logits, actions)
-        total = total + bc_weight * bc_loss
-        bc_val = float(bc_loss.item())
-    else:
-        bc_val = 0.0
-
-    metrics = {
-        "actor_loss": float(actor_loss.item()),
-        "critic_loss": float(critic_loss.item()),
-        "entropy": float(entropy.item()),
-        "bc_loss": bc_val,
-        "total_loss": float(total.item()),
-        "mean_return": float(returns_t.mean().item()) if returns_t.numel() else 0.0,
-        "mean_value_target": (
-            float(value_targets_t.mean().item()) if value_targets_t.numel() else 0.0
-        ),
-        "num_transitions": float(len(actor_datas)),
-        "num_critic_samples": float(len(critic_samples)),
-        "update_nodes": float(node_count),
-        "update_edges": float(edge_count),
-        **_oov_metrics([*actor_datas, *critic_datas]),
-    }
-    for source in sorted({sample.source for sample in critic_samples}, key=lambda item: item.value):
-        metrics[f"critic_source_{source.value}"] = float(
-            sum(sample.source == source for sample in critic_samples)
-        )
-    return total, metrics
+def _prepare(
+    model,
+    actors,
+    critics,
+    featurize,
+    phase,
+    max_update_nodes,
+    max_update_edges,
+    max_update_candidates=100000,
+    max_update_candidate_bytes=268435456,
+):
+    critic_rows = [
+        UpdateRow(s.goal, s.graph_fingerprint, s.target, source=s.source.value)
+        for s in critics
+    ]
+    limits = UpdateLimits(
+        max_update_nodes,
+        max_update_edges,
+        max_update_candidates,
+        max_update_candidate_bytes,
+    )
+    return prepare_plan(
+        model, actors, critic_rows, featurize, _check_action, phase=phase, limits=limits
+    )
 
 
 def _check_action(
@@ -390,7 +310,8 @@ def _check_action(
     owner: str,
 ) -> None:
     """Validate one stored complete action before either optimizer allocates inputs."""
-    _require_graph_fingerprint(data, action.graph_fingerprint, owner)
+    if str(data.graph_fingerprint) != action.graph_fingerprint:
+        raise ValueError(f"{owner} graph changed between collection and training.")
     if action.candidate_pool is None:
         raise ValueError(f"{owner} needs its immutable candidate pool.")
     if action.candidate_pool.graph_fingerprint != data.graph_fingerprint:
@@ -405,204 +326,319 @@ def _check_action(
         raise ValueError(f"{owner}: argument count exceeds the policy budget.")
 
 
-def _candidate_budget(
-    model, pools, *, max_candidates: int, max_bytes: int
-) -> tuple[int, int]:
-    if any(
-        type(limit) is not int or limit < 1 for limit in (max_candidates, max_bytes)
-    ):
-        raise ValueError("Candidate count and byte limits must be positive integers.")
-    count = sum(len(p.local_ids) + len(p.lemma_ids) for p in pools)
-    size = sum(
-        (
-            len(p.local_ids) * model.hidden_dim
-            + len(p.lemma_ids) * model.decoder.text_dim
-        )
-        * 4
-        for p in pools
-    )
-    if count > max_candidates or size > max_bytes:
-        raise ValueError("Collected update exceeds its candidate tensor budget.")
-    return count, size
-
-
-def compute_onpolicy_loss(
-    model: ActorCriticWithArgsClassifier,
-    transitions: list[ActorTransition],
-    critic_samples: list[CriticSample],
-    observations: list[PolicyObservation],
-    featurize: Callable[[Goal], Data],
+def prepare_onpolicy_update(
+    model,
+    transitions,
+    critic_samples,
+    observations,
+    featurize,
     *,
-    device: torch.device | None = None,
-    critic_weight: float = 0.5,
-    entropy_weight: float = 0.01,
-    bc_weight: float = 0.0,
-    reward_cfg: RewardConfig | None = None,
-    max_update_nodes: int = 0,
-    max_update_edges: int = 0,
-    max_update_candidates: int = 100000,
-    max_update_candidate_bytes: int = 268435456,
-) -> tuple[torch.Tensor, dict[str, float]] | None:
-    """On-policy actor-critic loss over complete source-aware actions.
-
-    Recompute pattern (refinement 2): the collect phase stored only the typed
-    actions and the candidate pools they were drawn from (``EdgeAction``); here
-    ``model.evaluate_actions`` rebuilds the complete action's log-probability
-    (tactic, argument count, each argument's source and identity) with gradient
-    under the current parameters. Exactly on-policy only when no optimizer step
-    ran between collect and this call.
-
-    Per accepted observation whose edge has a harvested transition:
-      ``L_actor = −m · log π(a) · Â.detach()``
-    with ``Â = return − V_pred(s)`` normalized over every row with multiplicity
-    weights, and ``m`` the observation's multiplicity (refinement 1). Each edge's
-    transition is harvested once and shared by every raw action observed on it.
-    The critic targets are supplied separately through ``critic_samples``.
-
-    Per rejected or unrenderable observation (refinement 4): the same actor term with
-    ``return = terminal_failure − step_penalty`` and NO critic target.
-    """
-    device = device or torch.device("cpu")
+    reward_cfg=None,
+    max_update_nodes=50000,
+    max_update_edges=250000,
+    max_update_candidates=100000,
+    max_update_candidate_bytes=268435456,
+):
+    """Validate and plan all eligible complete-action observations on the CPU."""
     reward_cfg = reward_cfg or RewardConfig()
-
-    actor_datas: list[Data] = []
-    tactic_ids: list[int] = []
-    argument_rows: list[tuple[ArgumentReference, ...]] = []
-    candidate_pools: list[CandidatePoolSnapshot] = []
-    multiplicities: list[float] = []
-    returns: list[float] = []
-    is_success: list[bool] = []
-
     by_edge = {t.edge_id: t for t in transitions}
-    failure_return = reward_cfg.terminal_failure - reward_cfg.step_penalty
-    failures = 0
-    for observation in observations:
-        if observation.outcome is ObservationOutcome.RESOURCE_LIMIT:
+    actors = []
+    for o in observations:
+        if o.outcome is ObservationOutcome.RESOURCE_LIMIT:
             continue
-        action = observation.action
-        if observation.outcome == ObservationOutcome.ACCEPTED:
-            t = by_edge.get(observation.edge_id)
-            if t is None:
-                continue  # the edge's return is unknown: no actor row
-            goal, return_, success = t.goal, t.return_, True
-        else:
-            goal, return_, success = observation.goal, failure_return, False
-            failures += 1
-        data = featurize(goal)
-        _check_action(model, goal, data, action, f"{observation.outcome.value.capitalize()} action")
-        actor_datas.append(data)
-        tactic_ids.append(action.tactic_id)
-        argument_rows.append(action.arguments)
-        candidate_pools.append(action.candidate_pool)
-        multiplicities.append(float(action.multiplicity))
-        returns.append(return_)
-        is_success.append(success)
-
-    critic_datas = []
-    for sample in critic_samples:
-        data = featurize(sample.goal)
-        _require_graph_fingerprint(data, sample.graph_fingerprint, "Critic sample")
-        critic_datas.append(data)
-    if not actor_datas and not critic_datas:
-        return None
-
-    node_count, edge_count = _validate_update_size(
-        [*actor_datas, *critic_datas],
-        max_update_nodes=max_update_nodes,
-        max_update_edges=max_update_edges,
+        accepted = o.outcome is ObservationOutcome.ACCEPTED
+        transition = by_edge.get(o.edge_id) if accepted else None
+        if accepted and transition is None:
+            continue
+        goal = transition.goal if accepted else o.goal
+        target = (
+            transition.return_
+            if accepted
+            else reward_cfg.terminal_failure - reward_cfg.step_penalty
+        )
+        actors.append(
+            UpdateRow(
+                goal,
+                o.action.graph_fingerprint,
+                target,
+                o.action.tactic_id,
+                o.action,
+                float(o.action.multiplicity),
+                accepted,
+            )
+        )
+    return _prepare(
+        model,
+        actors,
+        critic_samples,
+        featurize,
+        "onpolicy",
+        max_update_nodes,
+        max_update_edges,
+        max_update_candidates,
+        max_update_candidate_bytes,
     )
-    zero = next(model.parameters()).sum() * 0.0
-    policy_diagnostics: dict[str, float] = {}
-    if actor_datas:
-        candidate_count, candidate_bytes = _candidate_budget(
-            model, candidate_pools,
-            max_candidates=max_update_candidates, max_bytes=max_update_candidate_bytes,
-        )
-        batch = Batch.from_data_list(actor_datas).to(device)
-        tactic_ids_t = torch.tensor(tactic_ids, dtype=torch.long, device=device)
-        evaluated = model.evaluate_actions(
-            batch, tactic_ids_t, argument_rows, candidate_pools=candidate_pools
-        )
-        arg_logp, values, tactic_logits = evaluated.arg_logp, evaluated.value, evaluated.tactic_logits
-        returns_t = torch.tensor(returns, dtype=torch.float32, device=device)
-        mult_t = torch.tensor(multiplicities, dtype=torch.float32, device=device)
-        success_t = torch.tensor(is_success, dtype=torch.bool, device=device)
-        raw_adv = returns_t - values.detach()
-        mean_adv = (raw_adv * mult_t).sum() / mult_t.sum()
-        variance = ((raw_adv - mean_adv).square() * mult_t).sum() / mult_t.sum()
-        advantages = (raw_adv - mean_adv) / (variance.sqrt() + 1e-8)
-        joint_logp = evaluated.logp
-        actor_loss = -(mult_t * joint_logp * advantages).sum() / mult_t.sum()
-        # Score-function surrogate of the complete action's entropy.
-        entropy_bonus = -((joint_logp.detach() + 1) * joint_logp * mult_t).sum() / mult_t.sum()
-        sampled_entropy = float((-(joint_logp.detach() * mult_t).sum() / mult_t.sum()).item())
-        policy_diagnostics = {
-            "mean_count_logp": float(evaluated.count_logp.detach().mean()),
-            "mean_source_logp": float(evaluated.source_logp.detach().mean()),
-            "mean_identity_logp": float(evaluated.identity_logp.detach().mean()),
-            "update_candidate_count": float(candidate_count),
-            "update_candidate_bytes": float(candidate_bytes),
-        }
-    else:
-        actor_loss = zero
-        entropy_bonus = zero
-        sampled_entropy = 0.0
-        returns_t = torch.empty(0, device=device)
-        arg_logp = torch.empty(0, device=device)
-        success_t = torch.empty(0, dtype=torch.bool, device=device)
-        tactic_ids_t = None
-        tactic_logits = None
 
-    if critic_datas:
-        critic_batch = Batch.from_data_list(critic_datas).to(device)
-        _nodes, _state, _logits, critic_values = model.encode(critic_batch)
-        critic_targets_t = torch.tensor(
-            [sample.target for sample in critic_samples],
-            dtype=torch.float32,
-            device=device,
+
+def prepare_htps_update(
+    model,
+    tactic_batch,
+    critic_batch,
+    featurize,
+    *,
+    max_update_nodes=50000,
+    max_update_edges=250000,
+    max_update_candidates=100000,
+    max_update_candidate_bytes=268435456,
+):
+    actors = [
+        UpdateRow(s.goal, s.graph_fingerprint, 0.0, s.tactic_id, s)
+        for s in tactic_batch
+    ]
+    return _prepare(
+        model,
+        actors,
+        critic_batch,
+        featurize,
+        "htps",
+        max_update_nodes,
+        max_update_edges,
+        max_update_candidates,
+        max_update_candidate_bytes,
+    )
+
+
+def backward_update(
+    model,
+    plan: UpdatePlan,
+    featurize,
+    *,
+    device=None,
+    critic_weight=0.5,
+    entropy_weight=0.01,
+    bc_weight=0.0,
+    arg_loss_weight=0.5,
+):
+    """Accumulate globally reduced gradients, freeing each batch before the next.
+
+    The caller owns zeroing, clipping, stepping, and cleanup. No returned tensor
+    retains an autograd graph. The value prepass has no argument tensors.
+    """
+    device = device or next(model.parameters()).device
+    model.eval()
+    metrics = dict(plan.metrics)
+    n_actor, n_critic = len(plan.actors), len(plan.critics)
+    accepted = sum(r.record.accepted for r in plan.actors)
+    weight = sum(r.record.weight for r in plan.actors)
+    values = []
+    if plan.phase != "htps":
+        with torch.no_grad():
+            for indexes in plan.actor_batches:
+                batch = Batch.from_data_list(
+                    materialize(model, plan.actors, indexes, featurize)
+                ).to(device)
+                encoded = model.encode_graph(batch)
+                predicted = model.critic(encoded.state_embeddings).reshape(-1)
+                if not torch.isfinite(predicted).all():
+                    raise ValueError("Nonfinite values in RL advantage prepass.")
+                values.extend(predicted.cpu().tolist())
+                del batch, encoded, predicted
+        advantages = (
+            normalized_advantages(
+                [r.record.target for r in plan.actors],
+                values,
+                [r.record.weight for r in plan.actors],
+            )
+            if n_actor
+            else []
         )
-        critic_loss = compute_critic_loss(critic_values, critic_targets_t)
+        metrics["update_value_batches"] = float(len(plan.actor_batches))
     else:
-        critic_loss = zero
-    total = actor_loss + critic_weight * critic_loss - entropy_weight * entropy_bonus
-
-    if (
-        bc_weight != 0.0
-        and tactic_logits is not None
-        and tactic_ids_t is not None
-        and success_t.any()
-    ):
-        # BC anchor toward the search-executed tactic on success rows only — anchoring
-        # toward rejected tactics would clone the failures.
-        labels = torch.where(success_t, tactic_ids_t, torch.full_like(tactic_ids_t, -1))
-        bc_loss = compute_bc_anchor_loss(tactic_logits, labels)
-        total = total + bc_weight * bc_loss
-        bc_val = float(bc_loss.item())
-    else:
-        bc_val = 0.0
-
-    metrics = {
-        "actor_loss": float(actor_loss.item()),
-        "critic_loss": float(critic_loss.item()),
-        "entropy": sampled_entropy,
-        "entropy_gradient_surrogate": float(-entropy_bonus.detach()),
-        **policy_diagnostics,
-        "bc_loss": bc_val,
-        "total_loss": float(total.item()),
-        "mean_return": float(returns_t.mean().item()) if returns_t.numel() else 0.0,
-        "mean_arg_logp": float(arg_logp.mean().item()) if arg_logp.numel() else 0.0,
-        "num_transitions": float(int(success_t.sum().item())),
-        "num_failures": float(failures),
-        "num_critic_samples": float(len(critic_samples)),
-        "update_nodes": float(node_count),
-        "update_edges": float(edge_count),
-        **_oov_metrics([*actor_datas, *critic_datas]),
+        advantages = []
+    sums = {
+        k: 0.0
+        for k in (
+            "actor_loss",
+            "critic_loss",
+            "entropy",
+            "entropy_gradient_surrogate",
+            "bc_loss",
+            "mean_arg_logp",
+            "mean_count_logp",
+            "mean_source_logp",
+            "mean_identity_logp",
+            "tactic_imitation_loss",
+        )
     }
-    for source in sorted({sample.source for sample in critic_samples}, key=lambda item: item.value):
-        metrics[f"critic_source_{source.value}"] = float(
-            sum(sample.source == source for sample in critic_samples)
+    with torch.enable_grad():
+        for indexes in plan.actor_batches:
+            rows = [plan.actors[i].record for i in indexes]
+            batch = Batch.from_data_list(
+                materialize(model, plan.actors, indexes, featurize)
+            ).to(device)
+            labels = torch.tensor(
+                [r.tactic_id for r in rows], dtype=torch.long, device=device
+            )
+            if plan.phase == "transition":
+                _nodes, _states, logits, _values = model.encode(batch)
+                logp = (
+                    torch.log_softmax(logits, -1).gather(1, labels[:, None]).reshape(-1)
+                )
+                # encode() also returns the critic branch, which this actor loss does not use.
+                del _nodes, _states, _values
+            else:
+                evaluated = model.evaluate_actions(
+                    batch,
+                    labels,
+                    [r.action.arguments for r in rows],
+                    candidate_pools=[r.action.candidate_pool for r in rows],
+                )
+                logits, logp = evaluated.tactic_logits, evaluated.logp
+            if plan.phase == "htps":
+                imitation = (
+                    -evaluated.tactic_logp.sum()
+                    - arg_loss_weight * evaluated.arg_logp.sum()
+                ) / n_actor
+                loss = imitation
+                sums["tactic_imitation_loss"] += float(imitation.detach())
+            else:
+                mult = torch.tensor(
+                    [r.weight for r in rows], device=device, dtype=logp.dtype
+                )
+                adv = torch.tensor(
+                    [advantages[i] for i in indexes], device=device, dtype=logp.dtype
+                )
+                actor = -(mult * logp * adv).sum() / weight
+                if plan.phase == "transition":
+                    bonus = compute_entropy_bonus(logits) * len(rows) / n_actor
+                    sums["entropy"] += float(bonus.detach())
+                else:
+                    bonus = -((logp.detach() + 1) * logp * mult).sum() / weight
+                    sums["entropy"] += float(-(logp.detach() * mult).sum() / weight)
+                    sums["entropy_gradient_surrogate"] += float(-bonus.detach())
+                loss = actor - entropy_weight * bonus
+                sums["actor_loss"] += float(actor.detach())
+                if bc_weight and accepted:
+                    anchor_labels = torch.tensor(
+                        [r.tactic_id if r.accepted else -1 for r in rows], device=device
+                    )
+                    local_accepted = sum(r.accepted for r in rows)
+                    if local_accepted:
+                        anchor = (
+                            compute_bc_anchor_loss(logits, anchor_labels)
+                            * local_accepted
+                            / accepted
+                        )
+                        loss = loss + bc_weight * anchor
+                        sums["bc_loss"] += float(anchor.detach())
+                    del anchor_labels
+                if plan.phase == "onpolicy":
+                    for key, output in (
+                        ("mean_arg_logp", evaluated.arg_logp),
+                        ("mean_count_logp", evaluated.count_logp),
+                        ("mean_source_logp", evaluated.source_logp),
+                        ("mean_identity_logp", evaluated.identity_logp),
+                    ):
+                        sums[key] += float(output.detach().sum()) / n_actor
+                    del output
+                del mult, adv, actor, bonus
+            if not torch.isfinite(loss):
+                raise ValueError(f"Nonfinite {plan.phase} actor loss.")
+            loss.backward()
+            # Delete every graph-bearing reference, including local component tensors.
+            del loss, batch, labels, logits, logp
+            if plan.phase != "transition":
+                del evaluated
+            if plan.phase == "htps":
+                del imitation
+            elif bc_weight and accepted and local_accepted:
+                del anchor
+        for indexes in plan.critic_batches:
+            batch = Batch.from_data_list(
+                materialize(model, plan.critics, indexes, featurize)
+            ).to(device)
+            encoded = model.encode_graph(batch)
+            predictions = model.critic(encoded.state_embeddings).reshape(-1)
+            targets = predictions.new_tensor(
+                [plan.critics[i].record.target for i in indexes]
+            )
+            critic = (predictions - targets).square().sum() / n_critic
+            if not torch.isfinite(critic):
+                raise ValueError(f"Nonfinite {plan.phase} critic loss.")
+            sums["critic_loss"] += float(critic.detach())
+            (critic_weight * critic).backward()
+            del critic, batch, encoded, predictions, targets
+    if plan.phase == "htps":
+        metrics.update(
+            tactic_imitation_loss=sums["tactic_imitation_loss"],
+            critic_soft_loss=sums["critic_loss"],
+            htps_total_loss=sums["tactic_imitation_loss"]
+            + critic_weight * sums["critic_loss"],
+            num_imitation_rows=float(n_actor),
+            num_critic_rows=float(n_critic),
         )
-    return total, metrics
+    else:
+        metrics.update(
+            {
+                key: value
+                for key, value in sums.items()
+                if key != "tactic_imitation_loss"
+            }
+        )
+        metrics["total_loss"] = (
+            sums["actor_loss"]
+            + critic_weight * sums["critic_loss"]
+            + bc_weight * sums["bc_loss"]
+        )
+        metrics["total_loss"] -= entropy_weight * (
+            sums["entropy"]
+            if plan.phase == "transition"
+            else -sums["entropy_gradient_surrogate"]
+        )
+        metrics.update(
+            num_transitions=float(accepted),
+            num_failures=float(n_actor - accepted),
+            num_critic_samples=float(n_critic),
+            mean_return=(
+                sum(r.record.target for r in plan.actors) / n_actor if n_actor else 0.0
+            ),
+            mean_value_target=(
+                sum(r.record.target for r in plan.critics) / n_critic
+                if n_critic
+                else 0.0
+            ),
+        )
+        for row in plan.critics:
+            key = f"critic_source_{row.record.source}"
+            metrics[key] = metrics.get(key, 0.0) + 1.0
+    return metrics
+
+
+def _execute_update(model, optimizer, prepare, featurize, *, grad_clip, **loss_options):
+    """Own the gradient lifetime and one optimizer mutation for a logical update."""
+    plan = None
+    try:
+        plan = prepare()
+        optimizer.zero_grad(set_to_none=True)
+        metrics = backward_update(model, plan, featurize, **loss_options)
+        step_key = (
+            "htps_optimizer_step" if plan.phase == "htps" else "onpolicy_optimizer_step"
+        )
+        metrics[step_key] = 0.0
+        if not plan.empty:
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(), grad_clip, error_if_nonfinite=True
+            )
+            optimizer.step()
+            metrics[step_key] = 1.0
+        return metrics
+    except BaseException as exc:
+        optimizer.zero_grad(set_to_none=True)
+        phase = "preflight" if plan is None else plan.phase
+        exc.add_note(
+            f"RL {phase} computational update failed; partial gradients were cleared."
+        )
+        raise
 
 
 def train_step(
@@ -619,8 +655,8 @@ def train_step(
     critic_weight: float = 0.5,
     entropy_weight: float = 0.01,
     bc_weight: float = 0.0,
-    max_update_nodes: int = 0,
-    max_update_edges: int = 0,
+    max_update_nodes: int = 50000,
+    max_update_edges: int = 250000,
 ) -> dict[str, float]:
     """Harvest transitions from a batch of search graphs and take one gradient step."""
     reward_cfg = reward_cfg or RewardConfig()
@@ -631,24 +667,25 @@ def train_step(
         transitions.extend(extract_transitions(graph, reward_cfg, harvest_cfg))
         critic_samples.extend(extract_critic_samples(graph, harvest_cfg=harvest_cfg))
 
-    if not transitions and not critic_samples:
-        return {"num_transitions": 0.0}
-
-    model.train()
-    optimizer.zero_grad(set_to_none=True)
-    result = compute_transition_loss(
-        model, transitions, critic_samples, featurize, tactic_to_id,
-        device=device, critic_weight=critic_weight,
-        entropy_weight=entropy_weight, bc_weight=bc_weight,
-        max_update_nodes=max_update_nodes, max_update_edges=max_update_edges,
+    return _execute_update(
+        model,
+        optimizer,
+        lambda: prepare_transition_update(
+            model,
+            transitions,
+            critic_samples,
+            featurize,
+            tactic_to_id,
+            max_update_nodes=max_update_nodes,
+            max_update_edges=max_update_edges,
+        ),
+        featurize,
+        grad_clip=grad_clip,
+        device=device,
+        critic_weight=critic_weight,
+        entropy_weight=entropy_weight,
+        bc_weight=bc_weight,
     )
-    if result is None:
-        return {"num_transitions": 0.0}
-    loss, metrics = result
-    loss.backward()
-    torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-    optimizer.step()
-    return metrics
 
 
 async def collect_batch(reasoner, theorems: list[LeanGoalSeed]) -> list:
@@ -693,8 +730,8 @@ def train_step_onpolicy(
     critic_weight: float = 0.5,
     entropy_weight: float = 0.01,
     bc_weight: float = 0.0,
-    max_update_nodes: int = 0,
-    max_update_edges: int = 0,
+    max_update_nodes: int = 50000,
+    max_update_edges: int = 250000,
     max_update_candidates: int = 100000,
     max_update_candidate_bytes: int = 268435456,
 ) -> dict[str, float]:
@@ -720,7 +757,9 @@ def train_step_onpolicy(
     for result in results:
         edge_ids = sorted(result.accepted_edge_ids())
         accepted_edges += len(edge_ids)
-        ts = extract_transitions(result.graph, reward_cfg, harvest_cfg, edge_ids=edge_ids)
+        ts = extract_transitions(
+            result.graph, reward_cfg, harvest_cfg, edge_ids=edge_ids
+        )
         for t in ts:
             t.edge_id += offset
         transitions.extend(ts)
@@ -735,35 +774,34 @@ def train_step_onpolicy(
             offset += edge_ids[-1] + 1
 
     unknown_edges_skipped = accepted_edges - len(transitions)
-    unknown_nodes_skipped = sum(len(result.graph.nodes) for result in results) - len(critic_samples)
-
-    model.train()
-    optimizer.zero_grad(set_to_none=True)
-    loss_result = compute_onpolicy_loss(
-        model, transitions, critic_samples, observations, featurize,
-        device=device, critic_weight=critic_weight, entropy_weight=entropy_weight,
-        bc_weight=bc_weight, reward_cfg=reward_cfg,
-        max_update_nodes=max_update_nodes, max_update_edges=max_update_edges,
-        max_update_candidates=max_update_candidates,
-        max_update_candidate_bytes=max_update_candidate_bytes,
+    unknown_nodes_skipped = sum(len(result.graph.nodes) for result in results) - len(
+        critic_samples
     )
-    if loss_result is None:
-        return {
-            "num_transitions": 0.0,
-            "num_failures": 0.0,
-            "unknown_label_count": 0.0,
-            "structural_unknown_label_count": 0.0,
-            "semantic_unknown_label_count": 0.0,
-            "total_label_count": 0.0,
-            "onpolicy_optimizer_step": 0.0,
-        }
-    loss, metrics = loss_result
+
+    metrics = _execute_update(
+        model,
+        optimizer,
+        lambda: prepare_onpolicy_update(
+            model,
+            transitions,
+            critic_samples,
+            observations,
+            featurize,
+            reward_cfg=reward_cfg,
+            max_update_nodes=max_update_nodes,
+            max_update_edges=max_update_edges,
+            max_update_candidates=max_update_candidates,
+            max_update_candidate_bytes=max_update_candidate_bytes,
+        ),
+        featurize,
+        grad_clip=grad_clip,
+        device=device,
+        critic_weight=critic_weight,
+        entropy_weight=entropy_weight,
+        bc_weight=bc_weight,
+    )
     metrics["unknown_edges_skipped"] = float(unknown_edges_skipped)
     metrics["unknown_nodes_skipped"] = float(unknown_nodes_skipped)
-    loss.backward()
-    torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-    optimizer.step()
-    metrics["onpolicy_optimizer_step"] = 1.0
     return metrics
 
 
@@ -810,8 +848,8 @@ def train_step_htps_style(
     arg_loss_weight: float = 0.5,
     grad_clip: float = 1.0,
     device: torch.device | None = None,
-    max_update_nodes: int = 0,
-    max_update_edges: int = 0,
+    max_update_nodes: int = 50000,
+    max_update_edges: int = 250000,
     max_update_candidates: int = 100000,
     max_update_candidate_bytes: int = 268435456,
 ) -> dict[str, float]:
@@ -833,105 +871,29 @@ def train_step_htps_style(
       ``loss = L_tactic_imitation + w_critic_soft · L_critic_soft``
 
     **One-step-per-collect exemption:** this function may run many times per round.
-    That invariant belongs to ``compute_onpolicy_loss``'s score-function estimator,
+    That invariant belongs to ``prepare_onpolicy_update``'s score-function estimator,
     whose recomputed log-probs are on-policy only under unchanged parameters. Here
     every input is a stored ``(input, label)`` pair whose validity does not depend on
     which parameters generated it — supervised regression, no importance ratio to
     invalidate. ``optimizer_htps`` must be a separate optimizer instance from the
     on-policy one (separate Adam moments; the driver asserts identity inequality).
     """
-    device = device or torch.device("cpu")
-    if not tactic_batch and not critic_batch:
-        return {
-            "tactic_imitation_loss": 0.0,
-            "critic_soft_loss": 0.0,
-            "htps_total_loss": 0.0,
-            "num_imitation_rows": 0.0,
-            "num_critic_rows": 0.0,
-            "htps_optimizer_step": 0.0,
-            "update_nodes": 0.0,
-            "update_edges": 0.0,
-            "update_candidate_count": 0.0,
-            "update_candidate_bytes": 0.0,
-        }
-
-    imitation_datas: list[Data] = []
-    tactic_labels: list[int] = []
-    argument_rows: list[tuple[ArgumentReference, ...]] = []
-    pools: list[CandidatePoolSnapshot] = []
-    for s in tactic_batch:
-        data = featurize(s.goal)
-        _check_action(model, s.goal, data, s, "Tactic imitation sample")
-        imitation_datas.append(data)
-        tactic_labels.append(s.tactic_id)
-        argument_rows.append(s.arguments)
-        pools.append(s.candidate_pool)
-    critic_datas = []
-    for sample in critic_batch:
-        data = featurize(sample.goal)
-        _require_graph_fingerprint(
-            data, sample.graph_fingerprint, "Critic replay sample"
-        )
-        critic_datas.append(data)
-
-    node_count, edge_count = _validate_update_size(
-        [*imitation_datas, *critic_datas],
-        max_update_nodes=max_update_nodes,
-        max_update_edges=max_update_edges,
-    )
-    candidate_count, candidate_bytes = _candidate_budget(
+    return _execute_update(
         model,
-        pools,
-        max_candidates=max_update_candidates,
-        max_bytes=max_update_candidate_bytes,
+        optimizer_htps,
+        lambda: prepare_htps_update(
+            model,
+            tactic_batch,
+            critic_batch,
+            featurize,
+            max_update_nodes=max_update_nodes,
+            max_update_edges=max_update_edges,
+            max_update_candidates=max_update_candidates,
+            max_update_candidate_bytes=max_update_candidate_bytes,
+        ),
+        featurize,
+        grad_clip=grad_clip,
+        device=device,
+        critic_weight=w_critic_soft,
+        arg_loss_weight=arg_loss_weight,
     )
-    n_imitation = len(tactic_batch)
-    model.train()
-    optimizer_htps.zero_grad(set_to_none=True)
-    zero = next(model.parameters()).sum() * 0.0
-    if imitation_datas:
-        imitation_batch = Batch.from_data_list(imitation_datas).to(device)
-        labels_t = torch.tensor(tactic_labels, dtype=torch.long, device=device)
-        evaluated = model.evaluate_actions(
-            imitation_batch, labels_t, argument_rows, candidate_pools=pools
-        )
-        tactic_loss = -evaluated.tactic_logp.mean()
-        arg_loss = -evaluated.arg_logp.mean()
-    else:
-        tactic_loss = zero
-        arg_loss = zero
-
-    imitation_loss = tactic_loss + arg_loss_weight * arg_loss
-
-    if critic_datas:
-        critic_batch_data = Batch.from_data_list(critic_datas).to(device)
-        _critic_nodes, _critic_state, _critic_logits, critic_values = model.encode(
-            critic_batch_data
-        )
-        targets_t = torch.tensor(
-            [sample.target for sample in critic_batch],
-            dtype=torch.float32,
-            device=device,
-        )
-        critic_soft_loss = compute_critic_loss(critic_values, targets_t)
-    else:
-        critic_soft_loss = zero
-
-    total = imitation_loss + w_critic_soft * critic_soft_loss
-    total.backward()
-    torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-    optimizer_htps.step()
-
-    return {
-        "tactic_imitation_loss": float(imitation_loss.item()),
-        "critic_soft_loss": float(critic_soft_loss.item()),
-        "htps_total_loss": float(total.item()),
-        "num_imitation_rows": float(n_imitation),
-        "num_critic_rows": float(len(critic_batch)),
-        "htps_optimizer_step": 1.0,
-        "update_nodes": float(node_count),
-        "update_edges": float(edge_count),
-        "update_candidate_count": float(candidate_count),
-        "update_candidate_bytes": float(candidate_bytes),
-        **_oov_metrics([*imitation_datas, *critic_datas]),
-    }
