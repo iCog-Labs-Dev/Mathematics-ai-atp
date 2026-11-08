@@ -44,6 +44,7 @@ from maths_ai.lean_replay import (
     RENDERER_VERSION,
     LeanGoalSeed,
     ReplayInputError,
+    ReplayFailure,
     render_replay,
     seed_from_text,
 )
@@ -220,31 +221,35 @@ def _file_row_events(
     max_state_chars: int | None,
     report: AdmissionReport,
 ) -> Iterator[AdmissionRow]:
-    """Text seeds from JSONL rows ``{"goal": str, "hypotheses": [str], "tactic"?: str}``.
+    """Decode text or versioned structured records through one shared boundary."""
+    from .goal_file_records import decode_goal_record, record_size
 
-    Each hypothesis is one declaration as Lean prints it (``n m : Nat``,
-    ``x : Nat := 3``) and goes through the shared declaration parser.
-    """
     report.source = {"kind": "file", "path": str(path), "max_scan_rows": max_scan_rows}
     with open(path, encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, start=1):
             if report.scanned >= max_scan_rows:
                 return
-            line = line.strip()
-            if not line:
+            if not line.strip():
+                report.scanned += 1
                 yield AdmissionRow(None)
                 continue
-            row = json.loads(line)
-            goal, hypotheses = row["goal"], row.get("hypotheses", [])
+            source = {"file": str(path), "line": line_number}
+            try:
+                row = json.loads(line)
+                if not isinstance(row, dict):
+                    raise ValueError("A goal record must be an object.")
+                tactic = row.get("tactic", "")
+                if not isinstance(tactic, str):
+                    raise ValueError("tactic must be a string.")
+            except (ValueError, TypeError) as exc:
+                report.scanned += 1
+                report.quarantine(source, ReplayInputError(
+                    ReplayFailure.MALFORMED_STRUCTURED, str(exc)), len(line))
+                yield AdmissionRow(None)
+                continue
             item = _admit_offline(
-                lambda: seed_from_text(
-                    goal=goal, hypotheses=hypotheses, source={"file": str(path), "line": line_number}
-                ),
-                row.get("tactic", ""),
-                len(goal) + sum(len(h) for h in hypotheses),
-                {"file": str(path), "line": line_number},
-                max_state_chars,
-                report,
+                lambda: decode_goal_record(row, path=path, line=line_number),
+                tactic, record_size(row), source, max_state_chars, report,
             )
             yield AdmissionRow(item)
 

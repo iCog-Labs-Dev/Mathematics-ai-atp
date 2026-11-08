@@ -393,6 +393,9 @@ def _fingerprint(seed: LeanGoalSeed, payload: dict[str, object]) -> str:
     body = {
         "renderer": RENDERER_VERSION,
         "origin": seed.origin,
+        "validation_model_target": seed.model_target,
+        "validation_model_locals": [[local.model_name, local.model_index, local.model_type]
+                                    for local in seed.locals],
         "source": [[key, str(value)] for key, value in seed.source],
         **payload,
     }

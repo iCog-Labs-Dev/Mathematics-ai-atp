@@ -13,6 +13,7 @@ from maths_ai.hybrid_reasoner.pantograph_model_sexpr import create_model_sexpr_c
 from maths_ai.hybrid_reasoner.proposal import input_identity
 from maths_ai.lean_replay import RENDERER_VERSION, render_replay
 from .dataset import canonicalize_split_name
+from .goal_file_records import GOAL_FILE_DECODER_VERSION
 from .seed_admission import (
     AdmissionReport,
     AdmissionSession,
@@ -135,6 +136,7 @@ class TheoremSourceConfig:
             "config": config,
             "source": self.source_identity(),
             "renderer": RENDERER_VERSION,
+            "file_decoder": GOAL_FILE_DECODER_VERSION,
             "ordering": "size-input-identity-v1",
         }
 
