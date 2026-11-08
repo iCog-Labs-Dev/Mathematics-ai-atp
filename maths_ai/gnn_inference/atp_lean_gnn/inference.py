@@ -245,20 +245,11 @@ class InferencePipeline:
             tactic_id_tensor = torch.tensor([tactic_id], dtype=torch.long, device=self.device)
             tactic_emb = self.model.tactic_embedding(tactic_id_tensor)
 
-            if not pool.candidate_ids:
-                filtered_candidate_count += 1
-                filtered_arity_count += 1
-                continue
-
             # ── Tactic-aware argument filtering ──────────────────────────
             if tactic_name in _FRESH_NAME_TACTICS:
                 fresh_names = _extract_fresh_names_from_dag(dag)
                 fresh_arguments = _fresh_arguments_for_tactic(tactic_name, fresh_names, arity)
                 if fresh_arguments is None:
-                    filtered_candidate_count += 1
-                    filtered_arity_count += 1
-                    continue
-                if len(fresh_names) < arity:
                     filtered_candidate_count += 1
                     filtered_arity_count += 1
                     continue
@@ -274,6 +265,11 @@ class InferencePipeline:
                         ],
                     }
                 )
+                continue
+
+            if not pool.candidate_ids:
+                filtered_candidate_count += 1
+                filtered_arity_count += 1
                 continue
 
             if tactic_name in _LOCAL_ONLY_TACTICS:
