@@ -1,0 +1,172 @@
+{
+  "schema": "gnn_pr_evidence_index_v1",
+  "implementation_snapshot": "13e0fdf",
+  "reporting_period": "2026-08 through 2026-11; earlier June/July foundations included",
+  "source_repository": "https://github.com/jajos12/Mathematics-ai-atp",
+  "availability_note": "Server locations are relative to the named repository root. Listed locations are not uploaded attachments. Most raw reports were unavailable locally during this documentation pass; null hashes and URLs are intentional.",
+  "metric_rules": [
+    "Do not combine different cohorts or label revisions into a learning curve.",
+    "Retrieval any-hit recall is not all-required-premise coverage.",
+    "Static action support is not model accuracy or native transition validity.",
+    "Native action parity is not whole-theorem proof success.",
+    "Standalone DeepSeek search results are not GNN or MCTS model scores."
+  ],
+  "evidence": [
+    {
+      "id": "early_graph_training",
+      "claim": "S-expression/binder fixes, GATv2/readout work, GPU reliability, packed caches and resumable training",
+      "kind": "implementation_and_historical_engineering",
+      "commits": ["22d6daa", "a247272", "8817f9a", "ee8c1ae", "25e9fb9", "ae77127", "8abf66b"],
+      "local_historical_records": ["_weekly/2026-08-03.md", "_weekly/2026-08-10.md", "_weekly/2026-08-17.md"],
+      "research_scope_note": "Records include quarter-plan/diffusion proposal exploration, literature-driven GAT work, and premise-scorer handoff to Nolawi for RL; no trained diffusion model or isolated per-change numerical gain is asserted.",
+      "raw_artifact_status": "Early weekly records do not provide a complete current raw-run bundle; no new numerical ablation result claimed.",
+      "attachment_url": null
+    },
+    {
+      "id": "mathlib_corpus_and_reference_resolution",
+      "kind": "documented_historical_train_audit",
+      "cohort_rows": 5187,
+      "metrics": {"declarations": 318953, "local_resolved": 7572, "local_total": 7572, "citation_covered": 9528, "citation_total": 9528, "resolved_position_percent": 96.1109},
+      "commits": ["e0c3e59", "a8c2d77", "e868dc3", "d64a816"],
+      "documentation": "maths_ai/gnn_inference/lean_extractor/README.md",
+      "artifact_location": "maths_ai/_support_files/artifacts/lemmas/v2/corpus/lemmas.jsonl",
+      "raw_artifact_status": "Server corpus and original audit report not inspected in this documentation pass.",
+      "sha256": null,
+      "attachment_url": null
+    },
+    {
+      "id": "normalized_dataset_release",
+      "kind": "documented_publication",
+      "metrics": {"published_rows": 227276},
+      "publication_url": "https://huggingface.co/datasets/jajostrains/Mathlib-Normalized-Sexpr",
+      "revision": null,
+      "commits": ["8ba015e", "bd4de91", "9895cf4", "4a7e986", "8930c31"],
+      "local_historical_records": ["_weekly/2026-08-24-details.md", "_weekly/2026-08-31-details.md"],
+      "raw_artifact_status": "Historical publication recorded; exact dataset revision should be attached before final PR review."
+    },
+    {
+      "id": "portable_model_integrity",
+      "kind": "implementation_and_tests",
+      "claim": "Vocabulary hashes, strict or explicitly bounded partial loads, dataset-independent inference and encoder/index binding",
+      "commits": ["7005e09", "8c0c03d", "61453fa"],
+      "tests": ["maths_ai/gnn_inference/tests/test_model_bundle.py", "maths_ai/gnn_inference/tests/test_lemma_index.py"],
+      "raw_artifact_status": "Implementation evidence is in Git; do not equate successful loading with model accuracy."
+    },
+    {
+      "id": "historical_retriever_comparison",
+      "kind": "documented_server_experiments",
+      "cohort_labeled_val_steps": 2501,
+      "metrics_percent": {"frozen_graph_r200": 8.2, "graph_label_bm25_r200": 39.54, "state_text_bm25_r200": 41.3, "joint_graph_pilot_epoch3_r200": 1.84, "text_capped_epoch8_r200": 55.3, "text_full_epoch3_r200": 64.81},
+      "documentation": "maths_ai/gnn_inference/docs/retriever_experiments.md",
+      "artifact_locations": ["maths_ai/gnn_inference/runs/premise_retriever/run_20261001_122611/text_query_diagnostics.json", "maths_ai/gnn_inference/runs/premise_retriever_graph_joint/", "maths_ai/gnn_inference/runs/premise_retriever_text_joint/", "maths_ai/gnn_inference/runs/premise_retriever_text_full/"],
+      "qualification": "Recorded common labels, different training budgets; not matched-compute architecture superiority or proof success.",
+      "sha256": null,
+      "attachment_url": null
+    },
+    {
+      "id": "normalized_model_and_retrieval",
+      "kind": "documented_server_results",
+      "population": {"train": 218727, "val": 4157, "test": 4392},
+      "metrics": {"tactic_top1_percent": 34.22, "known_tactic_val_denominator": 4156, "any_citation_r200_hits": 1915, "any_citation_r200_denominator": 2765},
+      "documentation": "maths_ai/gnn_inference/docs/joint_source_flat_pilot.md",
+      "artifact_locations": ["maths_ai/gnn_inference/runs/sexpr_available_old_settings/run_20261015_084134/", "maths_ai/gnn_inference/runs/sexpr_text_library_epoch_5/val_metrics.json"],
+      "raw_artifact_status": "Current server metric files needed for PR attachment; latest settings were selected on validation.",
+      "attachment_url": null
+    },
+    {
+      "id": "joint_decoder_and_label_repair",
+      "kind": "implementation_and_documented_experiments",
+      "commits": ["cdb742a", "bf19af9", "44a2610", "6a82176", "08aa04d"],
+      "metrics": {"flat_supported_train": 61853, "flat_supported_val": 1207, "nonempty_supported_val": 759},
+      "documentation": "maths_ai/gnn_inference/docs/repaired_argument_workflow.md",
+      "artifact_locations": ["maths_ai/_support_files/artifacts/prepared/argument_labels_v2/reports/argument_relabeling.json", "maths_ai/gnn_inference/runs/sexpr_joint_source_flat_epoch_5_count_pilot/"],
+      "qualification": "Flat-label eligibility differs from strict executable flat-renderer coverage."
+    },
+    {
+      "id": "local_projection_and_optional_cues",
+      "kind": "documented_paired_offline_result",
+      "metrics": {"local_before": 152, "local_after": 169, "local_denominator": 277, "oracle_nonempty_before": 64, "oracle_nonempty_after": 75, "predicted_nonempty_before": 19, "predicted_nonempty_after": 27, "nonempty_denominator": 759},
+      "documentation": "maths_ai/gnn_inference/docs/local_identity_probe.md",
+      "artifact_location": "maths_ai/gnn_inference/runs/sexpr_local_identity_full_frozen_v2/",
+      "qualification": "Same epoch-8 weights in cue comparison; optional cues default off; not Lean proof success.",
+      "attachment_url": null
+    },
+    {
+      "id": "negative_experiments",
+      "kind": "documented_rejected_variants",
+      "claims": ["Count reweighting did not improve accepted complete actions", "Library-only reranker lost to frozen text", "Three independent library-query pilots did not improve accepted predicted-action results"],
+      "commits": ["d4605a8", "164687e", "fed7904", "be3245f"],
+      "raw_artifact_status": "Preserve historical run evidence separately; independent query code was removed, not adopted."
+    },
+    {
+      "id": "joint_model_v2_release",
+      "kind": "documented_published_release_and_loadback",
+      "publication_url": "https://huggingface.co/iCogLabs-Dev/Mathlib-Sexpr-GNN",
+      "tag": "v2.0.0",
+      "revision": "8aba62625dfeb833e4591498700f351f3bc60af9",
+      "metrics": {"policy_parameters": 3869544, "retriever_parameters": 45426432, "indexed_lemmas": 318953},
+      "documentation": "maths_ai/gnn_inference/docs/huggingface_joint_release.md",
+      "commits": ["ea72894", "6988c26"],
+      "qualification": "Pre-template joint policy with matched epoch-5 retriever; does not establish main API parity."
+    },
+    {
+      "id": "template_coverage_v1_through_v6",
+      "kind": "documented_frozen_cohort_static_audits",
+      "population": {"train": 218727, "val": 4157},
+      "support": {"strict_flat": [43864, 862], "v1": [66904, 1322], "v2": [78324, 1531], "v3": [93113, 1823], "v4": [107913, 2096], "v5": [127245, 2438], "v6": [148869, 2820]},
+      "quarantined": {"train": 831, "val": 9},
+      "artifact_locations": ["maths_ai/gnn_inference/runs/template_v1_coverage/report.json", "maths_ai/gnn_inference/runs/template_v2_recovery/report.json", "maths_ai/gnn_inference/runs/template_v3_recovery/report.json", "maths_ai/gnn_inference/runs/template_v4_recovery/report.json", "maths_ai/gnn_inference/runs/template_v5_recovery/report.json", "maths_ai/gnn_inference/runs/template_v6_recovery/report.json"],
+      "qualification": "Static target support, not learned action accuracy. Attach report.json plus hash-bound row records.",
+      "attachment_url": null
+    },
+    {
+      "id": "native_validation_and_semantic_probe",
+      "kind": "documented_server_controls_and_probe",
+      "metrics": {"v3_val_transition_matches": 1812, "v3_val_selected": 1818, "v3_original_control_failures": 6, "v5_pilot_matches": 24, "v6_pilot_matches": 24, "semantic_probe_selected": 59, "semantic_bound": 54, "semantic_static_candidates": 46, "semantic_native_matches": 41, "semantic_native_selected": 46},
+      "artifact_locations": ["maths_ai/gnn_inference/runs/template_validation_v3_val/report.json", "maths_ai/gnn_inference/runs/native_gold_replay_template_v5_pilot/report.json", "maths_ai/gnn_inference/runs/native_gold_replay_template_v6_pilot/report.json", "maths_ai/gnn_inference/runs/template_v6_semantic_val_probe/report.json", "maths_ai/gnn_inference/runs/native_gold_replay_template_v6_semantic_all/report.json"],
+      "documentation": "maths_ai/gnn_inference/docs/semantic_recovery_extraction.md",
+      "qualification": "Five semantic rendered failures and five ENOSPC capture failures retained. Source-preserving repair recheck pending.",
+      "attachment_url": null
+    },
+    {
+      "id": "v7_implementation",
+      "kind": "locally_verified_implementation_pending_server_coverage",
+      "commit": "13e0fdf",
+      "metrics": {"focused_tests_passed": 172, "shared_native_v7_matches": 44, "v5_native_regressions": 27, "additional_native_selector_matches": 5},
+      "documentation": "maths_ai/gnn_inference/docs/tactic_templates_v7.md",
+      "expected_artifact_location": "maths_ai/gnn_inference/runs/template_v7_recovery/report.json",
+      "coverage_status": "pending; expected artifact path is not evidence of a completed run",
+      "attachment_url": null
+    },
+    {
+      "id": "minif2f_25_development_reports",
+      "kind": "historical_recorded_raw_audits",
+      "repository": "Mathematics-ai-atp",
+      "reports": [
+        {"path": "maths_ai/gnn_inference/runs/minif2f_valid25_dev/report.json", "sha256": "b454da9451864a7dfe92ffe01d9ac3b8d41cef045866868fab2dff2d03f54313", "solved": 8, "selected": 25},
+        {"path": "maths_ai/gnn_inference/runs/minif2f_valid25_solve_v2/report.json", "sha256": "c099c16951db677867e8d336f0a6b8ebacca9e7355e7d4ea617acbdf80dc43a7", "solved": 12, "selected": 25}
+      ],
+      "documentation": "maths_ai/gnn_inference/docs/minif2f_development.md",
+      "qualification": "Changed development protocols; not a controlled learning curve or GNN score. Hashes are recorded historical audits, not new byte verification."
+    },
+    {
+      "id": "standalone_full_validation_search",
+      "kind": "separate_repository_historical_recorded_audit",
+      "repository": "https://github.com/jajos12/lean-proof-search",
+      "artifact_location": "runs/minif2f_valid_full_search/report.json",
+      "sha256": "d493edb7bb9695a587fd6e6af54b6418d276326c95490ed62e14e296139a76a6",
+      "bytes": 25610710,
+      "metrics": {"selected": 244, "baseline_solved": 159, "combined_solved": 182, "additional_search_solved": 23, "input_failures": 4, "completed_search_generations": 1059, "search_output_tokens": 1450808},
+      "implementation_commit": "1ddf0bf",
+      "audit_documentation_commit": "b374d84",
+      "qualification": "Separate DeepSeek/automation validation development-port experiment, documented recovery and added compute; no GNN active, no official test claim.",
+      "attachment_url": null
+    },
+    {
+      "id": "integration_boundaries",
+      "kind": "open_integration_work",
+      "links": ["https://github.com/iCog-Labs-Dev/Mathematics-ai-atp/issues/81", "https://github.com/iCog-Labs-Dev/Mathematics-ai-atp/pull/84"],
+      "pending": ["Live normalized graph and context parity", "Complete joint ranked decoding in main API", "Deployment/runtime asset compatibility", "V7 full-cohort coverage", "Template-aware supervision export and model training", "Reconciled project/API regression testing"]
+    }
+  ]
+}
