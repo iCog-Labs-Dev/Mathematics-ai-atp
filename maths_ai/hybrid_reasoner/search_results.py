@@ -70,6 +70,7 @@ def record_view(record, *, proposal=None, include_trace: bool = True) -> dict[st
         "search_s": record.search_s,
         "exception_category": record.exception_category,
         "resource": record.resource,
+        "failure": getattr(record, "failure", None),
     }
     if proposal is not None:
         view["proposal"] = {"mode": proposal.mode, "seed": proposal.seed, "derivation": proposal.derivation}

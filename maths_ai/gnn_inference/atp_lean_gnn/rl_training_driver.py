@@ -41,6 +41,7 @@ from maths_ai.hybrid_reasoner.selection_policy import (
     resolve_widening,
 )
 
+from maths_ai.hybrid_reasoner.failure_evidence import FailureArchive
 from .actor_critic import ActorCriticWithArgsClassifier
 from .checkpointing import build_model_from_checkpoint, checkpoint_payload
 from .graph_contract import GraphRepresentationSpec
@@ -773,6 +774,7 @@ async def _run_rl_training_impl(
             model_generation=model_generation,
         )
         await live_stack.enter_async_context(live_reasoner_pool)
+        live_reasoner_pool.failure_archive = FailureArchive(run_dir / "failures")
         reasoner = live_reasoner_pool.primary
     else:
         env = None
@@ -1208,6 +1210,12 @@ def driver_main(argv: list[str] | None = None) -> int:
         async def _eval() -> None:
             async with await open_live_runtime(cfg) as runtime:
                 live_pool = runtime.pool
+                failures = (
+                    Path(args.eval_output_dir).with_name(Path(args.eval_output_dir).name + "-failures")
+                    if args.eval_output_dir
+                    else cfg.run_root / "eval_failures" / time.strftime("%Y%m%d-%H%M%S")
+                )
+                live_pool.failure_archive = FailureArchive(failures)
                 theorem_pool = await build_theorem_pool(
                     cfg, runtime.env, evaluation_only=True,
                     report_dir=(Path(args.eval_output_dir).parent if args.eval_output_dir else cfg.run_root) / "admission",

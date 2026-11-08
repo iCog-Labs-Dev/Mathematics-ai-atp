@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import time
+import dataclasses
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Literal, Sequence
 
@@ -21,6 +22,7 @@ from pantograph_async import (
     PantographTransportError,
 )
 
+from maths_ai.hybrid_reasoner.failure_evidence import FailureArchive, failure_record
 from .rl_resources import ResourcePlan
 from maths_ai.hybrid_reasoner.resource_outcomes import resource_from_exception
 
@@ -79,6 +81,9 @@ class CollectionRecord:
     result: Any | None = None
     exception_category: str | None = None
     resource: dict | None = None
+    #: Plain summary of a failed session: failure ID, archive path when stored,
+    #: and what the REPL reported. ``None`` when the attempt did not fail one.
+    failure: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -172,6 +177,8 @@ class LiveReasonerPool:
         self.environment_description = environment_description
         self.model_generation = int(model_generation)
         self.log = log
+        #: Run-owned failure bundles; set by the driver or service that owns the run.
+        self.failure_archive: FailureArchive | None = None
         self._closed = False
         self.close_callbacks = []
         self._close_task: asyncio.Task | None = None
@@ -408,6 +415,48 @@ class LiveReasonerPool:
     def collecting(self) -> bool:
         return self._collecting
 
+    def _with_failure(
+        self, record: CollectionRecord, theorem: Any, proposal: Any, error: BaseException,
+        server: Any, backstop_expired: bool, replacement: str,
+    ) -> CollectionRecord:
+        """Attach and archive the failed session's evidence, and log what it says."""
+        timeout_owner = (
+            "theorem-backstop" if backstop_expired
+            else "client-request-deadline" if isinstance(error, PantographRequestTimeout)
+            else None
+        )
+        context = {
+            "batch_index": record.batch_index, "worker_id": record.worker_id,
+            "model_generation": self.model_generation, "outcome": record.outcome,
+            "search_s": record.search_s, "replacement": replacement,
+            "proposal": {
+                "mode": getattr(proposal, "mode", None), "seed": getattr(proposal, "seed", None),
+                "derivation": getattr(proposal, "derivation", None),
+            },
+            "environment": self.environment_description,
+        }
+        try:
+            evidence = failure_record(
+                context=context, theorem=theorem, error=error, server=server,
+                timeout_owner=timeout_owner,
+            )
+            summary = (
+                self.failure_archive.write(evidence) if self.failure_archive is not None
+                else {"failure_id": None, "summary": evidence["summary"],
+                      "replayable": evidence["replayable"], "stored": False}
+            )
+        except Exception as capture_error:
+            # Evidence capture never replaces the original failure.
+            summary = {"failure_id": None, "summary": None, "stored": False,
+                       "capture_error": f"{type(capture_error).__name__}: {capture_error}"[:512]}
+        summary["timeout_owner"] = timeout_owner
+        where = f" -> {summary['path']}" if summary.get("path") else ""
+        self.log(
+            f"  [collect worker={record.worker_id}] {summary.get('summary') or type(error).__name__}; "
+            f"Pantograph worker {replacement}{where}"
+        )
+        return dataclasses.replace(record, failure=summary)
+
     async def _replacement_worker(
         self, worker: LiveReasonerWorker
     ) -> LiveReasonerWorker:
@@ -586,15 +635,14 @@ class LiveReasonerPool:
                     if isinstance(exc, PantographResourceError) and worker.server.is_usable:
                         self.log(f"  [collect worker={worker.worker_id}] resource-limited root; session retained")
                         continue
-                    self.log(
-                        f"  [collect worker={worker.worker_id}] "
-                        f"{'hard timeout' if hard_timeout else type(exc).__name__}; "
-                        "replacing Pantograph worker"
-                    )
+                    failed_server = worker.server
                     try:
                         worker = await self._replacement_worker(worker)
                         replacements[worker.worker_id] += 1
                     except WorkerStartupError as replacement_error:
+                        record = self._with_failure(
+                            record, theorem, proposals[index], exc, failed_server,
+                            backstop.expired(), "replacement failed")
                         if isinstance(replacement_error.cause, FATAL_SESSION_ERRORS):
                             raise replacement_error.cause
                         replacement_failures[worker.worker_id] += 1
@@ -605,6 +653,10 @@ class LiveReasonerPool:
                                 "Every live collection worker became unavailable."
                             ) from replacement_error
                         return
+                    # The old session is closed, so its failure evidence is final.
+                    record = self._with_failure(
+                        record, theorem, proposals[index], exc, failed_server,
+                        backstop.expired(), "replaced")
                 except FATAL_SESSION_ERRORS:
                     raise
                 except Exception as exc:

@@ -47,6 +47,7 @@ from maths_ai.data_models.model_identity import carry_model_identity
 from maths_ai.data_models.proof_components import Goal, TacticCandidate
 from maths_ai.lean_replay import GoalReplaySpec
 
+from .failure_evidence import execution_phase
 from .execution_registry import Lease, LeaseKind, RetentionExceeded, SnapshotRegistry
 from .execution_types import (
     DeclarationKey,
@@ -517,9 +518,10 @@ class ReplayCoordinator:
     async def _certify(self, lease: Lease, witness):
         self._result.combinations += 1
         state = self.registry.state(lease)
-        result = await self.registry.scope.certify(
-            state, max_heartbeats=self.limits.certify_heartbeats
-        )
+        with execution_phase("certify"):
+            result = await self.registry.scope.certify(
+                state, max_heartbeats=self.limits.certify_heartbeats
+            )
         if result.is_certified:
             return result, witness
         if result.status == "inconclusive":
@@ -632,7 +634,8 @@ async def reverify(scope, artifact, *, retire_session, max_heartbeats: Optional[
                     open_obligations[key] = (other, keys, carry_model_identity(observed, outcome.siblings[other]))
             await registry.release(lease)
             lease = outcome.lease
-        result = await scope.certify(registry.state(lease), max_heartbeats=max_heartbeats)
+        with execution_phase("certify"):
+            result = await scope.certify(registry.state(lease), max_heartbeats=max_heartbeats)
         if not result.is_certified:
             raise ArtifactMismatch(f"Replay did not certify: {result.reason}")
         recorded = artifact.receipt
