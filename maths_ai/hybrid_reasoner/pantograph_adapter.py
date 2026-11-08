@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from maths_ai.data_models.proof_components import Goal
@@ -101,3 +102,113 @@ async def probe_model_state(server: Any, expression: str = "∀ (p : Prop), p �
     """Verify that the connected server returns the fields required by v2."""
     state = await server.goal_start_async(expression)
     pantograph_state_to_goals(state)
+
+
+@dataclass(frozen=True)
+class CapabilityProbe:
+    """One live state exercising a v2 payload capability."""
+
+    name: str
+    expression: str
+    expectation: str
+
+
+DEFAULT_CAPABILITY_PROBES: tuple[CapabilityProbe, ...] = (
+    CapabilityProbe("binders", "∀ (a : Nat), a = a", "binders"),
+    CapabilityProbe("shadowing", "∀ (a : Nat), ∀ (a : Nat), a = a", "shadowing"),
+    CapabilityProbe("local_lets", "let x := 1; x = x", "local_lets"),
+    # Instance binders cannot be constructed through goal_start alone, so the
+    # probe checks that the payload *reports* the isInstance field. Full
+    # instance semantics still require a compatible extractor deployment.
+    CapabilityProbe("instances", "∀ (a : Nat), a = a", "instances"),
+)
+
+
+@dataclass(frozen=True)
+class CapabilityProbeResult:
+    """Outcome of one live capability probe: fail-closed by construction."""
+
+    name: str
+    ok: bool
+    detail: str = ""
+
+
+def _variables_of(goal: Any) -> list[Any] | None:
+    variables = _read_first(goal, "variables", "vars")
+    return variables if isinstance(variables, list) else None
+
+
+def capability_findings(goal: Any) -> dict[str, bool]:
+    """Check one raw goal payload against each probed payload capability.
+
+    The checkers look at the *raw client payload*, because a live release may
+    carry the fields without yet satisfying strict conversion; capability is
+    reported per field so failure detail stays actionable.
+    """
+    variables = _variables_of(goal)
+    findings: dict[str, bool] = {
+        "binders": False,
+        "shadowing": False,
+        "local_lets": False,
+        "instances": False,
+    }
+    if not variables:
+        return findings
+    binder_ok = True
+    instance_field_present = True
+    names: list[str] = []
+    internal_names: list[str] = []
+    let_with_value = False
+    for variable in variables:
+        context_index = _read(variable, "contextIndex")
+        binder_role = _read(variable, "binderRole")
+        user_name = _read_first(variable, "userName", "name")
+        internal_name = _read(variable, "name")
+        if not isinstance(context_index, int) or not isinstance(binder_role, str) or not binder_role:
+            binder_ok = False
+        if not isinstance(user_name, str) or not user_name:
+            binder_ok = False
+        is_instance = _read(variable, "isInstance")
+        if not isinstance(is_instance, bool):
+            instance_field_present = False
+        is_let = _read(variable, "isLet")
+        if is_let and _read(variable, "value") is not None:
+            let_with_value = True
+        if isinstance(user_name, str) and user_name:
+            names.append(user_name)
+        if isinstance(internal_name, str) and internal_name:
+            internal_names.append(internal_name)
+    findings["binders"] = binder_ok
+    findings["shadowing"] = len(names) != len(set(names)) and len(internal_names) == len(set(internal_names))
+    findings["local_lets"] = let_with_value
+    findings["instances"] = instance_field_present
+    return findings
+
+
+async def probe_live_capabilities(
+    server: Any,
+    *,
+    probes: tuple[CapabilityProbe, ...] = DEFAULT_CAPABILITY_PROBES,
+) -> dict[str, CapabilityProbeResult]:
+    """Fail-closed capability report over representative live states."""
+    results: dict[str, CapabilityProbeResult] = {}
+    for probe in probes:
+        try:
+            state = await server.goal_start_async(probe.expression)
+            goals = _read(state, "goals")
+            if not isinstance(goals, list) or not goals:
+                raise ValueError("state carries no goals.")
+            findings = capability_findings(goals[0])
+            # Strict conversion must also succeed: fail closed on omissions.
+            pantograph_state_to_goals(state)
+            ok = bool(findings.get(probe.expectation))
+            detail = findings if not ok else ""
+            results[probe.name] = CapabilityProbeResult(probe.name, ok, str(detail))
+        except Exception as exc:  # noqa: BLE001 - every probe failure is data, not a crash.
+            results[probe.name] = CapabilityProbeResult(probe.name, False, f"{type(exc).__name__}: {exc}")
+    return results
+
+
+def all_capabilities_verified(results: Mapping[str, CapabilityProbeResult]) -> bool:
+    """True only when every probed capability passed."""
+    return bool(results) and all(result.ok for result in results.values())

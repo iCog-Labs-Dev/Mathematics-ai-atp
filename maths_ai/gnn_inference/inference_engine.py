@@ -12,13 +12,37 @@ from maths_ai.gnn_inference.atp_lean_gnn.lemma_index import LemmaIndex
 from maths_ai.gnn_inference.atp_lean_gnn.premise_scoring import PremiseScorer
 from maths_ai.gnn_inference.atp_lean_gnn.training import load_baseline_config, load_prepared_metadata
 from maths_ai.gnn_inference.atp_lean_gnn.joint_loader import load_joint_neural_bundle
+from maths_ai.gnn_inference.atp_lean_gnn.joint_source_decoder import (
+    CandidateSource,
+    DecodedAction,
+    SourceCandidates,
+    decode_action,
+    goal_first_text,
+    goal_state_text,
+)
 from maths_ai.gnn_inference.atp_lean_gnn.model_graph import goal_to_model_dag
 from maths_ai.gnn_inference.atp_lean_gnn.pyg import build_premise_mask, dag_to_pyg
-from maths_ai.gnn_inference.atp_lean_gnn.labels import get_tactic_arity
+from maths_ai.gnn_inference.atp_lean_gnn.graph import DAGBuilder
 from maths_ai.gnn_inference.atp_lean_gnn.training import transform_edge_index
 from torch_geometric.data import Batch
 
 from .model import GNNPredictor
+
+
+def _build_source_candidates(bundle, node_embeddings, local_positions, goal: Goal) -> SourceCandidates:
+    """One argument pool: local premise-mask rows plus the library text pool."""
+    lemma_ids, lemma_vectors, lemma_scores = bundle.retrieve_library_pool(
+        goal_first_text(goal_state_text(goal)), k=bundle.pool_size()
+    )
+    return SourceCandidates(
+        local_ids=tuple(int(position) for position in local_positions),
+        local_vectors=node_embeddings.index_select(0, node_embeddings.new_tensor(
+            local_positions, dtype=torch.long
+        )) if local_positions else node_embeddings.new_zeros((0, node_embeddings.size(1))),
+        lemma_ids=lemma_ids,
+        lemma_vectors=lemma_vectors.to(node_embeddings.device, dtype=node_embeddings.dtype),
+        lemma_scores=lemma_scores.to(node_embeddings.device, dtype=node_embeddings.dtype),
+    )
 
 
 class GNNModelEngine:
@@ -183,65 +207,86 @@ class GNNModelEngine:
 
     @torch.no_grad()
     def _joint_inference(self, goal: Goal, top_k: int) -> List[TacticCandidate]:
-        if self._joint_bundle is None:
+        bundle = self._joint_bundle
+        if bundle is None:
             raise RuntimeError("v2 inference bundle is not initialized.")
         dag = goal_to_model_dag(goal)
-        data = dag_to_pyg(dag, self._joint_bundle.node_vocab)
+        data = dag_to_pyg(dag, bundle.node_vocab)
         state_idx = next((node.id for node in dag.nodes if node.label == "State"), 0)
         data.state_node_index = torch.tensor([state_idx], dtype=torch.long)
         data.premise_mask = torch.tensor(build_premise_mask(dag), dtype=torch.bool)
         data = data.to(self.device)
         data.edge_index = transform_edge_index(data.edge_index, edge_mode="bidirectional")
         batch = Batch.from_data_list([data])
-        tactic_logits, _, _, arg_count_logits, _ = self._joint_bundle.policy(batch)
+        policy = bundle.policy
+        tactic_logits, _, _, _, state_embeddings = policy(batch)
         probabilities = torch.softmax(tactic_logits[0], dim=-1)
-        id_to_tactic = {value: key for key, value in self._joint_bundle.tactic_vocab.items()}
+        id_to_tactic = {value: key for key, value in bundle.tactic_vocab.items()}
         selected = torch.topk(probabilities, k=min(top_k, probabilities.numel()))
+        node_embeddings = policy.pointer.backbone.encode_nodes(batch)
+        dag_rows = list(dag.nodes)
+        local_positions = (
+            data.premise_mask[0] if isinstance(data.premise_mask, list)
+            else data.premise_mask
+        ).nonzero(as_tuple=False).view(-1).tolist()
+        pool = _build_source_candidates(
+            bundle, node_embeddings[0], local_positions, goal
+        )
         candidates: list[TacticCandidate] = []
-        local_nodes = {
-            node.id: node
-            for node in dag.nodes
-            if node.label == "Hyp" and node.children
-        }
+        diagnostics: list[str] = []
         for tactic_id, probability in zip(selected.indices.tolist(), selected.values.tolist(), strict=False):
             tactic_name = id_to_tactic.get(int(tactic_id), "<UNK>")
-            arity = min(get_tactic_arity(tactic_name), int(self._joint_bundle.policy.pointer.max_args))
-            if arity == 0:
-                candidates.append(
-                    TacticCandidate(
-                        tactic_name=tactic_name,
-                        arguments=[],
-                        probability=float(probability),
-                    )
-                )
-                continue
-            conditioned = torch.tensor([int(tactic_id)], device=self.device)
-            _, arg_logits, stop_logits, count_logits, _ = self._joint_bundle.policy(
-                batch, tactic_ids=conditioned
+            action = decode_action(
+                policy, state_embeddings[0], int(tactic_id), pool
             )
-            predicted_count = int(count_logits[0].argmax().item())
-            count = min(arity, predicted_count, len(arg_logits))
-            arguments: list[str] = []
-            for step in range(count):
-                position = int(arg_logits[step][0].argmax().item())
-                node_ids = [
-                    node.id
-                    for node in dag.nodes
-                    if node.id < data.num_nodes
-                ]
-                if position >= len(node_ids):
-                    break
-                node = dag.nodes[node_ids[position]]
-                if node.id in local_nodes:
-                    name_node = dag.nodes[node.children[0]]
-                    arguments.append(name_node.label)
-            if count and len(arguments) < count:
+            rendered, complete = self._render_action(dag, dag_rows, bundle, action)
+            if not complete:
+                diagnostics.append(
+                    f"{tactic_name}: rendered "
+                    f"{len(rendered)}/{len(action.arguments)} arguments; candidate dropped."
+                )
                 continue
             candidates.append(
                 TacticCandidate(
                     tactic_name=tactic_name,
-                    arguments=arguments,
+                    arguments=rendered,
                     probability=float(probability),
                 )
             )
+        for diagnostic in diagnostics:
+            print(f"[joint-v2] {diagnostic}")
         return candidates
+
+    @staticmethod
+    def _render_action(
+        dag: DAGBuilder,
+        dag_rows: list,
+        bundle,
+        action: DecodedAction,
+    ) -> tuple[List[str], bool]:
+        """Render decoded identities into usable Lean references.
+
+        Local identities map to per-graph node names; library identities map to
+        corpus lemma names. Unresolvable identities make the whole action
+        incomplete — placeholders are never stringified into arguments.
+        """
+        arguments: List[str] = []
+        corpus = bundle.lemma_corpus or {}
+        for argument in action.arguments:
+            if argument.source is CandidateSource.LOCAL:
+                if not 0 <= argument.stable_id < len(dag_rows):
+                    return [], False
+                node = dag_rows[argument.stable_id]
+                if node.label == "Hyp" and node.children:
+                    name_node = dag.nodes[node.children[0]]
+                    if not name_node.label:
+                        return [], False
+                    arguments.append(name_node.label)
+                else:
+                    return [], False
+            else:
+                record = corpus.get(argument.stable_id)
+                if record is None or not getattr(record, "name", ""):
+                    return [], False
+                arguments.append(record.name)
+        return arguments, True

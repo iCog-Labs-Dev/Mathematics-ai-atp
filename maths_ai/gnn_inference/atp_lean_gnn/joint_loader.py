@@ -60,6 +60,24 @@ class JointNeuralBundle:
             normalize=bool(self.artifact.retriever_config.get("normalize", True)),
         )
 
+    def retrieve_library_pool(self, state_text: str, *, k: int | None = None) -> tuple[tuple[int, ...], Tensor, Tensor]:
+        """Return ``(lemma_ids, lemma_vectors, lemma_scores)`` for one state.
+
+        Queries the matched text-space FAISS index with the packaged text
+        encoder; GNN embeddings are never fed to the text index.
+        """
+        pool_size = int(self.artifact.index_manifest.get("k", 500)) if k is None else int(k)
+        pool_size = max(1, min(pool_size, len(self.lemma_index.lemma_ids)))
+        embeddings = self.encode_text([state_text]).cpu().numpy()
+        lemma_ids, lemma_vectors, lemma_scores = self.lemma_index.search(embeddings, k=pool_size)
+        return tuple(int(value) for value in lemma_ids[0]), torch.as_tensor(
+            lemma_vectors[0], dtype=torch.float32
+        ), torch.as_tensor(lemma_scores[0], dtype=torch.float32)
+
+    def pool_size(self, *, k: int | None = None) -> int:
+        pool_size = int(self.artifact.index_manifest.get("k", 500)) if k is None else int(k)
+        return max(1, min(pool_size, len(self.lemma_index.lemma_ids)))
+
 
 def _pointer_config(bundle: JointBundle) -> dict[str, Any]:
     config = bundle.policy_config.get("pointer_config")

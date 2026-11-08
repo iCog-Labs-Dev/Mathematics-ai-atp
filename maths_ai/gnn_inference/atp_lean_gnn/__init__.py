@@ -7,6 +7,14 @@ from .argument_selector import (
 )
 from .bundle import PointerBundle, load_pointer_bundle
 from .joint_loader import JointNeuralBundle, load_joint_neural_bundle
+from .joint_source_decoder import (
+    CandidateSource,
+    DecodedAction,
+    DecodedArgument,
+    SourceCandidates,
+    decode_action,
+    goal_state_text,
+)
 from .argument_selector import JointSourcePolicy
 from .argument_training import (
     evaluate_model_with_args,
@@ -144,4 +152,10 @@ __all__ = [
     "JointNeuralBundle",
     "load_joint_neural_bundle",
     "JointSourcePolicy",
+    "CandidateSource",
+    "DecodedAction",
+    "DecodedArgument",
+    "SourceCandidates",
+    "decode_action",
+    "goal_state_text",
 ]
