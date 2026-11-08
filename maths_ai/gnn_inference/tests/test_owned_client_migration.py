@@ -141,7 +141,7 @@ def test_lazy_exports_preserve_existing_package_api():
 
 
 CLIENT_REPOSITORY = "https://github.com/123nol/Pantograph-Client"
-CLIENT_COMMIT = "e8aa9ecc17686cfa2703c7082c02d45310ce421f"
+CLIENT_COMMIT = "985f936083f524619b757a2dcc0545ed82a82362"
 
 
 def test_dependency_is_the_pinned_client_and_not_pypantograph():
@@ -175,7 +175,7 @@ def test_dependency_is_the_pinned_client_and_not_pypantograph():
     assert source["url"] == CLIENT_REPOSITORY
     assert source["vcs_info"]["commit_id"] == CLIENT_COMMIT
     verify_contract()
-    assert companion_base()["source_commit"] == "fc740c26a1e832ecb571859af24a5c632a351bd9"
+    assert companion_base()["source_commit"] == "d809a610a4cf24560ea836e8bcb879338e4f4797"
     fixture = json.loads((Path(__file__).parent / "fixtures/pantograph/future_contract.json").read_text())
     assert fixture["descriptor"] == dict(PROTOCOL_DESCRIPTION)
     assert fixture["descriptor"]["transitionValidationVersion"] == 3
@@ -347,7 +347,7 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
         (WIDENING_MANIFEST.parent.parent / "compiler_aware_validation/source_manifest.json").read_text()
     )
     assert compiler_aware["target_base_commit"].startswith("551d038")
-    assert compiler_aware["client_commit"] == CLIENT_COMMIT
+    assert compiler_aware["client_commit"] == "e8aa9ecc17686cfa2703c7082c02d45310ce421f"
     assert compiler_aware["repl_commit"] == "fc740c26a1e832ecb571859af24a5c632a351bd9"
     assert compiler_aware["transition_validation_version"] == 3
     for entry in compiler_aware["sources"]:
@@ -394,5 +394,15 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
             if entry["path"] in expected:
                 assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
             expected[entry["path"]] = entry["sha256"]
+    failure_evidence = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "failure_evidence/source_manifest.json").read_text()
+    )
+    assert failure_evidence["target_base_commit"].startswith("bdd96c7")
+    assert failure_evidence["client_commit"] == CLIENT_COMMIT
+    assert failure_evidence["repl_commit"] == "d809a610a4cf24560ea836e8bcb879338e4f4797"
+    for entry in failure_evidence["sources"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        expected[entry["path"]] = entry["sha256"]
     for path, digest in expected.items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path
