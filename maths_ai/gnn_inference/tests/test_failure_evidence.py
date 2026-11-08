@@ -75,15 +75,25 @@ def test_failure_record_is_plain_and_says_what_is_missing():
     history(event(3))
     snapshot = failed_snapshot()
     record = failure_record(context={"batch_index": 2}, theorem=Item(Seed()),
-                            error=PantographRemoteInternalError("x"), server=Server(snapshot, history))
+                            error=PantographRemoteInternalError("x"), server=Server(snapshot, history),
+                            identity={"environment_fingerprint": "sha256:x"},
+                            cleanup_error=RuntimeError("close failed"))
     json.dumps(record)
-    assert record["replayable"] and not record["missing"]
+    assert record["replayable"] and not record["missing"] and record["final"]
+    assert record["cleanup_error"]["message"] == "close failed"
     assert record["snapshot"]["association"] == "matched"
     assert "unknown free variable" in record["summary"] and "observe" in record["summary"]
+    unbound = failure_record(context={}, theorem=Item(Seed()), error=RuntimeError("y"),
+                             server=Server(snapshot, history))
+    assert not unbound["replayable"] and unbound["missing"] == ["runtime identity"]
     partial = failure_record(context={}, theorem=object(), error=RuntimeError("y"), server=Server())
     assert not partial["replayable"]
-    assert set(partial["missing"]) == {"seed", "failure snapshot", "request history"}
+    assert {"seed", "failure snapshot", "request history"} <= set(partial["missing"])
     assert failure_summary(None) == "no failure snapshot"
+
+
+def _total_bytes(root):
+    return sum(path.stat().st_size for path in root.rglob("*") if path.is_file())
 
 
 def test_archive_is_atomic_bounded_and_reports_the_limit(tmp_path):
@@ -92,11 +102,38 @@ def test_archive_is_atomic_bounded_and_reports_the_limit(tmp_path):
     first, second, third = (archive.write(dict(record)) for _ in range(3))
     assert first["stored"] and second["stored"] and not third["stored"]
     bundle = json.loads((tmp_path / "failures" / first["path"]).read_text())
-    assert bundle["failure_id"] == first["failure_id"]
+    assert bundle["failure_id"] == first["failure_id"] and bundle["status"] == "final"
     assert not list((tmp_path / "failures").rglob("*.tmp"))
     ledger = [json.loads(l) for l in (tmp_path / "failures" / "ledger.jsonl").read_text().splitlines()]
-    assert [l["kind"] for l in ledger] == ["failure", "failure", "capture_limit"]
+    assert [l["kind"] for l in ledger] == ["failure", "finalized", "failure", "finalized", "capture_limit"]
     assert archive.uncaptured == 1
+
+
+def test_reopening_an_archive_keeps_its_bundles_ids_and_bounds(tmp_path):
+    root = tmp_path / "failures"
+    first = FailureArchive(root, max_bundles=1).write({"summary": "first", "context": {}})
+    original = (root / first["path"]).read_bytes()
+    reopened = FailureArchive(root, max_bundles=1)
+    second = reopened.write({"summary": "second", "context": {}})
+    assert not second["stored"] and second["failure_id"] != first["failure_id"]
+    assert (root / first["path"]).read_bytes() == original
+    # A larger count bound on reopening continues numbering without collision.
+    third = FailureArchive(root, max_bundles=5).write({"summary": "third", "context": {}})
+    assert third["stored"] and third["path"] != first["path"]
+    assert (root / first["path"]).read_bytes() == original
+
+
+def test_the_byte_bound_covers_bundles_and_ledger(tmp_path):
+    root = tmp_path / "failures"
+    archive = FailureArchive(root, max_bytes=4000)
+    for index in range(20):
+        archive.write({"summary": "x" * 200, "context": {"batch_index": index}})
+    assert _total_bytes(root) <= 4000 and archive.uncaptured > 0
+    reopened = FailureArchive(root, max_bytes=4000)
+    reopened.write({"summary": "after restart", "context": {}})
+    assert _total_bytes(root) <= 4000
+    kinds = [json.loads(l)["kind"] for l in (root / "ledger.jsonl").read_text().splitlines()]
+    assert kinds.count("capture_limit") == 1
 
 
 def test_a_replaced_worker_leaves_an_archived_failure_on_its_record(tmp_path):
@@ -127,3 +164,66 @@ def test_a_replaced_worker_leaves_an_archived_failure_on_its_record(tmp_path):
     assert bundle["snapshot"]["repl_records"][0]["detail"] == "unknown free variable"
     assert record_view(failed)["failure"] == failed.failure
     assert result.records[1].failure is None and result.stats["workers_replaced"] == 1
+
+
+def _crashing_pool_test(tmp_path, error, *, close_error=None, replacement_error=None):
+    async def run():
+        pool, _model, servers = await _create_pool(workers=1)
+        pool.failure_archive = FailureArchive(tmp_path / "failures")
+
+        async def search(reasoner, theorem, greedy, deadline):
+            reasoner.server.last_failure = failed_snapshot()
+            reasoner.server.request_history = RequestHistory()
+            reasoner.server.request_history(event(1, "goal.start"))
+            if close_error is not None:
+                async def broken_close():
+                    raise close_error
+                reasoner.server.aclose = broken_close
+            raise error
+
+        if replacement_error is not None:
+            async def failing_factory(worker_id):
+                raise replacement_error
+            original_replace = pool._replacement_worker
+
+            async def replacement(worker):
+                pool.server_factory = failing_factory
+                return await original_replace(worker)
+            pool._replacement_worker = replacement
+        pool.search_factory = search
+        try:
+            async with pool:
+                return await pool.collect_round(["crash"], timeout_s=1, model_generation=0, proposals=[None])
+        except BaseException as exc:
+            return exc
+
+    outcome = asyncio.run(run())
+    ledger = [json.loads(l) for l in (tmp_path / "failures" / "ledger.jsonl").read_text().splitlines()]
+    bundles = [json.loads(p.read_text()) for p in (tmp_path / "failures").glob("attempts/*/failure.json")]
+    return outcome, ledger, bundles
+
+
+def test_a_fatal_integrity_failure_is_archived_and_still_propagates(tmp_path):
+    from pantograph_async import PantographProtocolError
+
+    outcome, ledger, bundles = _crashing_pool_test(tmp_path, PantographProtocolError("validation failed"))
+    assert isinstance(outcome, PantographProtocolError)
+    assert len(bundles) == 1 and bundles[0]["context"]["replacement"] == "not replaced (fatal)"
+    assert bundles[0]["error"]["type"] == "PantographProtocolError"
+    assert [l["kind"] for l in ledger] == ["failure", "finalized"]
+
+
+def test_a_failed_old_client_close_keeps_both_errors(tmp_path):
+    outcome, ledger, bundles = _crashing_pool_test(
+        tmp_path, PantographRemoteInternalError("boom"), close_error=OSError("close failed"))
+    assert isinstance(outcome, BaseException)
+    assert len(bundles) == 1 and bundles[0]["context"]["replacement"] == "cleanup failed"
+    assert bundles[0]["error"]["type"] == "PantographRemoteInternalError"
+    assert bundles[0]["cleanup_error"]["message"].endswith("close failed")
+
+
+def test_a_failed_replacement_start_is_archived(tmp_path):
+    outcome, ledger, bundles = _crashing_pool_test(
+        tmp_path, PantographRemoteInternalError("boom"), replacement_error=RuntimeError("no REPL"))
+    assert len(bundles) == 1 and bundles[0]["context"]["replacement"] == "replacement failed"
+    assert bundles[0]["cleanup_error"]["type"] == "WorkerStartupError"
