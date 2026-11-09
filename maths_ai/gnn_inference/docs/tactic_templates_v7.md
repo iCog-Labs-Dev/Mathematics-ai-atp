@@ -116,5 +116,37 @@ semantic-cache independence. Tests also distinguish selector labels from global
 references, cover lexical shadowing, quoted labels, ambiguous/missing receivers,
 rooted globals, namespace conflicts, budgets and ignored semantic input.
 
-Actual V7 full-dataset gains and real-Mathlib native delta results remain
-pending. Do not extrapolate fixture success into a row-count or >50k gain.
+Full-dataset V7 gains are recorded below; real-Mathlib V7 native delta results
+remain pending. Fixture success is not universal native validity.
+
+## Completed paired server coverage
+
+User-supplied completed audit table:
+
+| Static support/gain | Train | Val |
+|---|---:|---:|
+| Selected population | 218,727 | 4,157 |
+| Saved V6 support | 148,869 | 2,820 |
+| V7 support | **167,315** | **3,191** |
+| V7 rescues versus V6 | **18,446** | **371** |
+| V7 losses versus V6 | **0** | **0** |
+| V7 static coverage | **76.49%** | **76.76%** |
+| Remaining unsupported/invalid | 51,412 | 966 |
+
+All selected train/val rows were processed and report completion was verified by
+the user. Expansion used existing raw/model/V3 caches, with no new semantic
+extraction or Lean source compilation. Exact-aligned subcounts, per-family
+attribution and generated pilot details were not included in the supplied table.
+
+Relative to frozen V5 support **127,245 / 2,438**, combined V6+V7 improvement is
+**40,070 train / 753 val** with zero losses in the two reported comparisons.
+The requested >50k additional train-row target has not been reached; **9,931**
+further net train rescues would exceed it. These are representation-support
+counts, not model accuracy or native-verified full-cohort actions.
+
+Report:
+`maths_ai/gnn_inference/runs/template_v7_recovery_20261108_113947/report.json`.
+Next inspect its remaining train family/error counts before choosing the next
+cached-syntax grammar expansion, and retain the balanced native delta selection
+for validation. Parameterized declarations and bounded nested proofs remain
+candidates, not measured V8 gains.
