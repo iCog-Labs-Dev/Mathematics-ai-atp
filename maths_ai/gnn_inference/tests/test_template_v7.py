@@ -70,7 +70,8 @@ def test_selector_ambiguity_namespace_conflicts_budgets_and_semantic_independenc
     assert result["rendered_tactic"] is None
 
 
-def test_native_v7_chains_projection_patterns_and_namespace_resolution():
+@pytest.mark.parametrize("renderer", ["template-v7", "template-v8"])
+def test_native_v7_chains_projection_patterns_and_namespace_resolution(renderer):
     configured = os.environ.get("MATHS_AI_PANTOGRAPH_ROOT")
     if not configured:
         pytest.skip("set MATHS_AI_PANTOGRAPH_ROOT for pinned V7 selector replay")
@@ -119,7 +120,7 @@ theorem rootedGlobal (h : Nat) (p : True) : True := by
                 seen.add(text)
                 row = DatasetRow(invocation["goalBefore"], "SelectorSmoke", text, "val", len(requests))
                 data = _make_source_syntax_trace_record(row, {"invocation": invocation}, {})
-                result = prepare_gold_rendering(text, data, renderer="template-v7")
+                result = prepare_gold_rendering(text, data, renderer=renderer)
                 assert result["rendered_tactic"] is not None, (text, result)
                 assert result["semantic_reconstructions"] == 0
                 syntax = data["source_syntax"]

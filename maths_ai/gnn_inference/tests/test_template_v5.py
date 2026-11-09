@@ -72,7 +72,7 @@ def test_wrapper_rejects_unknown_configs_multi_blocks_and_declaration_parameter_
         parse_wrapper_trace(trace(root))
 
 
-@pytest.mark.parametrize("renderer", ["template-v5", "template-v6", "template-v7"])
+@pytest.mark.parametrize("renderer", ["template-v5", "template-v6", "template-v7", "template-v8"])
 def test_native_v5_wrappers_have_let_locations_and_modifiers_match_source(renderer):
     configured = os.environ.get("MATHS_AI_PANTOGRAPH_ROOT")
     if not configured:

@@ -1,4 +1,4 @@
-"""Measure syntax-only V7 method selectors against saved V6 across all frozen rows."""
+"""Measure cached-syntax V7 selectors or V8 math against the saved previous stage."""
 
 import argparse
 import hashlib
@@ -15,26 +15,29 @@ from maths_ai.gnn_inference.scripts.audit_template_recovery import select_native
 from maths_ai.gnn_inference.scripts.audit_unsupported_actions import _rows, read_snapshot, verify_coverage
 
 
-def _stats():
+def _stats(before="v6", after="v7"):
     return Counter({key: 0 for key in (
-        "selected_steps", "quarantined_steps", "baseline_v6_renderable_steps", "template_v7_renderable_steps",
-        "v7_rescues_vs_v6", "v7_losses_vs_v6", "exact_aligned_baseline_v6_steps", "exact_aligned_v7_steps",
-        "exact_aligned_v7_rescues", "exact_aligned_v7_losses", "method_selector_steps", "method_selector_rescues",
-        "other_source_repair_rescues", "method_selector_nodes",
+        "selected_steps", "quarantined_steps", f"baseline_{before}_renderable_steps", f"template_{after}_renderable_steps",
+        f"{after}_rescues_vs_{before}", f"{after}_losses_vs_{before}", f"exact_aligned_baseline_{before}_steps", f"exact_aligned_{after}_steps",
+        f"exact_aligned_{after}_rescues", f"exact_aligned_{after}_losses", "method_selector_steps", "method_selector_rescues",
+        "other_source_repair_rescues", "method_selector_nodes", "math_notation_steps", "math_notation_nodes", "math_notation_rescues",
     )})
 
 
-def _add(stats, row):
-    before, after = row["v6_renderable"], row["v7_renderable"]
+def _add(stats, row, previous="v6", version="v7"):
+    before, after = row[f"{previous}_renderable"], row[f"{version}_renderable"]
     exact = row["alignment_kind"] == "exact" and row["dataset_target_matches_source"] is True
     rescue, loss, selectors = after and not before, before and not after, bool(row["method_selector_count"])
-    stats.update(selected_steps=1, quarantined_steps=row["quarantined"], baseline_v6_renderable_steps=before,
-        template_v7_renderable_steps=after, v7_rescues_vs_v6=rescue, v7_losses_vs_v6=loss,
-        exact_aligned_baseline_v6_steps=exact and before, exact_aligned_v7_steps=exact and after,
-        exact_aligned_v7_rescues=exact and rescue, exact_aligned_v7_losses=exact and loss,
-        method_selector_steps=after and selectors, method_selector_rescues=rescue and selectors,
-        other_source_repair_rescues=rescue and not selectors,
-        method_selector_nodes=row["method_selector_count"] if after else 0)
+    math = bool(row.get("math_notation_count"))
+    stats.update({"selected_steps": 1, "quarantined_steps": row["quarantined"], f"baseline_{previous}_renderable_steps": before,
+        f"template_{version}_renderable_steps": after, f"{version}_rescues_vs_{previous}": rescue, f"{version}_losses_vs_{previous}": loss,
+        f"exact_aligned_baseline_{previous}_steps": exact and before, f"exact_aligned_{version}_steps": exact and after,
+        f"exact_aligned_{version}_rescues": exact and rescue, f"exact_aligned_{version}_losses": exact and loss,
+        "method_selector_steps": after and selectors, "method_selector_rescues": rescue and selectors,
+        "other_source_repair_rescues": rescue and not (math if version == "v8" else selectors),
+        "method_selector_nodes": row["method_selector_count"] if after else 0,
+        "math_notation_steps": after and math, "math_notation_nodes": row.get("math_notation_count", 0) if after else 0,
+        "math_notation_rescues": rescue and math})
 
 
 def main(argv=None):
@@ -42,41 +45,45 @@ def main(argv=None):
     parser.add_argument("--previous-recovery-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--pilot-actions", type=int, default=24)
+    parser.add_argument("--renderer", choices=("template-v7", "template-v8"), default="template-v7")
     args = parser.parse_args(argv)
     if args.pilot_actions < 1:
         raise ValueError("pilot action count must be positive")
     previous, output = args.previous_recovery_dir.resolve(), args.output_dir.resolve()
+    version = "v8" if args.renderer == "template-v8" else "v7"
+    prior = "v7" if version == "v8" else "v6"
+    source_schema = "selector_recovery_v1" if version == "v8" else "scoped_recovery_v1"
     report_path, previous_rows = previous / "report.json", previous / "rows.jsonl"
     source = json.loads(report_path.read_text())
     previous_hashes = {"report": file_sha256(report_path), "rows": file_sha256(previous_rows)}
-    if (source.get("complete") is not True or source["manifest"].get("schema") != "scoped_recovery_v1"
-            or source["manifest"].get("renderer") != "template-v6" or previous_hashes["rows"] != source["row_records_sha256"]):
-        raise ValueError("complete immutable V6 recovery report required")
+    if (source.get("complete") is not True or source["manifest"].get("schema") != source_schema
+            or source["manifest"].get("renderer") != f"template-{prior}" or previous_hashes["rows"] != source["row_records_sha256"]):
+        raise ValueError(f"complete immutable {prior.upper()} recovery report required")
     baseline = Path(source["manifest"]["baseline_dir"]).resolve()
     baseline_report, baseline_rows = baseline / "report.json", baseline / "rows.jsonl"
     baseline_hashes = {"report": file_sha256(baseline_report), "rows": file_sha256(baseline_rows)}
     if baseline_hashes != source["manifest"]["baseline_sha256"]:
-        raise ValueError("original baseline changed since V6 audit")
+        raise ValueError(f"original baseline changed since {prior.upper()} audit")
     original = json.loads(baseline_report.read_text())
     verify_coverage(original, baseline_rows)
     cache = Path(source["manifest"]["cache_root"]).resolve()
     for root in (previous, baseline, cache, Path(original["manifest"]["prepared_root"]).resolve()):
         if output == root or root in output.parents:
             raise ValueError("output must be outside frozen source artifacts")
-    report = {"manifest": {"schema": "selector_recovery_v1", "renderer": "template-v7",
+    report = {"manifest": {"schema": "math_recovery_v1" if version == "v8" else "selector_recovery_v1", "renderer": args.renderer,
         "previous_recovery_dir": str(previous), "previous_sha256": previous_hashes,
         "baseline_dir": str(baseline), "baseline_sha256": baseline_hashes, "cache_root": str(cache),
         "renderer_sha256": renderer_fingerprints(), "runner_sha256": file_sha256(Path(__file__)),
         "semantic_cache_used": False, "native_execution_measured": False, "model_training_measured": False,
         "pilot_actions": args.pilot_actions}, "complete": False, "splits": {}}
     output.mkdir(parents=True, exist_ok=False)
-    totals, families = defaultdict(_stats), defaultdict(_stats)
+    totals, families = defaultdict(lambda: _stats(prior, version)), defaultdict(lambda: _stats(prior, version))
     errors, family_errors, groups = defaultdict(Counter), defaultdict(Counter), defaultdict(list)
 
     def checkpoint():
         report["splits"] = {split: {"summary": {**dict(stats),
-            "coverage_percent": 100 * stats["template_v7_renderable_steps"] / stats["selected_steps"]},
-            "v7_error_counts": dict(errors[split]),
+            "coverage_percent": 100 * stats[f"template_{version}_renderable_steps"] / stats["selected_steps"]},
+            f"{version}_error_counts": dict(errors[split]),
             "by_family": {family: {"summary": dict(counts), "error_counts": dict(family_errors[(split, family)])}
                           for (s, family), counts in families.items() if s == split}} for split, stats in totals.items()}
         temporary = output / "report.tmp"
@@ -84,59 +91,63 @@ def main(argv=None):
         temporary.replace(output / "report.json")
 
     checkpoint()
+    print(f"Scanning frozen train/val caches with {args.renderer}; no Lean compilation", flush=True)
     digest, sentinel = hashlib.sha256(), object()
     with (output / "rows.jsonl").open("w", encoding="utf-8") as handle:
         pairs = itertools.zip_longest(_rows(baseline_rows), _rows(previous_rows), fillvalue=sentinel)
         for processed, pair in enumerate(pairs, 1):
             if any(value is sentinel for value in pair):
-                raise ValueError("V6/original row population mismatch")
+                raise ValueError(f"{prior.upper()}/original row population mismatch")
             original_row, previous_row = pair[0][0], pair[1][0]
             identity = (original_row["split"], original_row["row_index"])
             if identity != (previous_row["split"], previous_row["row_index"]):
-                raise ValueError("V6 row identity mismatch")
+                raise ValueError(f"{prior.upper()} row identity mismatch")
             for key in ("alignment_kind", "dataset_target_matches_source"):
                 if previous_row[key] != original_row[key]:
-                    raise ValueError("V6 row alignment changed from original snapshot")
+                    raise ValueError(f"{prior.upper()} row alignment changed from original snapshot")
             raw, trace = read_snapshot(original_row, cache)
             row = {key: previous_row[key] for key in ("split", "row_index", "family", "alignment_kind",
-                "dataset_target_matches_source", "quarantined", "v6_renderable")}
+                "dataset_target_matches_source", "quarantined", f"{prior}_renderable")}
             if row["quarantined"] != (original_row["status"] in {"cache_invalid", "source_trace_invalid"}):
                 raise ValueError("quarantine population changed")
-            row.update(v7_renderable=False, v7_schema=None, method_selector_count=0)
+            row.update({f"{version}_renderable": False, f"{version}_schema": None, "method_selector_count": 0, "math_notation_count": 0})
             if not row["quarantined"]:
-                result = prepare_gold_rendering(raw["tactic"], trace, renderer="template-v7")
+                result = prepare_gold_rendering(raw["tactic"], trace, renderer=args.renderer)
                 if result.get("semantic_reconstructions", 0):
-                    raise ValueError("V7 syntax-only policy unexpectedly used semantic reconstruction")
+                    raise ValueError(f"{version.upper()} syntax-only policy unexpectedly used semantic reconstruction")
                 target = result["template_target"] or {}
-                row.update(v7_renderable=isinstance(result["rendered_tactic"], str), v7_schema=target.get("schema"),
-                    v7_rendered_tactic=result["rendered_tactic"], v7_error=result["render_error"],
-                    v7_error_code=result["template_error_code"], method_selector_count=result.get("method_selector_count", 0))
-                if row["v7_error"]:
-                    error = row["v7_error_code"] or row["v7_error"]
+                row.update({f"{version}_renderable": isinstance(result["rendered_tactic"], str), f"{version}_schema": target.get("schema"),
+                    f"{version}_rendered_tactic": result["rendered_tactic"], f"{version}_error": result["render_error"],
+                    f"{version}_error_code": result["template_error_code"], "method_selector_count": result.get("method_selector_count", 0),
+                    "math_notation_count": result.get("math_notation_count", 0)})
+                if row[f"{version}_error"]:
+                    error = row[f"{version}_error_code"] or row[f"{version}_error"]
                     errors[row["split"]][error] += 1
                     family_errors[(row["split"], row["family"])][error] += 1
-                if (row["split"] == "val" and row["v7_renderable"] and not row["v6_renderable"]
+                if (row["split"] == "val" and row[f"{version}_renderable"] and not row[f"{prior}_renderable"]
                         and row["alignment_kind"] == "exact" and row["dataset_target_matches_source"] is True):
-                    features = (bool(row["method_selector_count"]), tuple(sorted(_kinds(target))))
+                    features = (bool(row["method_selector_count"]), bool(row["math_notation_count"]), tuple(sorted(_kinds(target))))
                     groups[(row["family"], features)].append((hashlib.sha256(str(row["row_index"]).encode()).hexdigest(), row["row_index"]))
-            _add(totals[row["split"]], row)
-            _add(families[(row["split"], row["family"])], row)
+            _add(totals[row["split"]], row, prior, version)
+            _add(families[(row["split"], row["family"])], row, prior, version)
             encoded = json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
             handle.write(encoded)
             digest.update(encoded.encode())
             if processed % 10000 == 0:
                 handle.flush()
                 checkpoint()
+            if processed % 50000 == 0:
+                print(f"checked {processed:,} cached rows", flush=True)
     if {"report": file_sha256(report_path), "rows": file_sha256(previous_rows)} != previous_hashes:
-        raise ValueError("V6 recovery changed during comparison")
+        raise ValueError(f"{prior.upper()} recovery changed during comparison")
     if {"report": file_sha256(baseline_report), "rows": file_sha256(baseline_rows)} != baseline_hashes:
         raise ValueError("original baseline changed during comparison")
     for split in ("train", "val"):
         expected = source["splits"][split]["summary"]
         if (totals[split]["selected_steps"] != expected["selected_steps"]
-                or totals[split]["baseline_v6_renderable_steps"] != expected["template_v6_renderable_steps"]
+                or totals[split][f"baseline_{prior}_renderable_steps"] != expected[f"template_{prior}_renderable_steps"]
                 or totals[split]["quarantined_steps"] != expected["quarantined_steps"]):
-            raise ValueError("V7 comparison changed frozen V6 population/support/quarantine")
+            raise ValueError(f"{version.upper()} comparison changed frozen {prior.upper()} population/support/quarantine")
     selected = select_native_pilot(groups, args.pilot_actions)
     (output / "new_val_pilot_rows.json").write_text(json.dumps(selected))
     report.update(complete=True, row_records_sha256=digest.hexdigest(), native_pilot={"selected_steps": len(selected),
@@ -145,11 +156,11 @@ def main(argv=None):
     print("split  old_support  new_support  gained  lost  exact_gained  coverage", flush=True)
     for split, data in report["splits"].items():
         stats = data["summary"]
-        print(f"{split:5}  {stats['baseline_v6_renderable_steps']:11}  {stats['template_v7_renderable_steps']:11}"
-              f"  {stats['v7_rescues_vs_v6']:6}  {stats['v7_losses_vs_v6']:4}  {stats['exact_aligned_v7_rescues']:12}"
+        print(f"{split:5}  {stats[f'baseline_{prior}_renderable_steps']:11}  {stats[f'template_{version}_renderable_steps']:11}"
+              f"  {stats[f'{version}_rescues_vs_{prior}']:6}  {stats[f'{version}_losses_vs_{prior}']:4}  {stats[f'exact_aligned_{version}_rescues']:12}"
               f"  {stats['coverage_percent']:.2f}%", flush=True)
     print(f"Native pilot: {len(selected)} rows; report: {output / 'report.json'}", flush=True)
-    return 2 if any(stats["v7_losses_vs_v6"] for stats in totals.values()) else 0
+    return 2 if any(stats[f"{version}_losses_vs_{prior}"] for stats in totals.values()) else 0
 
 
 if __name__ == "__main__":

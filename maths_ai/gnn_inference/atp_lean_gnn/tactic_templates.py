@@ -336,7 +336,7 @@ def render_rw_simp_template(action: RwSimpTemplate, local_context: list[dict]) -
 def prepare_gold_rendering(raw_tactic: str, trace: dict, *, renderer: str = "flat",
                            reference_lookup: str = "semantic", semantic_trace: dict | None = None) -> dict:
     """Keep syntax extraction separate from name resolution and old-flat coverage."""
-    if renderer not in {"flat", "template-v1", "template-v2", "template-v3", "template-v4", "template-v5", "template-v6", "template-v7"}:
+    if renderer not in {"flat", "template-v1", "template-v2", "template-v3", "template-v4", "template-v5", "template-v6", "template-v7", "template-v8"}:
         raise ValueError("unknown gold renderer mode")
     result = {"rendered_tactic": None, "render_error": None, "render_path": "flat",
               "flat_renderable": False, "flat_render_error": None, "template_target": None,
@@ -348,7 +348,7 @@ def prepare_gold_rendering(raw_tactic: str, trace: dict, *, renderer: str = "fla
         flat_text = None
         result["flat_render_error"] = str(error)
     family = normalize_tactic(clean_tactic_markup(raw_tactic))
-    if renderer in {"template-v3", "template-v4", "template-v5", "template-v6", "template-v7"} and family in {"intro", "intros"}:
+    if renderer in {"template-v3", "template-v4", "template-v5", "template-v6", "template-v7", "template-v8"} and family in {"intro", "intros"}:
         from .intro_templates import INTRO_TEMPLATE_SCHEMA, parse_intro_trace, render_intro_template
 
         result["render_path"] = INTRO_TEMPLATE_SCHEMA
@@ -362,43 +362,55 @@ def prepare_gold_rendering(raw_tactic: str, trace: dict, *, renderer: str = "fla
             result["render_error"] = str(error)
             result["template_error_code"] = error.code if isinstance(error, TemplateError) else "binder_rendering"
         return result
-    if renderer in {"template-v6", "template-v7"}:
+    if renderer in {"template-v6", "template-v7", "template-v8"}:
         from .pattern_templates import PATTERN_FAMILIES, PATTERN_SCHEMA, SELECTOR_PATTERN_SCHEMA, parse_pattern_trace, render_pattern_tactic
         from .scoped_templates import SCOPED_SCHEMA, SELECTOR_SCHEMA, parse_scoped_wrapper, render_scoped_wrapper
         from .wrapper_templates import WRAPPER_FAMILIES
 
-        selectors = renderer == "template-v7"
+        math = renderer == "template-v8"
+        selectors = renderer in {"template-v7", "template-v8"}
+        pattern_schema = SELECTOR_PATTERN_SCHEMA if selectors else PATTERN_SCHEMA
+        wrapper_schema = SELECTOR_SCHEMA if selectors else SCOPED_SCHEMA
+        parser_factory = None
+        if math:
+            from .math_templates import MATH_KINDS, MATH_PATTERN_SCHEMA, MATH_SCHEMA, MathTermParser, parse_math_wrapper, render_math_term, render_math_wrapper
+
+            pattern_schema, wrapper_schema = MATH_PATTERN_SCHEMA, MATH_SCHEMA
+            parser_factory = MathTermParser
         terms = semantic_trace.get("terms", []) if not selectors and semantic_trace and semantic_trace.get("status") == "bound" else []
         if family in PATTERN_FAMILIES or family in WRAPPER_FAMILIES:
-            result["render_path"] = ((SELECTOR_PATTERN_SCHEMA if selectors else PATTERN_SCHEMA) if family in PATTERN_FAMILIES
-                                     else SELECTOR_SCHEMA if selectors else SCOPED_SCHEMA)
+            result["render_path"] = pattern_schema if family in PATTERN_FAMILIES else wrapper_schema
             try:
                 if family in PATTERN_FAMILIES:
-                    action, semantic_count = parse_pattern_trace(trace, terms, allow_method_selectors=selectors)
+                    action, semantic_count = parse_pattern_trace(trace, terms, allow_method_selectors=selectors, parser_factory=parser_factory)
                     target = action.to_target()
-                    if selectors:
-                        target["schema"] = SELECTOR_PATTERN_SCHEMA
+                    target["schema"] = pattern_schema
                     result["template_target"] = target
-                    rendered = render_pattern_tactic(action, trace["local_context"])
+                    rendered = (render_pattern_tactic(action, trace["local_context"], term_renderer=render_math_term) if math else
+                                render_pattern_tactic(action, trace["local_context"]))
                 else:
-                    action, semantic_count = parse_scoped_wrapper(trace, terms, allow_method_selectors=selectors)
+                    action, semantic_count = (parse_math_wrapper(trace) if math else
+                                              parse_scoped_wrapper(trace, terms, allow_method_selectors=selectors))
                     target = action.to_target()
-                    target["schema"] = SELECTOR_SCHEMA if selectors else SCOPED_SCHEMA
+                    target["schema"] = wrapper_schema
                     result["template_target"] = target
-                    rendered = render_scoped_wrapper(action, trace["local_context"])
+                    rendered = render_math_wrapper(action, trace["local_context"]) if math else render_scoped_wrapper(action, trace["local_context"])
                 if action.family != family:
                     raise TemplateError("family_mismatch", "raw family disagrees with scoped syntax")
                 result.update(template_target=target, rendered_tactic=rendered, semantic_reconstructions=semantic_count)
                 if selectors:
-                    pending, count = [target], 0
+                    pending, count, math_count = [target], 0, 0
                     while pending:
                         node = pending.pop()
                         if isinstance(node, dict):
                             count += node.get("kind") == "method_selector"
+                            math_count += math and node.get("kind") in MATH_KINDS
                             pending.extend(node.values())
                         elif isinstance(node, (list, tuple)):
                             pending.extend(node)
                     result["method_selector_count"] = count
+                    if math:
+                        result["math_notation_count"] = math_count
             except (RenderError, KeyError, TypeError) as error:
                 result["render_error"] = str(error)
                 result["template_error_code"] = error.code if isinstance(error, TemplateError) else "reference_resolution"

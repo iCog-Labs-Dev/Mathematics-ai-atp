@@ -175,13 +175,14 @@ class PatternTactic:
                 "binder_name": self.binder_name}
 
 
-def parse_pattern_trace(trace, semantic_terms=(), *, allow_method_selectors=False):
+def parse_pattern_trace(trace, semantic_terms=(), *, allow_method_selectors=False, parser_factory=None):
     try:
         compile_source_syntax_trace(trace, allow_parameter_labels=True)
     except (ActionTargetError, KeyError, TypeError) as error:
         raise TemplateError("invalid_source_trace", str(error)) from error
     root = _single_root(trace["source_syntax"])
-    terms = ScopedTermParser(trace["local_context"], semantic_terms, allow_method_selectors=allow_method_selectors)
+    terms = (parser_factory(trace["local_context"]) if parser_factory else
+             ScopedTermParser(trace["local_context"], semantic_terms, allow_method_selectors=allow_method_selectors))
     patterns = _PatternParser(terms)
     kind = root.get("kind")
     if kind == "Lean.Parser.Tactic.rcases":
@@ -251,35 +252,41 @@ def parse_pattern_trace(trace, semantic_terms=(), *, allow_method_selectors=Fals
     raise TemplateError("pattern_family", f"unsupported pattern tactic {kind!r}")
 
 
-def render_pattern(pattern, context):
+def render_pattern(pattern, context, *, term_renderer=render_scoped_term):
+    def child(value):
+        return render_pattern(value, context, term_renderer=term_renderer)
+
     if pattern.kind == "name":
         return _quoted_name(pattern.gold_name)
     if pattern.kind in {"ignore", "clear", "rfl"}:
         return {"ignore": "_", "clear": "-", "rfl": "rfl"}[pattern.kind]
     if pattern.kind == "tuple":
-        return "⟨" + ", ".join(render_pattern(child, context) for child in pattern.children) + "⟩"
+        return "⟨" + ", ".join(child(value) for value in pattern.children) + "⟩"
     if pattern.kind == "alternatives":
-        return "(" + " | ".join(render_pattern(child, context) for child in pattern.children) + ")"
+        return "(" + " | ".join(child(value) for value in pattern.children) + ")"
     if pattern.kind == "explicit":
-        return "@" + render_pattern(pattern.children[0], context)
+        return "@" + child(pattern.children[0])
     if pattern.kind == "typed":
-        return "(" + render_pattern(pattern.children[0], context) + " : " + render_scoped_term(pattern.type_term, context) + ")"
+        return "(" + child(pattern.children[0]) + " : " + term_renderer(pattern.type_term, context) + ")"
     if pattern.kind == "group":
-        return "(" + " ".join(render_pattern(child, context) for child in pattern.children) + (
-            " : " + render_scoped_term(pattern.type_term, context) if pattern.type_term else "") + ")"
+        return "(" + " ".join(child(value) for value in pattern.children) + (
+            " : " + term_renderer(pattern.type_term, context) if pattern.type_term else "") + ")"
     raise TemplateError("pattern_render", "unknown pattern node")
 
 
-def render_pattern_tactic(action, context):
+def render_pattern_tactic(action, context, *, term_renderer=render_scoped_term):
+    def pattern(value):
+        return render_pattern(value, context, term_renderer=term_renderer)
+
     if action.family == "rcases":
-        values = [("" if name is None else _quoted_name(name) + " : ") + render_scoped_term(term, context)
+        values = [("" if name is None else _quoted_name(name) + " : ") + term_renderer(term, context)
                   for name, term in zip(action.equation_names, action.targets)]
-        return "rcases " + ", ".join(values) + (" with " + render_pattern(action.patterns[0], context) if action.patterns else "")
+        return "rcases " + ", ".join(values) + (" with " + pattern(action.patterns[0]) if action.patterns else "")
     if action.family == "obtain":
-        return "obtain" + (" " + render_pattern(action.patterns[0], context) if action.patterns else "") + (
-            " : " + render_scoped_term(action.type_term, context) if action.type_term else "") + (
-            " := " + ", ".join(render_scoped_term(term, context) for term in action.targets) if action.targets else "")
+        return "obtain" + (" " + pattern(action.patterns[0]) if action.patterns else "") + (
+            " : " + term_renderer(action.type_term, context) if action.type_term else "") + (
+            " := " + ", ".join(term_renderer(term, context) for term in action.targets) if action.targets else "")
     if action.family == "by_cases":
-        return "by_cases " + (_quoted_name(action.binder_name) + " : " if action.binder_name else "") + render_scoped_term(action.type_term, context)
-    return action.family + (" " + " ".join(render_pattern(pattern, context) for pattern in action.patterns) if action.patterns else "") + (
-        " : " + render_scoped_term(action.type_term, context) if action.type_term else "")
+        return "by_cases " + (_quoted_name(action.binder_name) + " : " if action.binder_name else "") + term_renderer(action.type_term, context)
+    return action.family + (" " + " ".join(pattern(value) for value in action.patterns) if action.patterns else "") + (
+        " : " + term_renderer(action.type_term, context) if action.type_term else "")

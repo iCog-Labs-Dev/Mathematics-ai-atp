@@ -66,7 +66,8 @@ rows and original baseline/cache digests, then evaluates V7 once per valid row.
 Quarantine remains part of the denominator. No earlier renderer stages, dataset
 download, Lean source compilation or semantic extraction run.
 
-Console output is one compact old/new/gain/loss/exact-gain/coverage table.
+Console output includes brief progress every 50,000 rows and one compact
+old/new/gain/loss/exact-gain/coverage table.
 Detailed rows, current errors and per-family summaries go into `report.json`
 and `rows.jsonl`. Output checkpoints every 10,000 rows; choose a fresh directory
 because this static audit does not resume.
@@ -150,3 +151,6 @@ Next inspect its remaining train family/error counts before choosing the next
 cached-syntax grammar expansion, and retain the balanced native delta selection
 for validation. Parameterized declarations and bounded nested proofs remain
 candidates, not measured V8 gains.
+
+The next cached grammar batch is documented in
+[V8 math notation and bounded quantifiers](tactic_templates_v8.md).

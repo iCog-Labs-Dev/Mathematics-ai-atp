@@ -111,7 +111,7 @@ def test_canonical_scope_forms_preserve_shadow_and_repeated_name_structure():
     assert shape("h0", "x") != shape("fresh", "x")
 
 
-@pytest.mark.parametrize("renderer", ["template-v6", "template-v7"])
+@pytest.mark.parametrize("renderer", ["template-v6", "template-v7", "template-v8"])
 def test_native_runner_binds_optional_semantic_hashes_into_resume(tmp_path, monkeypatch, renderer):
     from maths_ai.gnn_inference.atp_lean_gnn.dataset import DatasetRow
     from maths_ai.gnn_inference.atp_lean_gnn.preparation import ModelSExprCache, SExprCache, SourceSyntaxTraceCache
@@ -169,7 +169,8 @@ def test_native_runner_binds_optional_semantic_hashes_into_resume(tmp_path, monk
         assert report["manifest"]["semantic_cache_root"] == str(overlay)
     else:
         assert "action_trace_v2" not in report["manifest"]["rows"][0]["cache_hashes"]
-        assert report["summary"]["source_selector_tactic_parsed_steps"] == report["summary"]["method_selector_steps"] == 1
+        key = "source_selector_tactic_parsed_steps" if renderer == "template-v7" else "math_tactic_parsed_steps"
+        assert report["summary"][key] == report["summary"]["method_selector_steps"] == 1
         assert report["manifest"]["semantic_cache_used"] is False
         assert report["manifest"]["semantic_cache_root"] is None
     assert runner.main([*argv, "--resume"]) == 0

@@ -47,7 +47,7 @@ def test_scoped_unbound_names_and_explicit_universes_stay_unsupported():
         parser.parse(node("Lean.Parser.Term.type", atom("Type"), node("null", atom("1"))))
 
 
-@pytest.mark.parametrize("renderer", ["template-v6", "template-v7"])
+@pytest.mark.parametrize("renderer", ["template-v6", "template-v7", "template-v8"])
 def test_native_v6_scope_and_patterns_preserve_all_goals(renderer):
     configured = os.environ.get("MATHS_AI_PANTOGRAPH_ROOT")
     if not configured:
@@ -66,7 +66,7 @@ def test_native_v6_scope_and_patterns_preserve_all_goals(renderer):
         "rewrite [inst₁.shift_zero, inst₂.shift_zero]", "rewrite [inst₁.shift_one, inst₂.shift_one]",
         "have hx := h.named (m := 0) (Nat.le_refl 1)", "have hx := h.typed (1 : Nat)",
         "specialize hn (n + 1) (n.le_add_right 1)"}
-    if renderer == "template-v7":
+    if renderer in {"template-v7", "template-v8"}:
         supported.remove("exact reverseProof h")
     with tempfile.TemporaryDirectory(prefix="TemplateV6_", dir=root) as directory:
         path = Path(directory) / "Example.lean"

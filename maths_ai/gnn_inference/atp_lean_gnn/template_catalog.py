@@ -21,7 +21,7 @@ def renderer_fingerprints():
     wrappers = root / "atp_lean_gnn/wrapper_templates.py"
     if wrappers.is_file():
         paths.append(wrappers)
-    for name in ("scoped_templates.py", "pattern_templates.py", "semantic_templates.py"):
+    for name in ("scoped_templates.py", "pattern_templates.py", "semantic_templates.py", "math_templates.py"):
         path = root / "atp_lean_gnn" / name
         if path.is_file():
             paths.append(path)
@@ -91,9 +91,9 @@ def canonical_form(target, rendered, local_context=()):
     schema = target["schema"]
     form = {"schema": schema, "family": target["family"]}
     if schema in {"recursive_rw_simp_v1", "recursive_application_v1", "extended_tactic_v1", "scoped_tactic_v1", "scoped_pattern_tactic_v1",
-                  "source_selector_tactic_v1", "source_selector_pattern_v1"}:
+                  "source_selector_tactic_v1", "source_selector_pattern_v1", "math_notation_tactic_v1", "math_notation_pattern_v1"}:
         binder_names = {}
-        input_names = {tuple(_name_parts(entry["user_name"])) for entry in local_context if entry.get("user_name")} if schema.startswith(("scoped_", "source_selector_")) else set()
+        input_names = {tuple(_name_parts(entry["user_name"])) for entry in local_context if entry.get("user_name")} if schema.startswith(("scoped_", "source_selector_", "math_notation_")) else set()
 
         def binding(name):
             if name is None:
@@ -119,7 +119,7 @@ def canonical_form(target, rendered, local_context=()):
                 output["tail_type_child"] = node.get("tail_type_child")
             return output
 
-        if schema in {"scoped_pattern_tactic_v1", "source_selector_pattern_v1"}:
+        if schema in {"scoped_pattern_tactic_v1", "source_selector_pattern_v1", "math_notation_pattern_v1"}:
             def pattern(value):
                 return {"kind": value["kind"], "slot": value["slot"],
                         "binding": binding(value["gold_name"]) if value["kind"] == "name" else None,
@@ -130,7 +130,7 @@ def canonical_form(target, rendered, local_context=()):
             form["type"] = term(target["type"]) if target["type"] else None
             form["equation_binders"] = [binding(name) if name is not None else None for name in target["equation_names"]]
             form["case_binder"] = binding(target["binder_name"]) if target["binder_name"] is not None else None
-        elif schema in {"extended_tactic_v1", "scoped_tactic_v1", "source_selector_tactic_v1"}:
+        elif schema in {"extended_tactic_v1", "scoped_tactic_v1", "source_selector_tactic_v1", "math_notation_tactic_v1"}:
             form["rules"] = [{"term": term(rule["term"]) if rule["term"] else None,
                 "kind": rule["kind"], "backward": rule["backward"], "phase": rule["phase"]} for rule in target["rules"]]
             form["only"] = target["only"]

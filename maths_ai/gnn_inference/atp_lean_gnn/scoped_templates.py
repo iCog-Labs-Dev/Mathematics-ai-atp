@@ -365,8 +365,9 @@ def parse_scoped_wrapper(trace, semantic_terms=(), *, allow_method_selectors=Fal
     return action, parser.semantic_reconstructions
 
 
-def render_scoped_term(term, context, environment=None):
+def render_scoped_term(term, context, environment=None, *, renderer=None):
     environment = {} if environment is None else environment
+    render_child = renderer or render_scoped_term
     if term.kind == "bound_reference":
         slot = int(term.value)
         name = environment.get(slot)
@@ -376,15 +377,15 @@ def render_scoped_term(term, context, environment=None):
             raise TemplateError("scope_capture_conflict", "outer lexical slot would be captured by a later binder")
         return _quoted_name(name)
     if term.kind == "method_selector":
-        receiver = render_scoped_term(term.children[0], context, environment)
+        receiver = render_child(term.children[0], context, environment)
         if term.selector_style == "projection":
             receiver = "(" + receiver + ")"
         return receiver + "." + _quoted_name(term.value)
-    if term.kind in {"lambda", "forall"}:
+    if term.kind in {"lambda", "forall", "exists"}:
         local = dict(environment)
         rendered = []
         for group in term.groups:
-            domain = render_scoped_term(term.children[group.type_child], context, local) if group.type_child is not None else None
+            domain = render_child(term.children[group.type_child], context, local) if group.type_child is not None else None
             names = ["_" if binder.gold_name is None else _quoted_name(binder.gold_name) for binder in group.binders]
             text = " ".join(names) + (" : " + domain if domain is not None else "")
             if group.mode != "explicit" or domain is not None:
@@ -394,13 +395,13 @@ def render_scoped_term(term, context, environment=None):
             for binder in group.binders:
                 if binder.gold_name is not None:
                     local[binder.slot] = binder.gold_name
-        trailing = " : " + render_scoped_term(term.children[term.tail_type_child], context, local) if term.tail_type_child is not None else ""
-        body = render_scoped_term(term.children[-1], context, local)
-        return "(" + ("fun " if term.kind == "lambda" else "∀ ") + " ".join(rendered) + trailing + (" => " if term.kind == "lambda" else ", ") + body + ")"
+        trailing = " : " + render_child(term.children[term.tail_type_child], context, local) if term.tail_type_child is not None else ""
+        body = render_child(term.children[-1], context, local)
+        return "(" + {"lambda": "fun ", "forall": "∀ ", "exists": "∃ "}[term.kind] + " ".join(rendered) + trailing + (" => " if term.kind == "lambda" else ", ") + body + ")"
     if term.kind in {"arrow", "substitute"}:
-        return "(" + render_scoped_term(term.children[0], context, environment) + (" → " if term.kind == "arrow" else " ▸ ") + render_scoped_term(term.children[1], context, environment) + ")"
+        return "(" + render_child(term.children[0], context, environment) + (" → " if term.kind == "arrow" else " ▸ ") + render_child(term.children[1], context, environment) + ")"
     if term.kind == "explicit":
-        return "@" + render_scoped_term(term.children[0], context, environment)
+        return "@" + render_child(term.children[0], context, environment)
     if term.kind in {"type_sort", "notation"}:
         return term.value
     # Render V5 nodes through one callback so recursive children keep lexical scope.
@@ -408,7 +409,7 @@ def render_scoped_term(term, context, environment=None):
 
     if not term.children:
         return render_extended_term(term, context)
-    children = [render_scoped_term(child, context, environment) for child in term.children]
+    children = [render_child(child, context, environment) for child in term.children]
     if term.kind == "application":
         return "(" + " ".join(children) + ")"
     if term.kind == "named_argument":

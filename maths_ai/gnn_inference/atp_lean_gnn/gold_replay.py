@@ -336,6 +336,10 @@ def summarize_replays(rows: list[dict]) -> dict:
         "source_selector_pattern_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "source_selector_pattern_v1" for r in rows),
         "method_selector_steps": sum(bool(r.get("method_selector_count")) for r in rows),
         "method_selector_nodes": sum(r.get("method_selector_count", 0) for r in rows),
+        "math_tactic_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "math_notation_tactic_v1" for r in rows),
+        "math_pattern_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "math_notation_pattern_v1" for r in rows),
+        "math_notation_steps": sum(bool(r.get("math_notation_count")) for r in rows),
+        "math_notation_nodes": sum(r.get("math_notation_count", 0) for r in rows),
         "applied_rule_parsed_steps": sum(any(rule.get("arguments") for rule in (r.get("template_target") or {}).get("rules", []))
                                          for r in rows),
         "named_rule_parsed_steps": sum(any(argument.get("parameter") is not None
