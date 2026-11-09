@@ -64,28 +64,6 @@ def _get_service(request: Request) -> Any:
     return service
 
 
-def _is_lean_syntax_error(exc: Exception) -> bool:
-    """Return True if exc represents a Lean syntax, parsing, or elaboration error."""
-    msg = str(exc).lower()
-    if any(crash in msg for crash in ("process terminated", "connection closed", "broken pipe", "server crashed", "killed", "sigkill", "sigterm")):
-        return False
-    exc_type = type(exc).__name__
-    if exc_type in ("ServerError", "ParseError"):
-        return True
-    return any(
-        token in msg
-        for token in (
-            "parse error",
-            "syntax error",
-            "unexpected token",
-            "unknown identifier",
-            "expected",
-            "elaboration error",
-            "invalid goal",
-        )
-    )
-
-
 def create_app(
     service_factory: Optional[ServiceFactory] = None,
     formal_runs_dir: Optional[Path] = None,
@@ -181,8 +159,6 @@ def create_app(
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            if _is_lean_syntax_error(exc):
-                raise HTTPException(status_code=400, detail=f"Lean parsing error: {exc}") from exc
             raise HTTPException(status_code=500, detail=f"proof search failed: {exc}") from exc
 
     @app.post("/gnn/predict_tactic", response_model=PredictTacticResponse)

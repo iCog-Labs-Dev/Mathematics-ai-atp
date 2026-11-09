@@ -9,7 +9,7 @@ except ImportError:
     Digraph = None
 from pathlib import Path
 from typing import Dict, List, Optional
-from pantograph.server import Server, GoalState
+from pantograph.server import Server, GoalState, ServerError
 
 from maths_ai.data_models.proof_components import Goal, RankedSubgoal, STV, TacticCandidate
 from maths_ai.gnn_inference.inference_engine import GNNModelEngine
@@ -20,6 +20,17 @@ from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph, ProofNode, Tact
 from maths_ai.core.config import settings
 
 _INACCESSIBLE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_']*✝[⁰-⁹¹²³]*")
+
+
+def _is_lean_goal_error(exc: ServerError) -> bool:
+    """Recognize Lean diagnostics caused by invalid goal or hypothesis input."""
+    message = str(exc).lower()
+    if any(token in message for token in ("process terminated", "connection closed", "broken pipe", "server crashed", "sigkill", "sigterm")):
+        return False
+    return any(token in message for token in (
+        "parse error", "syntax error", "unexpected token",
+        "unknown identifier", "elaboration error", "invalid goal",
+    ))
 
 
 def _sanitize_inaccessible_names(goal: Goal) -> Goal:
@@ -393,7 +404,12 @@ class HybridReasoner:
             graph.mark_node_exhausted(node.id, note="GNN returned no viable tactic")
             return
 
-        state = await self._start_state(node.goal)
+        try:
+            state = await self._start_state(node.goal)
+        except ServerError as exc:
+            if node.depth == 0 and _is_lean_goal_error(exc):
+                raise ValueError(str(exc)) from exc
+            raise
         any_applied = False
 
         for tactic in candidates:

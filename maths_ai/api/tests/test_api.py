@@ -98,9 +98,11 @@ class FakeReasoner:
         if goal == "bad syntax":
             raise ValueError("parse error at 'bad syntax'")
         if goal == "this is not Lean ???":
+            raise ValueError("parse error: unexpected token ???")
+        if goal == "server failure":
             class ServerError(Exception):
                 pass
-            raise ServerError("parse error: unexpected token ???")
+            raise ServerError("Lean server failed while starting a goal")
         if goal == "internal crash":
             raise RuntimeError("lean backend exploded")
         return self.graph
@@ -293,6 +295,13 @@ def test_prove_maps_malformed_lean_goal_to_400(api):
 
 def test_prove_maps_internal_failure_to_500(api):
     response = api.client.post("/prove", json={"goal": "internal crash"})
+
+    assert response.status_code == 500
+    assert "proof search failed" in response.json()["detail"]
+
+
+def test_prove_maps_server_failure_to_500(api):
+    response = api.client.post("/prove", json={"goal": "server failure"})
 
     assert response.status_code == 500
     assert "proof search failed" in response.json()["detail"]
