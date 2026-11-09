@@ -1,4 +1,4 @@
-"""Measure cached-syntax V7 selectors or V8 math against the saved previous stage."""
+"""Measure cached-syntax V7/V8/V9 against a completed saved coverage stage."""
 
 import argparse
 import hashlib
@@ -21,6 +21,8 @@ def _stats(before="v6", after="v7"):
         f"{after}_rescues_vs_{before}", f"{after}_losses_vs_{before}", f"exact_aligned_baseline_{before}_steps", f"exact_aligned_{after}_steps",
         f"exact_aligned_{after}_rescues", f"exact_aligned_{after}_losses", "method_selector_steps", "method_selector_rescues",
         "other_source_repair_rescues", "method_selector_nodes", "math_notation_steps", "math_notation_nodes", "math_notation_rescues",
+        "source_program_steps", "source_program_rescues", "deferred_identifier_steps", "deferred_identifier_rescues",
+        "no_deferred_identifier_program_rescues",
     )})
 
 
@@ -29,15 +31,20 @@ def _add(stats, row, previous="v6", version="v7"):
     exact = row["alignment_kind"] == "exact" and row["dataset_target_matches_source"] is True
     rescue, loss, selectors = after and not before, before and not after, bool(row["method_selector_count"])
     math = bool(row.get("math_notation_count"))
+    program = bool(row.get("source_program_used"))
+    deferred = bool(row.get("deferred_name_count"))
     stats.update({"selected_steps": 1, "quarantined_steps": row["quarantined"], f"baseline_{previous}_renderable_steps": before,
         f"template_{version}_renderable_steps": after, f"{version}_rescues_vs_{previous}": rescue, f"{version}_losses_vs_{previous}": loss,
         f"exact_aligned_baseline_{previous}_steps": exact and before, f"exact_aligned_{version}_steps": exact and after,
         f"exact_aligned_{version}_rescues": exact and rescue, f"exact_aligned_{version}_losses": exact and loss,
         "method_selector_steps": after and selectors, "method_selector_rescues": rescue and selectors,
-        "other_source_repair_rescues": rescue and not (math if version == "v8" else selectors),
+        "other_source_repair_rescues": rescue and not (program if version == "v9" else math if version == "v8" else selectors),
         "method_selector_nodes": row["method_selector_count"] if after else 0,
         "math_notation_steps": after and math, "math_notation_nodes": row.get("math_notation_count", 0) if after else 0,
-        "math_notation_rescues": rescue and math})
+        "math_notation_rescues": rescue and math, "source_program_steps": after and program,
+        "source_program_rescues": rescue and program, "deferred_identifier_steps": after and deferred,
+        "deferred_identifier_rescues": rescue and deferred,
+        "no_deferred_identifier_program_rescues": rescue and program and not deferred})
 
 
 def main(argv=None):
@@ -45,16 +52,20 @@ def main(argv=None):
     parser.add_argument("--previous-recovery-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--pilot-actions", type=int, default=24)
-    parser.add_argument("--renderer", choices=("template-v7", "template-v8"), default="template-v7")
+    parser.add_argument("--renderer", choices=("template-v7", "template-v8", "template-v9"), default="template-v7")
     args = parser.parse_args(argv)
     if args.pilot_actions < 1:
         raise ValueError("pilot action count must be positive")
     previous, output = args.previous_recovery_dir.resolve(), args.output_dir.resolve()
-    version = "v8" if args.renderer == "template-v8" else "v7"
-    prior = "v7" if version == "v8" else "v6"
-    source_schema = "selector_recovery_v1" if version == "v8" else "scoped_recovery_v1"
+    version = args.renderer.split("-")[-1]
     report_path, previous_rows = previous / "report.json", previous / "rows.jsonl"
     source = json.loads(report_path.read_text())
+    prior = source["manifest"].get("renderer", "").split("-")[-1]
+    allowed = {"v7": {"v6"}, "v8": {"v7"}, "v9": {"v7", "v8"}}[version]
+    if prior not in allowed:
+        expected = " or ".join(sorted(value.upper() for value in allowed))
+        raise ValueError(f"complete immutable {expected} recovery report required")
+    source_schema = {"v6": "scoped_recovery_v1", "v7": "selector_recovery_v1", "v8": "math_recovery_v1"}[prior]
     previous_hashes = {"report": file_sha256(report_path), "rows": file_sha256(previous_rows)}
     if (source.get("complete") is not True or source["manifest"].get("schema") != source_schema
             or source["manifest"].get("renderer") != f"template-{prior}" or previous_hashes["rows"] != source["row_records_sha256"]):
@@ -70,7 +81,7 @@ def main(argv=None):
     for root in (previous, baseline, cache, Path(original["manifest"]["prepared_root"]).resolve()):
         if output == root or root in output.parents:
             raise ValueError("output must be outside frozen source artifacts")
-    report = {"manifest": {"schema": "math_recovery_v1" if version == "v8" else "selector_recovery_v1", "renderer": args.renderer,
+    report = {"manifest": {"schema": {"v7": "selector_recovery_v1", "v8": "math_recovery_v1", "v9": "program_recovery_v1"}[version], "renderer": args.renderer,
         "previous_recovery_dir": str(previous), "previous_sha256": previous_hashes,
         "baseline_dir": str(baseline), "baseline_sha256": baseline_hashes, "cache_root": str(cache),
         "renderer_sha256": renderer_fingerprints(), "runner_sha256": file_sha256(Path(__file__)),
@@ -110,7 +121,8 @@ def main(argv=None):
                 "dataset_target_matches_source", "quarantined", f"{prior}_renderable")}
             if row["quarantined"] != (original_row["status"] in {"cache_invalid", "source_trace_invalid"}):
                 raise ValueError("quarantine population changed")
-            row.update({f"{version}_renderable": False, f"{version}_schema": None, "method_selector_count": 0, "math_notation_count": 0})
+            row.update({f"{version}_renderable": False, f"{version}_schema": None, "method_selector_count": 0, "math_notation_count": 0,
+                        "source_program_used": False, "deferred_name_count": 0})
             if not row["quarantined"]:
                 result = prepare_gold_rendering(raw["tactic"], trace, renderer=args.renderer)
                 if result.get("semantic_reconstructions", 0):
@@ -120,13 +132,18 @@ def main(argv=None):
                     f"{version}_rendered_tactic": result["rendered_tactic"], f"{version}_error": result["render_error"],
                     f"{version}_error_code": result["template_error_code"], "method_selector_count": result.get("method_selector_count", 0),
                     "math_notation_count": result.get("math_notation_count", 0)})
+                for key in ("source_program_used", "deferred_name_count", "scoped_name_count", "source_program_nodes", "syntax_choice_count",
+                            "base_render_error", "base_template_error_code"):
+                    if key in result:
+                        row[key] = result[key]
                 if row[f"{version}_error"]:
                     error = row[f"{version}_error_code"] or row[f"{version}_error"]
                     errors[row["split"]][error] += 1
                     family_errors[(row["split"], row["family"])][error] += 1
                 if (row["split"] == "val" and row[f"{version}_renderable"] and not row[f"{prior}_renderable"]
                         and row["alignment_kind"] == "exact" and row["dataset_target_matches_source"] is True):
-                    features = (bool(row["method_selector_count"]), bool(row["math_notation_count"]), tuple(sorted(_kinds(target))))
+                    features = (bool(row["method_selector_count"]), bool(row["math_notation_count"]),
+                                bool(row["source_program_used"]), bool(row["deferred_name_count"]), tuple(sorted(_kinds(target))))
                     groups[(row["family"], features)].append((hashlib.sha256(str(row["row_index"]).encode()).hexdigest(), row["row_index"]))
             _add(totals[row["split"]], row, prior, version)
             _add(families[(row["split"], row["family"])], row, prior, version)
@@ -153,12 +170,14 @@ def main(argv=None):
     report.update(complete=True, row_records_sha256=digest.hexdigest(), native_pilot={"selected_steps": len(selected),
         "split": "val", "policy": "round_robin_family_then_features_lowest_sha_v2", "candidate_groups": len(groups)})
     checkpoint()
-    print("split  old_support  new_support  gained  lost  exact_gained  coverage", flush=True)
+    extra_header = "  program_gains  deferred_names" if version == "v9" else ""
+    print("split  old_support  new_support  gained  lost  exact_gained  coverage" + extra_header, flush=True)
     for split, data in report["splits"].items():
         stats = data["summary"]
+        extra = f"  {stats['source_program_rescues']:13}  {stats['deferred_identifier_rescues']:14}" if version == "v9" else ""
         print(f"{split:5}  {stats[f'baseline_{prior}_renderable_steps']:11}  {stats[f'template_{version}_renderable_steps']:11}"
               f"  {stats[f'{version}_rescues_vs_{prior}']:6}  {stats[f'{version}_losses_vs_{prior}']:4}  {stats[f'exact_aligned_{version}_rescues']:12}"
-              f"  {stats['coverage_percent']:.2f}%", flush=True)
+              f"  {stats['coverage_percent']:.2f}%" + extra, flush=True)
     print(f"Native pilot: {len(selected)} rows; report: {output / 'report.json'}", flush=True)
     return 2 if any(stats[f"{version}_losses_vs_{prior}"] for stats in totals.values()) else 0
 

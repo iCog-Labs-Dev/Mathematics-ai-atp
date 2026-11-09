@@ -47,7 +47,7 @@ def test_scoped_unbound_names_and_explicit_universes_stay_unsupported():
         parser.parse(node("Lean.Parser.Term.type", atom("Type"), node("null", atom("1"))))
 
 
-@pytest.mark.parametrize("renderer", ["template-v6", "template-v7", "template-v8"])
+@pytest.mark.parametrize("renderer", ["template-v6", "template-v7", "template-v8", "template-v9"])
 def test_native_v6_scope_and_patterns_preserve_all_goals(renderer):
     configured = os.environ.get("MATHS_AI_PANTOGRAPH_ROOT")
     if not configured:
@@ -125,7 +125,7 @@ def test_native_v6_scope_and_patterns_preserve_all_goals(renderer):
         assert semantic_count == (5 if renderer == "template-v6" else 0)
         response = run_native_file(path, requests, source_root=root, pantograph_root=root, timeout=120)
     assert not response["frontend_errors"], response
-    assert len(response["rows"]) == len(requests) == (45 if renderer == "template-v6" else 44)
+    assert len(response["rows"]) == len(requests) == (45 if renderer in {"template-v6", "template-v9"} else 44)
     for request, native in zip(requests, response["rows"]):
         assert native["original"]["status"] == "executed", (texts[request["rowIndex"]], native)
         assert goal_signature(native["original"]["goals"]) == goal_signature(native["source_after"])

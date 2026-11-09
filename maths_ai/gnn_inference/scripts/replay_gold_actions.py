@@ -30,6 +30,7 @@ from maths_ai.gnn_inference.atp_lean_gnn import recursive_templates
 from maths_ai.gnn_inference.atp_lean_gnn import wrapper_templates
 from maths_ai.gnn_inference.atp_lean_gnn import scoped_templates, pattern_templates, semantic_templates
 from maths_ai.gnn_inference.atp_lean_gnn import math_templates
+from maths_ai.gnn_inference.atp_lean_gnn import source_programs
 from maths_ai.gnn_inference.atp_lean_gnn.template_catalog import (
     canonical_form, form_id, load_validation_plan, validation_summary,
 )
@@ -115,7 +116,7 @@ def main(argv=None):
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--file-timeout", type=float, default=600)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--renderer", choices=("flat", "template-v1", "template-v2", "template-v3", "template-v4", "template-v5", "template-v6", "template-v7", "template-v8"), default="flat")
+    parser.add_argument("--renderer", choices=("flat", "template-v1", "template-v2", "template-v3", "template-v4", "template-v5", "template-v6", "template-v7", "template-v8", "template-v9"), default="flat")
     parser.add_argument("--validation-plan", type=Path,
                         help="Use an inventory's fixed exact-aligned selection instead of theorem sampling")
     parser.add_argument("--row-indices", type=Path, help="JSON list of fixed dataset row IDs for a targeted native check")
@@ -207,7 +208,8 @@ def main(argv=None):
                              "template-v5": wrapper_templates.WRAPPER_SCHEMA,
                              "template-v6": scoped_templates.SCOPED_SCHEMA,
                              "template-v7": scoped_templates.SELECTOR_SCHEMA,
-                             "template-v8": math_templates.MATH_SCHEMA}.get(args.renderer),
+                             "template-v8": math_templates.MATH_SCHEMA,
+                             "template-v9": source_programs.PROGRAM_SCHEMA}.get(args.renderer),
         "intro_template_schema": intro_templates.INTRO_TEMPLATE_SCHEMA if args.renderer in {"template-v3", "template-v4", "template-v5", "template-v6", "template-v7", "template-v8"} else None,
         "recursive_application_schema": recursive_templates.RECURSIVE_APPLICATION_SCHEMA if args.renderer == "template-v4" else None,
         "recursive_parser_sha256": file_sha256(Path(recursive_templates.__file__)),
@@ -216,6 +218,7 @@ def main(argv=None):
         "pattern_parser_sha256": file_sha256(Path(pattern_templates.__file__)),
         "semantic_parser_sha256": file_sha256(Path(semantic_templates.__file__)),
         "math_parser_sha256": file_sha256(Path(math_templates.__file__)),
+        "source_program_parser_sha256": file_sha256(Path(source_programs.__file__)),
         "semantic_sexp_parser_sha256": file_sha256(Path(tactic_templates.__file__).parent / "action_targets/compiler.py"),
         "pattern_template_schema": (pattern_templates.PATTERN_SCHEMA if args.renderer == "template-v6" else
                                     pattern_templates.SELECTOR_PATTERN_SCHEMA if args.renderer == "template-v7" else
@@ -278,7 +281,8 @@ def main(argv=None):
             result = {key: payload[key] for key in ("row_index", "theorem", "file_path", "tactic", "rendered_tactic")}
             for key in ("render_path", "flat_renderable", "flat_render_error", "template_target", "template_error_code",
                         "alignment_kind", "dataset_target_matches_source", "template_form_id",
-                        "semantic_trace_status", "semantic_trace_error", "semantic_reconstructions", "method_selector_count", "math_notation_count"):
+                        "semantic_trace_status", "semantic_trace_error", "semantic_reconstructions", "method_selector_count", "math_notation_count",
+                        "source_program_used", "source_program_nodes", "deferred_name_count", "scoped_name_count", "syntax_choice_count"):
                 if key in payload:
                     result[key] = payload[key]
             if "failure" in payload:

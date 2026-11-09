@@ -20,7 +20,8 @@ def replayOptions : Protocol.Options := {
   automaticMode := true
 }
 
-def replaySyntaxBranch (snapshot : GoalState) (stx : Syntax) : MetaM Json := do
+def replaySyntaxBranch (snapshot : GoalState) (stx : Syntax)
+    (parentDecl : Option Name := none) : MetaM Json := do
   try
     let action : Elab.Tactic.TacticM GoalState := do
       snapshot.savedState.restore
@@ -30,18 +31,19 @@ def replaySyntaxBranch (snapshot : GoalState) (stx : Syntax) : MetaM Json := do
       let savedState ← MonadBacktrack.saveState
       pure { snapshot with savedState }
     let next ← (action { elaborator := .anonymous }).run' { goals := snapshot.goals }
-      |>.run' (ctx := Condensed.elabContext)
+      |>.run' (ctx := { Condensed.elabContext with declName? := parentDecl })
     let goals ← next.serializeGoals (options := replayOptions)
     return Json.mkObj [("status", toJson "executed"), ("goals", toJson goals)]
   catch exception =>
     return Json.mkObj [("status", toJson "lean_error"),
       ("message", toJson (← exception.toMessageData.toString))]
 
-def replayBranch (snapshot : GoalState) (text : String) : MetaM Json := do
+def replayBranch (snapshot : GoalState) (text : String)
+    (parentDecl : Option Name := none) (category : Name := `tactic) : MetaM Json := do
   try
     snapshot.restoreMetaM
-    match Parser.runParserCategory snapshot.env `tactic text with
-    | .ok stx => replaySyntaxBranch snapshot stx
+    match Parser.runParserCategory snapshot.env category text with
+    | .ok stx => replaySyntaxBranch snapshot stx parentDecl
     | .error message => pure <| Json.mkObj [
         ("status", toJson "parse_error"), ("message", toJson message)]
   catch exception =>
@@ -55,16 +57,17 @@ def replayInvocation (invocation : Frontend.TacticInvocation)
       let root := invocation.info.goalsBefore.headD { name := .anonymous }
       let snapshot ← GoalState.createFromMVars invocation.info.goalsBefore root
       let before ← snapshot.serializeGoals (options := replayOptions)
+      let category : Name := if (before[0]?).any (·.isConversion) then `conv else `tactic
       let after ← Meta.withMCtx invocation.info.mctxAfter do
         invocation.info.goalsAfter.toArray.mapM fun goal => do
           serializeGoal replayOptions goal (← goal.getDecl)
       let source := invocation.info.stx.reprint.getD (toString invocation.info.stx) |>.trim
       -- Gold control keeps original layout/hygiene in the captured syntax.
       -- Text reparsing is a separate diagnostic, never substituted for control.
-      let original ← replaySyntaxBranch snapshot invocation.info.stx
-      let originalText ← replayBranch snapshot source
+      let original ← replaySyntaxBranch snapshot invocation.info.stx invocation.ctx.parentDecl?
+      let originalText ← replayBranch snapshot source invocation.ctx.parentDecl? category
       let rendered ← match request.renderedTactic with
-        | some text => replayBranch snapshot text
+        | some text => replayBranch snapshot text invocation.ctx.parentDecl? category
         | none => pure <| Json.mkObj [("status", toJson "not_rendered")]
       return Json.mkObj [
         ("row_index", toJson request.rowIndex),

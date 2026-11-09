@@ -340,6 +340,9 @@ def summarize_replays(rows: list[dict]) -> dict:
         "math_pattern_parsed_steps": sum((r.get("template_target") or {}).get("schema") == "math_notation_pattern_v1" for r in rows),
         "math_notation_steps": sum(bool(r.get("math_notation_count")) for r in rows),
         "math_notation_nodes": sum(r.get("math_notation_count", 0) for r in rows),
+        "source_program_steps": sum(bool(r.get("source_program_used")) for r in rows),
+        "deferred_identifier_steps": sum(bool(r.get("deferred_name_count")) for r in rows),
+        "deferred_identifier_nodes": sum(r.get("deferred_name_count", 0) for r in rows),
         "applied_rule_parsed_steps": sum(any(rule.get("arguments") for rule in (r.get("template_target") or {}).get("rules", []))
                                          for r in rows),
         "named_rule_parsed_steps": sum(any(argument.get("parameter") is not None

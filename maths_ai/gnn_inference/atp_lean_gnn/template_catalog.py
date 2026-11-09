@@ -21,7 +21,7 @@ def renderer_fingerprints():
     wrappers = root / "atp_lean_gnn/wrapper_templates.py"
     if wrappers.is_file():
         paths.append(wrappers)
-    for name in ("scoped_templates.py", "pattern_templates.py", "semantic_templates.py", "math_templates.py"):
+    for name in ("scoped_templates.py", "pattern_templates.py", "semantic_templates.py", "math_templates.py", "source_programs.py"):
         path = root / "atp_lean_gnn" / name
         if path.is_file():
             paths.append(path)
@@ -90,6 +90,18 @@ def canonical_form(target, rendered, local_context=()):
                 "references": [reference(value) for value in references]}
     schema = target["schema"]
     form = {"schema": schema, "family": target["family"]}
+    if schema == "source_program_tactic_v1":
+        def program(node):
+            result = {key: value for key, value in node.items() if key not in {"reference", "children"}}
+            if "reference" in node:
+                result["reference"] = reference(node["reference"])
+                if node.get("role") in {"local_reference", "local_name", "global_reference"}:
+                    result.pop("value", None)
+            if "children" in node:
+                result["children"] = [program(child) for child in node["children"]]
+            return result
+        form["program"] = program(target["program"])
+        return form
     if schema in {"recursive_rw_simp_v1", "recursive_application_v1", "extended_tactic_v1", "scoped_tactic_v1", "scoped_pattern_tactic_v1",
                   "source_selector_tactic_v1", "source_selector_pattern_v1", "math_notation_tactic_v1", "math_notation_pattern_v1"}:
         binder_names = {}

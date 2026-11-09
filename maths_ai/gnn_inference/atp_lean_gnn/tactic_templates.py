@@ -336,8 +336,26 @@ def render_rw_simp_template(action: RwSimpTemplate, local_context: list[dict]) -
 def prepare_gold_rendering(raw_tactic: str, trace: dict, *, renderer: str = "flat",
                            reference_lookup: str = "semantic", semantic_trace: dict | None = None) -> dict:
     """Keep syntax extraction separate from name resolution and old-flat coverage."""
-    if renderer not in {"flat", "template-v1", "template-v2", "template-v3", "template-v4", "template-v5", "template-v6", "template-v7", "template-v8"}:
+    if renderer not in {"flat", "template-v1", "template-v2", "template-v3", "template-v4", "template-v5", "template-v6", "template-v7", "template-v8", "template-v9"}:
         raise ValueError("unknown gold renderer mode")
+    if renderer == "template-v9":
+        result = prepare_gold_rendering(raw_tactic, trace, renderer="template-v8", reference_lookup=reference_lookup)
+        result["source_program_used"] = False
+        if result["rendered_tactic"] is not None:
+            return result
+        from .source_programs import PROGRAM_SCHEMA, compile_source_program
+
+        result["base_render_error"] = result["render_error"]
+        result["base_template_error_code"] = result["template_error_code"]
+        result["render_path"] = PROGRAM_SCHEMA
+        try:
+            target, text, counts = compile_source_program(raw_tactic, trace)
+            result.update(template_target=target, rendered_tactic=text, source_program_used=True,
+                          render_error=None, template_error_code=None, semantic_reconstructions=0, **counts)
+        except (RenderError, KeyError, TypeError) as error:
+            result["render_error"] = str(error)
+            result["template_error_code"] = error.code if isinstance(error, TemplateError) else "program_render"
+        return result
     result = {"rendered_tactic": None, "render_error": None, "render_path": "flat",
               "flat_renderable": False, "flat_render_error": None, "template_target": None,
               "template_error_code": None}

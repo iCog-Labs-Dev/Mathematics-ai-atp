@@ -70,7 +70,7 @@ def test_selector_ambiguity_namespace_conflicts_budgets_and_semantic_independenc
     assert result["rendered_tactic"] is None
 
 
-@pytest.mark.parametrize("renderer", ["template-v7", "template-v8"])
+@pytest.mark.parametrize("renderer", ["template-v7", "template-v8", "template-v9"])
 def test_native_v7_chains_projection_patterns_and_namespace_resolution(renderer):
     configured = os.environ.get("MATHS_AI_PANTOGRAPH_ROOT")
     if not configured:

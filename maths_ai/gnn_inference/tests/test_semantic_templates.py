@@ -111,7 +111,7 @@ def test_canonical_scope_forms_preserve_shadow_and_repeated_name_structure():
     assert shape("h0", "x") != shape("fresh", "x")
 
 
-@pytest.mark.parametrize("renderer", ["template-v6", "template-v7", "template-v8"])
+@pytest.mark.parametrize("renderer", ["template-v6", "template-v7", "template-v8", "template-v9"])
 def test_native_runner_binds_optional_semantic_hashes_into_resume(tmp_path, monkeypatch, renderer):
     from maths_ai.gnn_inference.atp_lean_gnn.dataset import DatasetRow
     from maths_ai.gnn_inference.atp_lean_gnn.preparation import ModelSExprCache, SExprCache, SourceSyntaxTraceCache
