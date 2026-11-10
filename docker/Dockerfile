@@ -60,6 +60,15 @@ RUN git init -q . \
 # Package clones keep their .git: lake env compares each package's remote with
 # the manifest and otherwise deletes and re-clones it at every worker launch.
 
+# Deployments identify the REPL by the clean commit it was built from, so keep
+# its checkout (with .git) and, of its build products, only the executable.
+WORKDIR /opt/pantograph
+RUN mv .lake/build/bin/repl /tmp/repl \
+    && rm -rf .lake \
+    && mkdir -p .lake/build/bin \
+    && mv /tmp/repl .lake/build/bin/repl \
+    && test -z "$(git status --porcelain --untracked-files=no)"
+
 # ---------- python ----------
 FROM ${PYTHON_IMAGE} AS python
 COPY --from=ghcr.io/astral-sh/uv:0.13.1 /uv /usr/local/bin/uv
@@ -94,14 +103,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=lean /opt/elan /opt/elan
 # The client accepts a REPL outside a build manifest only in its Lake checkout
 # layout, so keep that layout; /opt/pantograph/repl stays the configured path.
-COPY --from=lean /opt/pantograph/lakefile.lean /opt/pantograph/lean-toolchain /opt/pantograph/
-COPY --from=lean /opt/pantograph/.lake/build/bin/repl /opt/pantograph/.lake/build/bin/repl
+COPY --from=lean /opt/pantograph /opt/pantograph
 RUN ln -s .lake/build/bin/repl /opt/pantograph/repl
 COPY --from=lean /opt/mathlib4 /opt/mathlib4
 # The service user does not own these root-owned clones; without this git
-# refuses them and lake env re-clones every package at worker launch.
-RUN for package in /opt/mathlib4/.lake/packages/*; do \
-        git config --system --add safe.directory "$package"; \
+# refuses them, lake env re-clones every package at worker launch and the
+# REPL's commit cannot be read.
+RUN for checkout in /opt/pantograph /opt/mathlib4/.lake/packages/*; do \
+        git config --system --add safe.directory "$checkout"; \
     done
 COPY --from=python /opt/venv /opt/venv
 COPY --from=pln /opt/pln /opt/pln

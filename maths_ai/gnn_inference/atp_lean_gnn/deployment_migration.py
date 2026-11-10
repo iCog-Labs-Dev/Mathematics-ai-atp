@@ -30,8 +30,8 @@ from .checkpointing import build_model_from_checkpoint, checkpoint_payload, modu
 from .declaration_inventory import generate_inventory
 from .policy_actions import fingerprint
 from .retrieval_artifacts import (
-    LiveLemmaProvider, RetrievalError, environment_components,
-    fingerprint_environment_components, file_hash,
+    COMPONENTS_V1, LiveLemmaProvider, RetrievalError, environment_components,
+    fingerprint_environment_components, file_hash, repl_source, without_repl,
 )
 from .training import load_prepared_metadata
 
@@ -56,13 +56,16 @@ def verify_previous_environment(inventory, current, *, old_repl=None):
     if recorded is not None:
         if fingerprint_environment_components(recorded) != inventory["environment_identity"]:
             raise RetrievalError("Previous environment component evidence is inconsistent.")
-        if old_repl is not None and file_hash(old_repl) != recorded["repl_sha256"]:
+        if old_repl is not None and (
+            file_hash(old_repl) != recorded["repl_sha256"] if "repl_sha256" in recorded
+            else repl_source(old_repl) != recorded["repl_source"]
+        ):
             raise RetrievalError("Old executable differs from recorded component evidence.")
         previous = recorded
     elif old_repl is not None:
         # Older deployed inventories have only an aggregate identity. The old
         # binary plus today's library must reproduce it before any migration.
-        previous = {**current, "repl_sha256": file_hash(old_repl)}
+        previous = {**without_repl(current), "schema": COMPONENTS_V1, "repl_sha256": file_hash(old_repl)}
     else:
         raise RetrievalError(
             "Previous inventory has no component evidence. Supply --old-repl with "
@@ -70,9 +73,7 @@ def verify_previous_environment(inventory, current, *, old_repl=None):
         )
     if fingerprint_environment_components(previous) != inventory["environment_identity"]:
         raise RetrievalError("Old executable and current compiled library do not reproduce the inventory.")
-    if {k: v for k, v in previous.items() if k != "repl_sha256"} != {
-        k: v for k, v in current.items() if k != "repl_sha256"
-    }:
+    if without_repl(previous) != without_repl(current):
         raise RetrievalError("Imports, toolchain, or compiled library changed; this is not a REPL-only migration.")
     return previous
 

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -29,34 +30,99 @@ def file_hash(path):
     return h.hexdigest()
 
 
-def environment_components(source_root, repl, imports):
-    """Record content identities needed to verify a later binary-only migration."""
+COMPONENTS_V1 = "lean-environment-components-v1"
+COMPONENTS_V2 = "lean-environment-components-v2"
+_REPL_KEYS = {COMPONENTS_V1: "repl_sha256", COMPONENTS_V2: "repl_source"}
+
+
+def repl_source(repl):
+    """The source a REPL was built from, if that can be established.
+
+    The executable must sit in its Lake checkout (``<root>/.lake/build/bin``),
+    the checkout must be a Git work tree with no modified tracked files, and
+    it must declare its toolchain. Native builds of one commit are not
+    byte-identical across machines, so this, not the executable's hash, is
+    what identifies the REPL across hosts.
+    """
+    path = Path(repl).resolve()
+    if path.parts[-4:-1] != (".lake", "build", "bin"):
+        return None
+    root = path.parents[3]
+    toolchain = root / "lean-toolchain"
+    if not toolchain.is_file():
+        return None
+
+    def git(*args):
+        try:
+            result = subprocess.run(["git", "-C", str(root), *args], capture_output=True,
+                                    text=True, timeout=60, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return result.stdout.strip() if result.returncode == 0 else None
+
+    commit = git("rev-parse", "--verify", "HEAD^{commit}")
+    top = git("rev-parse", "--show-toplevel")
+    if commit is None or len(commit) != 40 or top is None or Path(top).resolve() != root:
+        return None
+    if git("status", "--porcelain", "--untracked-files=no") != "":
+        return None
+    return {"commit": commit, "toolchain_sha256": file_hash(toolchain)}
+
+
+def environment_component_variants(source_root, repl, imports):
+    """Every component record this environment can be identified by.
+
+    The source-bound record (v2) comes first when the REPL's source can be
+    established; the byte-bound record (v1) is always included, so inventories
+    bound to an exact executable keep verifying on that executable.
+    """
     root = Path(source_root)
     compiled = sorted((root / ".lake").rglob("*.olean"))
     if not compiled:
         raise RetrievalError(
             "No compiled Lean artifacts found for inventory verification."
         )
-    return {
-        "schema": "lean-environment-components-v1",
+    shared = {
         "imports": list(imports),
         "toolchain_sha256": file_hash(root / "lean-toolchain"),
         "lake_manifest_sha256": file_hash(root / "lake-manifest.json"),
-        "repl_sha256": file_hash(repl),
         "compiled": {str(path.relative_to(root)): file_hash(path) for path in compiled},
     }
+    variants = []
+    source = repl_source(repl)
+    if source is not None:
+        variants.append({"schema": COMPONENTS_V2, **shared, "repl_source": source})
+    variants.append({"schema": COMPONENTS_V1, **shared, "repl_sha256": file_hash(repl)})
+    return variants
+
+
+def environment_components(source_root, repl, imports):
+    """Record content identities needed to verify a later binary-only migration."""
+    return environment_component_variants(source_root, repl, imports)[0]
+
+
+def without_repl(components):
+    """The library part of a component record, for comparing across REPL changes."""
+    return {key: value for key, value in components.items()
+            if key not in ("schema", "repl_sha256", "repl_source")}
+
+
+def _is_digest(value, length=64):
+    return (isinstance(value, str) and len(value) == length
+            and all(c in "0123456789abcdef" for c in value))
 
 
 def fingerprint_environment_components(components):
-    """Reproduce the existing inventory identity from explicit component hashes."""
+    """Reproduce the inventory identity from explicit component evidence."""
+    schema = components.get("schema") if isinstance(components, dict) else None
+    if schema not in _REPL_KEYS:
+        raise RetrievalError("Unsupported environment component evidence.")
     required = {
         "schema", "imports", "toolchain_sha256", "lake_manifest_sha256",
-        "repl_sha256", "compiled",
+        _REPL_KEYS[schema], "compiled",
     }
-    if not isinstance(components, dict) or set(components) != required:
+    if set(components) != required:
         raise RetrievalError("Incomplete environment component evidence.")
-    if components["schema"] != "lean-environment-components-v1":
-        raise RetrievalError("Unsupported environment component evidence.")
     imports, compiled = components["imports"], components["compiled"]
     if (not isinstance(imports, list) or not imports
             or any(not isinstance(name, str) or not name for name in imports)
@@ -67,16 +133,26 @@ def fingerprint_environment_components(components):
         if (path.is_absolute() or ".." in path.parts or not name.startswith(".lake/")
                 or path.suffix != ".olean"):
             raise RetrievalError("Invalid compiled artifact path in environment evidence.")
-    hashes = [components[key] for key in (
-        "toolchain_sha256", "lake_manifest_sha256", "repl_sha256",
-    )] + list(compiled.values())
-    if any(not isinstance(value, str) or len(value) != 64
-           or any(c not in "0123456789abcdef" for c in value) for value in hashes):
+    if schema == COMPONENTS_V1:
+        repl_parts = [components["repl_sha256"]]
+        repl_hashes = repl_parts
+    else:
+        source = components["repl_source"]
+        if (not isinstance(source, dict) or set(source) != {"commit", "toolchain_sha256"}
+                or not _is_digest(source["commit"], 40)):
+            raise RetrievalError("Invalid REPL source evidence.")
+        repl_parts = [source["commit"], source["toolchain_sha256"]]
+        repl_hashes = [source["toolchain_sha256"]]
+    hashes = [components["toolchain_sha256"], components["lake_manifest_sha256"], *repl_hashes,
+              *compiled.values()]
+    if not all(_is_digest(value) for value in hashes):
         raise RetrievalError("Invalid environment component hash.")
     digest = hashlib.sha256()
+    if schema == COMPONENTS_V2:
+        digest.update(COMPONENTS_V2.encode())
     digest.update(json.dumps(imports).encode())
-    for key in ("toolchain_sha256", "lake_manifest_sha256", "repl_sha256"):
-        digest.update(components[key].encode())
+    for value in (components["toolchain_sha256"], components["lake_manifest_sha256"], *repl_parts):
+        digest.update(value.encode())
     # Path ordering is part of the existing inventory fingerprint recipe.
     for name in sorted(compiled, key=Path):
         digest.update(name.encode())
@@ -85,8 +161,14 @@ def fingerprint_environment_components(components):
 
 
 def environment_fingerprint(source_root, repl, imports):
-    """Bind the inventory to the deployed binary and compiled Lake artifacts."""
+    """Bind the inventory to the deployed REPL and compiled Lake artifacts."""
     return fingerprint_environment_components(environment_components(source_root, repl, imports))
+
+
+def environment_fingerprints(source_root, repl, imports):
+    """Every identity this environment satisfies (source-bound, then byte-bound)."""
+    return [fingerprint_environment_components(components)
+            for components in environment_component_variants(source_root, repl, imports)]
 
 
 def verify_files(root, hashes):
@@ -346,10 +428,10 @@ class LiveLemmaProvider:
         )
 
     def verify_environment(self, env):
-        actual = environment_fingerprint(
+        actual = environment_fingerprints(
             env.source_root, env.pantograph_repl, env.imports
         )
-        if actual != self.manifest["environment_identity"]:
+        if self.manifest["environment_identity"] not in actual:
             raise RetrievalError(
                 "Inventory and actual compiled Lean environment differ."
             )

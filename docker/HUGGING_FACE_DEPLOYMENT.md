@@ -230,7 +230,7 @@ curl --fail http://localhost:8000/ready
 
 `/health` reports API liveness. `/ready` remains unavailable while initialization runs and reports failure if model or runtime validation fails. Startup can take minutes. Readiness also verifies the provisioned PLN runtime when the configured profiles require it.
 
-The declaration inventory is bound to **REPL executable bytes and compiled Mathlib contents**. Building the same source revisions does not guarantee the same environment identity. If readiness reports an environment mismatch, deploy a compatible runtime or use the verified environment-migration workflow to publish a new matched release. Do not edit inventory hashes or disable validation to make startup pass.
+The declaration inventory is bound to the **REPL's source commit and toolchain and the compiled Mathlib contents**. The image keeps the REPL's Git checkout so that its commit can be read; a REPL that is not in a clean checkout of its commit can only match an inventory bound to its exact executable bytes, as releases published before this binding were. If readiness reports an environment mismatch, deploy a compatible runtime or use the verified environment-migration workflow to publish a new matched release. Do not edit inventory hashes or disable validation to make startup pass.
 
 A trusted checkpoint is required: PyTorch checkpoint loading can execute pickle content. Valid checksums establish identity, not that an unknown publisher is safe.
 
