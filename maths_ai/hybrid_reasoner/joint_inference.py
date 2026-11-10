@@ -12,7 +12,10 @@ from typing import Dict, List, Optional
 from pantograph.server import Server, GoalState, ServerError
 
 from maths_ai.data_models.proof_components import Goal, RankedSubgoal, STV, TacticCandidate
-from maths_ai.gnn_inference.inference_engine import GNNModelEngine
+try:
+    from maths_ai.gnn_inference.inference_engine import GNNModelEngine
+except ImportError:
+    GNNModelEngine = None
 from maths_ai.pln_inference.model import PLNInference
 from maths_ai.pln_inference.metta.translator.translator_modules.runner import DynamicThompsonSampler
 
@@ -21,16 +24,50 @@ from maths_ai.core.config import settings
 
 _INACCESSIBLE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_']*✝[⁰-⁹¹²³]*")
 
+_INTERNAL_CATEGORIES = {"index", "state", "io"}
+_INPUT_CATEGORIES = {"parse", "elab", "elaboration", "syntax"}
+# Diagnostics emitted by Lean for malformed or ill-typed initial goals.
+# Note: tokens like "unknown identifier" or "failed to synthesize" are only
+# classified as bad requests when depth == 0 (initial user input), ensuring
+# failures during later proof-search tactic elaboration remain 500.
+_INPUT_DIAGNOSTICS = (
+    "expected '_' or identifier",
+    "unexpected end of input",
+    "unexpected token",
+    "application type mismatch",
+    "type expected",
+    "function expected",
+    "unknown identifier",
+    "unknown constant",
+    "failed to synthesize",
+    "parse error",
+    "syntax error",
+    "elaboration error",
+)
+
 
 def _is_lean_goal_error(exc: ServerError) -> bool:
     """Recognize Lean diagnostics caused by invalid goal or hypothesis input."""
     message = str(exc).lower()
-    if any(token in message for token in ("process terminated", "connection closed", "broken pipe", "server crashed", "sigkill", "sigterm")):
+    if any(token in message for token in (
+        "process terminated", "connection closed", "broken pipe",
+        "server crashed", "sigkill", "sigterm",
+    )):
         return False
-    return any(token in message for token in (
-        "parse error", "syntax error", "unexpected token",
-        "unknown identifier", "elaboration error", "invalid goal",
-    ))
+
+    category, desc = None, message
+    first = exc.args[0] if exc.args else None
+    if isinstance(first, dict):
+        category = str(first.get("error", "")).lower()
+        desc = str(first.get("desc", first.get("message", message))).lower()
+    elif isinstance(first, str):
+        desc = first.lower()
+
+    if category in _INTERNAL_CATEGORIES:
+        return False
+    if category in _INPUT_CATEGORIES:
+        return True
+    return any(token in desc for token in _INPUT_DIAGNOSTICS)
 
 
 def _sanitize_inaccessible_names(goal: Goal) -> Goal:
@@ -408,7 +445,10 @@ class HybridReasoner:
             state = await self._start_state(node.goal)
         except ServerError as exc:
             if node.depth == 0 and _is_lean_goal_error(exc):
-                raise ValueError(str(exc)) from exc
+                desc = str(exc)
+                if hasattr(exc, "args") and exc.args and isinstance(exc.args[0], dict):
+                    desc = exc.args[0].get("desc", exc.args[0].get("message", desc))
+                raise ValueError(f"Lean parsing error: {desc}") from exc
             raise
         any_applied = False
 

@@ -98,10 +98,12 @@ class FakeReasoner:
         if goal == "bad syntax":
             raise ValueError("parse error at 'bad syntax'")
         if goal == "this is not Lean ???":
-            raise ValueError("parse error: unexpected token ???")
+            raise ValueError("Lean parsing error: expected '_' or identifier")
+        if goal == "index error":
+            from pantograph.server import ServerError
+            raise ServerError({"error": "index", "desc": "Invalid goal index 0"})
         if goal == "server failure":
-            class ServerError(Exception):
-                pass
+            from pantograph.server import ServerError
             raise ServerError("Lean server failed while starting a goal")
         if goal == "internal crash":
             raise RuntimeError("lean backend exploded")
@@ -305,6 +307,47 @@ def test_prove_maps_server_failure_to_500(api):
 
     assert response.status_code == 500
     assert "proof search failed" in response.json()["detail"]
+
+
+def test_prove_maps_index_protocol_error_to_500(api):
+    response = api.client.post("/prove", json={"goal": "index error"})
+
+    assert response.status_code == 500
+    assert "proof search failed" in response.json()["detail"]
+
+
+def test_prove_with_hybrid_reasoner_maps_real_server_error_payloads(tmp_path: Path):
+    from pantograph.server import ServerError
+    from maths_ai.hybrid_reasoner.joint_inference import HybridReasoner
+
+    class StubbedHybridReasoner(HybridReasoner):
+        def __init__(self):
+            self.max_depth = 10
+            self.max_nodes = 500
+            self.predict_next_tactic = lambda goal: [object()]
+
+        async def _start_state(self, goal):
+            if goal.expression == "this is not Lean ???":
+                raise ServerError({"error": "main", "desc": "expected '_' or identifier"})
+            if goal.expression == "index error":
+                raise ServerError({"error": "index", "desc": "Invalid goal index 0"})
+            raise RuntimeError("unexpected goal")
+
+    reasoner = StubbedHybridReasoner()
+    service = InferenceService(reasoner=reasoner, dts_state_path=tmp_path / "dts" / "state.json")
+
+    async def factory():
+        return service
+
+    with TestClient(create_app(service_factory=factory)) as client:
+        res_400 = client.post("/prove", json={"goal": "this is not Lean ???"})
+        assert res_400.status_code == 400
+        assert "lean parsing error" in res_400.json()["detail"].lower()
+        assert "expected '_' or identifier" in res_400.json()["detail"]
+
+        res_500 = client.post("/prove", json={"goal": "index error"})
+        assert res_500.status_code == 500
+        assert "proof search failed" in res_500.json()["detail"]
 
 
 # POST /gnn/predict_tactic ----------------------------------------------------
