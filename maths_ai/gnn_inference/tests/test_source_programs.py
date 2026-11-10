@@ -10,7 +10,7 @@ import pytest
 
 from maths_ai.gnn_inference.atp_lean_gnn.dataset import DatasetRow
 from maths_ai.gnn_inference.atp_lean_gnn.gold_replay import goal_signature, run_native_file
-from maths_ai.gnn_inference.atp_lean_gnn.source_programs import ProgramEncoder, _compact_source, compile_source_program
+from maths_ai.gnn_inference.atp_lean_gnn.source_programs import ProgramEncoder, _compact_source, compile_source_program, render_program_node
 from maths_ai.gnn_inference.atp_lean_gnn.tactic_templates import TemplateError, prepare_gold_rendering
 from maths_ai.gnn_inference.tests.test_tactic_templates import atom, node, ref, trace
 
@@ -73,6 +73,17 @@ def test_program_budget_and_v9_surface_verified_fallback():
     assert result["semantic_reconstructions"] == 0
 
 
+def test_term_body_separator_is_normalized_without_dropping_unknown_syntax():
+    context = trace(node("null"))["local_context"]
+    syntax = node("Lean.Parser.Term.let", atom("let"), node("Lean.Parser.Term.letDecl", atom("x"), atom(":="), ref(0)),
+                  node("null"), {"tag": "identifier", "source": "x", "semanticRole": "scoped_local"})
+    rendered = render_program_node(ProgramEncoder(context).encode(syntax), context)
+    assert ";\n" in rendered and rendered.endswith("x\n)")
+    syntax["children"][2] = node("null", atom(","))
+    with pytest.raises(TemplateError, match="term body separator"):
+        render_program_node(ProgramEncoder(context).encode(syntax), context)
+
+
 def test_native_source_program_declarations_combinators_and_terms():
     configured = os.environ.get("MATHS_AI_PANTOGRAPH_ROOT")
     if not configured:
@@ -94,6 +105,10 @@ def test_native_source_program_declarations_combinators_and_terms():
         "conv => lhs rw [h, Nat.add_zero]", "exact match b with | false => by rfl | true => by rfl",
         'exact Eq.refl "a b"', "exact (show (Id.run do let x := n; pure x) = n from Eq.refl n)",
         "lhs", "rw [h, Nat.add_zero]",
+        "exact (let x := n Eq.refl x)", "exact (have h : P := hp h)", "exact (let ⟨hp, hq⟩ := h hp)",
+        "exact (suffices h : P from h hp)",
+        "exact (fun n h => suffices ∃ x, P x from let ⟨x, hx⟩ := this ⟨x, hx⟩ ⟨n, h⟩) n h",
+        "exact (suffices h : P by exact h hp)", "exact (let h := show P by exact hp h)",
     }
     with tempfile.TemporaryDirectory(prefix="SourcePrograms_", dir=root) as directory:
         path = Path(directory) / "Example.lean"
@@ -130,7 +145,7 @@ def test_native_source_program_declarations_combinators_and_terms():
         assert seen == wanted, wanted - seen
         native = run_native_file(path, requests, source_root=root, pantograph_root=root, timeout=120)
     assert not native["frontend_errors"]
-    assert len(native["rows"]) == 31
+    assert len(native["rows"]) == 38
     issues = []
     for result in native["rows"]:
         if result["original"]["status"] != "executed" or result["rendered"]["status"] != "executed":

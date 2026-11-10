@@ -182,3 +182,43 @@ Report: `maths_ai/gnn_inference/runs/template_v9_recovery/report.json`.
 Audit generated a **24-action** new exact-val native pilot. Next check that
 selection with `template-v9` against the pinned frontend snapshots, without
 restarting the full static audit. Real-Mathlib native pilot results remain pending.
+
+## First server native pilot and general term-body repair
+
+The completed 24-row pilot reports **22 rendered transition matches**, **1 original
+control mismatch**, and **1 rendered failure**. All 24 input models match and all
+24 original tactics execute; only 23 reproduce their recorded next state. The
+generated tactics execute on 23 rows and match on 22. All selected rows use the
+source-program codec; **none contains a deferred identifier**.
+
+This is a bounded family/feature-selected sample, not a random estimate of the
+217,635-row population. It does not validate the deferred-name subset or establish
+full-cohort execution reliability. Representation coverage and native validity
+must remain separate. Broader stratified checks need to cover syntax/layout
+families, deferred/nondeferred names and source scopes before supervision export
+or calling the whole set reliable.
+
+Compact diagnostics identify:
+
+- **Val 2357**: a term-level `suffices … from let …` lost a declaration/body
+  separator when original layout was flattened. Generated source failed parsing.
+- **Val 1325**: `apply_rules [MeasurableSet.iUnion, MeasurableSet.iInter] <;> intro`
+  leaves two goals on both original and rendered replay, versus one recorded goal.
+  This remains an original replay/context mismatch, not evidence of a renderer
+  transformation error or a valid certified label.
+
+The layout repair handles the general pinned `optSemicolon termParser` pattern
+for term-level `let`, `have`, `haveI`, `letI`, `suffices`, `let_fun`/`let_λ`,
+`let_delayed` and `let_tmp`. It verifies the separator field, emits an explicit
+semicolon, scopes the whole expression with parentheses, and gives `by` tails
+an explicit braced sequence boundary. This prevents an outer term body from
+being consumed as another tactic. Standalone tactic
+declarations retain their existing behavior. This applies to every matching
+term shape, not just val 2357; no static coverage rerun is needed to diagnose it.
+
+**201 regression tests pass**, with **38/38** source-program native transitions.
+Seven added native cases cover newline-separated let/have/pattern-let/suffices,
+`by` tails, and the nested lambda/existential/pattern-let shape of 2357. Unknown separator syntax
+is rejected rather than dropped. Actual Mathlib row 2357 recheck remains pending;
+1325 requires separate control investigation. Preserve the original pilot report
+and use a fresh native output for rechecks.

@@ -23,6 +23,12 @@ _STRUCT_FIELDS = {"Lean.Parser.Term.structInstField", "Lean.Parser.Term.structIn
 _LABEL_NODES = {"Lean.binderIdent", "Lean.Parser.Term.haveId", "Lean.Parser.Term.structInstLVal",
                 "Lean.Parser.Tactic.rcasesPat.one", "Lean.Parser.Tactic.caseArg"}
 _DECLARATION_NODES = {"Lean.Parser.Term.haveIdDecl", "Lean.Parser.Term.letIdDecl", "Lean.Parser.Term.letPatDecl"}
+_TERM_BINDINGS = {
+    "Lean.Parser.Term.let": {"let"}, "Lean.Parser.Term.have": {"have"},
+    "Lean.Parser.Term.haveI": {"haveI"}, "Lean.Parser.Term.letI": {"letI"},
+    "Lean.Parser.Term.suffices": {"suffices"}, "Lean.Parser.Term.let_fun": {"let_fun", "let_λ"},
+    "Lean.Parser.Term.let_delayed": {"let_delayed"}, "Lean.Parser.Term.let_tmp": {"let_tmp"},
+}
 
 
 def _safe_name(value):
@@ -322,11 +328,24 @@ def render_program_node(node, context):
     kind = node.syntax_kind
     if kind in _SEQUENCES:
         return _tactic_group(node, context)
+    if kind in _TERM_BINDINGS:
+        if len(node.children) != 4 or _first_token(node.children[0]) not in _TERM_BINDINGS[kind]:
+            raise TemplateError("program_term_binding", "unexpected term declaration/body structure")
+        keyword, declaration, separator, body = node.children
+        if render_program_node(separator, context).strip() not in {"", ";"}:
+            raise TemplateError("program_term_binding", "unexpected term body separator")
+        binding = (render_program_node(keyword, context) + " " + render_program_node(declaration, context)
+                   + "\n;\n" + _indent(render_program_node(body, context)))
+        return "(\n" + _indent(binding) + "\n)"
     if kind in _BY:
         if len(node.children) != 2 or _first_token(node.children[0]) != "by":
             raise TemplateError("program_by", "unexpected by-block structure")
-        body = "by\n" + _indent(_tactic_group(node.children[1], context))
-        return "(" + body + "\n)" if kind == "Lean.Parser.Term.byTactic" else body
+        sequence = _tactic_group(node.children[1], context)
+        if kind == "Lean.Parser.Term.byTactic'":
+            # An explicit sequence boundary prevents an enclosing term's
+            # semicolon/body from being consumed as another proof tactic.
+            return "by {\n" + _indent(sequence) + "\n}"
+        return "(by\n" + _indent(sequence) + "\n)"
     if kind == "Lean.Parser.Tactic.«tactic_<;>_»":
         if len(node.children) != 3 or _first_token(node.children[1]) != "<;>":
             raise TemplateError("program_combinator", "invalid all-goals combinator")

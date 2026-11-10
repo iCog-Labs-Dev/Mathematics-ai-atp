@@ -127,4 +127,35 @@ theorem doExpression (n : Nat) : (Id.run do
     let x := n
     pure x) = n := by
   exact (show (Id.run do let x := n; pure x) = n from Eq.refl n)
+
+theorem newlineLet (n : Nat) : n = n := by
+  exact (let x := n
+    Eq.refl x)
+
+theorem newlineHave (P : Prop) (hp : P) : P := by
+  exact (have h : P := hp
+    h)
+
+theorem newlineLetPattern (P Q : Prop) (h : P ∧ Q) : P := by
+  exact (let ⟨hp, hq⟩ := h
+    hp)
+
+theorem termSuffices (P : Prop) (hp : P) : P := by
+  exact (suffices h : P from h
+    hp)
+
+theorem nestedSuffices (P : Nat → Prop) (n : Nat) (h : P n) : ∃ x, P x := by
+  exact (fun n h =>
+    suffices ∃ x, P x from
+      let ⟨x, hx⟩ := this
+      ⟨x, hx⟩
+    ⟨n, h⟩) n h
+
+theorem termSufficesBy (P : Prop) (hp : P) : P := by
+  exact (suffices h : P by exact h
+    hp)
+
+theorem letShowBy (P : Prop) (hp : P) : P := by
+  exact (let h := show P by exact hp
+    h)
 end ProgramSmoke
