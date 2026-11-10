@@ -134,7 +134,51 @@ aliases, core induction/cases, configs, conversions, literals and `do` expressio
 It also verifies inner-conversion original-text execution. Existing V5–V8 native
 fixtures and decoder/binding regressions remain covered.
 
-No V9 full-dataset gain or real-Mathlib native delta result is claimed yet.
+Completed V9 static gains are recorded below; real-Mathlib native delta results
+remain pending.
 The 840 quarantined records cannot be made valid by inventing missing input
 references. Preserve explicit residual/error categories and validate the combined
 stage before supervision export or model training.
+
+## Completed full-cohort server coverage
+
+User-supplied final audit table, after all **218,727 train / 4,157 val** rows:
+
+| Static representation support/gain | Train | Val |
+|---|---:|---:|
+| Saved V7 support | 167,315 | 3,191 |
+| V9 support | **217,635** | **4,143** |
+| V9 coverage | **99.50%** | **99.66%** |
+| New versus V7 | **50,320** | **952** |
+| Losses versus V7 | **0** | **0** |
+| Exact-aligned new support | 47,411 | 930 |
+| Structural-program gains | 48,324 | 926 |
+| Rescued rows containing deferred identifiers | 12,330 | 227 |
+| Remaining unsupported/invalid | 1,092 | 14 |
+
+Structural-program gains plus retained typed-path gains **1,996 / 26** account
+for the whole expansion. Deferred-identifier rescues are a subset of the
+program gains; the console's `deferred_names` column counts **actions**, not
+individual name occurrences. No missing identifier was assigned a guessed
+premise/declaration ID.
+
+The **2,909 train / 22 val** gains outside exact alignment remain source-only
+candidates. Exact-aligned total support was not supplied with this compact
+table; do not infer it from total source support alone.
+
+Quarantine is unchanged by the paired audit: **831 / 9** invalid input traces.
+After removing that quarantine from the residual population, **261 train /
+5 val** renderer exclusions remain. Their current error distribution still
+requires inspection; neither quotation nor another subtype is inferred from
+the totals.
+
+V9 alone exceeds the requested 50k train-row expansion relative to V7.
+Combined gain versus frozen V5 support **127,245 / 2,438** is **90,390 train /
+1,705 val**. This is broader source-program representation support, including
+context-dependent/deferred names, not the current model's prediction accuracy,
+complete semantic premise grounding or native-verified full-cohort validity.
+
+Report: `maths_ai/gnn_inference/runs/template_v9_recovery/report.json`.
+Audit generated a **24-action** new exact-val native pilot. Next check that
+selection with `template-v9` against the pinned frontend snapshots, without
+restarting the full static audit. Real-Mathlib native pilot results remain pending.
