@@ -386,5 +386,13 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
         if entry["path"] in expected:
             assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
         expected[entry["path"]] = entry["sha256"]
+    for stage in ("minif2f_conversion", "minif2f_docker_fixes"):
+        record = json.loads(
+            (WIDENING_MANIFEST.parent.parent / stage / "source_manifest.json").read_text()
+        )
+        for entry in record["sources"]:
+            if entry["path"] in expected:
+                assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+            expected[entry["path"]] = entry["sha256"]
     for path, digest in expected.items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path

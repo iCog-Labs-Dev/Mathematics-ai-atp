@@ -1,0 +1,41 @@
+{
+  "kind": "minif2f-conversion-and-docker-fixes",
+  "target_base_commit": "94f843bbb844871085062c9f9417ac3188fd4743",
+  "sources": [
+    {
+      "path": "docker/Dockerfile",
+      "target_base_sha256": "ac48f6f3fb33246caf194fe5fad98a8c104d1abc655f313ea2dafd4fea1f845f",
+      "sha256": "59ad07db13aa9fa46e76c3016e0d6630ffb00febc99491aaa7a224355c2713ea"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/goal_file_records.py",
+      "target_base_sha256": "e04756059eb48af20694f687d4c6edf47a4d333a5acc1cb7ae164ef8d894b701",
+      "sha256": "94f9e14c8567ac781b21a029477bc6ae7f3e628f1d48277c1a2ec4f5bd26b516"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/minif2f_conversion.py",
+      "target_base_sha256": "b23a825c6e53043caadece3be6b762bb7b58d7203bbf7f7d778cde84be22454e",
+      "sha256": "79b7c6902c6f05e1842d37fc0798474181507760a9023afcdc2c0bcf071ad3c9"
+    },
+    {
+      "path": "maths_ai/gnn_inference/lean_extractor/convert_minif2f.lean",
+      "target_base_sha256": "673f41f35fe95f627bca789161596b6e86bf5214f9d12dbb54df06cfaae3e246",
+      "sha256": "890be43f5c63700cbf2b2fd7b6772768ee07c8df73634248c49c4811478dd82d"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_goal_file_records.py",
+      "target_base_sha256": "ae3dae61c80a867ba404d34cbbb98ec8f86ff1aed1da5b0cda7169aa70b2d9ea",
+      "sha256": "88c3ae369adfa1a5f9cd6a40021680c6902c7edc244928522eb1afcec220244c"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_minif2f_conversion.py",
+      "target_base_sha256": "2c2716a3bc08c525d25992fff6d2625282955a19e818d9f9796a8e8c506bb332",
+      "sha256": "461af184ccedb5db35257bc12ae038ec0845f32f4d18a559c19626ec150b2a8c"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
+      "target_base_sha256": "28653d27f82c25538337160027a9816e2bc0cc0a42423559a5ed5da31d5c4dfb",
+      "sha256": "a74463008081b2a896e07d1ae8c6ba95bc831933a4a98a30424f032696a549fc"
+    }
+  ]
+}
