@@ -66,3 +66,23 @@ def test_pln_profile_requires_native_configuration_and_is_not_a_request_override
         SearchProfile("legacy", 4, 8, 64, use_pln="true")
     with pytest.raises(ValueError, match="cannot be overridden"):
         BEST_FIRST.with_overrides({"use_pln": True})
+
+
+def test_the_host_chooses_the_serving_device():
+    from maths_ai.api.config import serving_device
+    from maths_ai.gnn_inference.atp_lean_gnn.rl_training_driver import RLTrainingConfig
+    from maths_ai.gnn_inference.atp_lean_gnn.retrieval_artifacts import RetrievalConfig
+
+    retrieval = RetrievalConfig(query_artifact="q", lemma_index="i", corpus_path="c.jsonl",
+                                declaration_inventory="d.json", device="cuda:0")
+    cfg = RLTrainingConfig(warmstart_checkpoint="c.pt", prepared_root="prepared", device="cuda:0",
+                           update_device="cuda:0", collection_devices=["cuda:0"],
+                           retrieval=retrieval)
+    cpu = serving_device(cfg, "cpu")
+    assert (cpu.device, cpu.update_device, cpu.collection_devices, cpu.retrieval.device) == (
+        "cpu", "cpu", ["cpu"], "cpu")
+    assert serving_device(cfg, None) is cfg and serving_device(cfg, "") is cfg
+    assert serving_device(cpu, "cuda:1").retrieval.device == "cuda:1"
+    for bad in ("gpu", "cuda", "cuda:x", "cpu "):
+        with pytest.raises(ValueError, match="MATHS_AI_DEVICE"):
+            serving_device(cfg, bad)

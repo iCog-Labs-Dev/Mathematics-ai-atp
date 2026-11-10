@@ -125,7 +125,8 @@ ENV ELAN_HOME=/opt/elan \
     PYTHONUNBUFFERED=1 \
     MATHS_AI_SERVICE_CONFIG=/config/service.json \
     MATHS_AI_API_HOST=0.0.0.0 \
-    MATHS_AI_API_PORT=8000
+    MATHS_AI_API_PORT=8000 \
+    MATHS_AI_DEVICE=cpu
 
 WORKDIR /workspace
 COPY maths_ai/ /workspace/maths_ai/

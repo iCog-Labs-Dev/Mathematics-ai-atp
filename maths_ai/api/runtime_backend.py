@@ -8,6 +8,7 @@ creates an optimizer or changes weights.
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any
 
@@ -29,7 +30,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.seed_admission import (
 from maths_ai.hybrid_reasoner.proposal import proposal_specs, input_identity
 from maths_ai.lean_replay import ReplayInputError, seed_from_text
 
-from .config import SearchProfile, ServiceConfig
+from .config import DEVICE_ENV, SearchProfile, ServiceConfig, serving_device
 from maths_ai.gnn_inference.atp_lean_gnn.theorem_sources import TheoremSourceConfig, open_admission, finalize_admission
 from maths_ai.hybrid_reasoner.search_results import plain, record_view
 
@@ -68,7 +69,7 @@ class LiveBackend:
 
     def __init__(self, config: ServiceConfig) -> None:
         self.config = config
-        self.cfg = RLTrainingConfig.from_json(config.rl_config)
+        self.cfg = serving_device(RLTrainingConfig.from_json(config.rl_config), os.environ.get(DEVICE_ENV))
         self.runtime: LiveRuntime | None = None
         self.jobs: dict[str, _EvaluationJob] = {}
 

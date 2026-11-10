@@ -27,8 +27,10 @@ It runs as the non-root user `maths_ai` (uid 1000), under `tini`.
 | `/state` | read-write volume | `jobs.sqlite3`, evaluation results, the runtime socket directory and the state lock |
 
 `docker/config/` is a starting point. Point `warmstart_checkpoint` and
-`prepared_root` in `rl.json` at your files under `/artifacts`. Set `device`
-to `cuda` for the GPU service. Search and dataset profiles are allowlisted in
+`prepared_root` in `rl.json` at your files under `/artifacts`. The service
+chooses the device through `MATHS_AI_DEVICE` (`cpu` for `mcts-api`, `cuda:0`
+for `mcts-api-gpu`), which overrides the devices in `rl.json`; set it before
+`docker compose up` to pick another. Search and dataset profiles are allowlisted in
 `service.json`, so a request can name a profile but never a path.
 
 ## Build and run

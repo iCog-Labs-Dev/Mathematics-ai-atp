@@ -3,6 +3,9 @@
 #   docker compose up --build mcts-api                    # CPU
 #   docker compose --profile gpu up --build mcts-api-gpu  # one NVIDIA GPU
 #
+# The service chooses the device (MATHS_AI_DEVICE: cpu, or cuda:N for the GPU
+# service); it overrides the devices in the mounted rl.json.
+#
 # Mount the trained checkpoint and prepared root at ./artifacts (or set
 # MATHS_AI_ARTIFACTS) and the service config at ./docker/config (or set
 # MATHS_AI_CONFIG). The port is bound to loopback only: the service has no
@@ -23,6 +26,7 @@ x-mcts-api: &mcts-api
     - ${MATHS_AI_ARTIFACTS:-./artifacts}:/artifacts:ro
   environment:
     - HF_TOKEN=${HF_TOKEN:-}
+    - MATHS_AI_DEVICE=${MATHS_AI_DEVICE:-cpu}
   healthcheck:
     # Readiness, not liveness: a failed or recovering runtime is unhealthy.
     test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=5)"]
@@ -42,6 +46,9 @@ services:
     <<: *mcts-api
     container_name: maths-ai-mcts-api-gpu
     profiles: ["gpu"]
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - MATHS_AI_DEVICE=${MATHS_AI_DEVICE:-cuda:0}
     deploy:
       resources:
         reservations:
