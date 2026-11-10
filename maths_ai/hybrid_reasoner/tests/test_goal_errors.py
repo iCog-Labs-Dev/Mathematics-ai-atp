@@ -10,7 +10,7 @@ from maths_ai.data_models.proof_components import Goal
 from maths_ai.hybrid_reasoner.joint_inference import HybridReasoner
 
 
-def _expand_with_error(payload: dict, depth: int, goal: Goal = None) -> None:
+def _expand_with_error(payload: dict, depth: int) -> None:
     reasoner = HybridReasoner.__new__(HybridReasoner)
     reasoner.max_depth = 10
     reasoner.predict_next_tactic = lambda goal: [object()]
@@ -19,7 +19,7 @@ def _expand_with_error(payload: dict, depth: int, goal: Goal = None) -> None:
         raise ServerError(payload)
 
     reasoner._start_state = fail_start
-    node = SimpleNamespace(depth=depth, goal=goal or Goal(expression="test goal"))
+    node = SimpleNamespace(depth=depth, goal=Goal(expression="test goal"))
     asyncio.run(reasoner._expand(None, node))
 
 
@@ -48,8 +48,26 @@ def test_server_and_generated_subgoal_errors_remain_internal(payload, depth):
 
 
 def test_initial_hypothesis_restoration_index_error_remains_internal():
-    # Simulates goal_tactic_async failing with Invalid goal index during hypothesis intro
-    payload = {"error": "index", "desc": "Invalid goal index 0"}
-    goal_with_hyps = Goal(expression="P", hypotheses=["h : P"])
+    # Exercises real _start_state: goal_start_async succeeds, but goal_tactic_async
+    # (intro names) raises the index protocol error during hypothesis restoration.
+    reasoner = HybridReasoner.__new__(HybridReasoner)
+    reasoner.max_depth = 10
+    reasoner.predict_next_tactic = lambda goal: [object()]
+
+    mock_server = SimpleNamespace()
+
+    async def mock_start(expr):
+        return SimpleNamespace(state_id=0)
+
+    mock_server.goal_start_async = mock_start
+
+    async def fail_intro(state, goal_id, tactic):
+        assert "intro" in tactic
+        raise ServerError({"error": "index", "desc": "Invalid goal index 0"})
+
+    mock_server.goal_tactic_async = fail_intro
+    reasoner.server = mock_server
+
+    node = SimpleNamespace(depth=0, goal=Goal(expression="P", hypotheses=["h : P"]))
     with pytest.raises(ServerError):
-        _expand_with_error(payload, depth=0, goal=goal_with_hyps)
+        asyncio.run(reasoner._expand(None, node))
