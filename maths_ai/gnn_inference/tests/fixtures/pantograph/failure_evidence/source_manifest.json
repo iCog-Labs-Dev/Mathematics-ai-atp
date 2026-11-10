@@ -1,6 +1,6 @@
 {
   "kind": "mcts-pantograph-failure-evidence-integration",
-  "target_base_commit": "bdd96c74e73b6ad607df18a6627be00a3400f074",
+  "target_base_commit": "d94115d683d94f7df33e4ca8ddfad7adbaaf7982",
   "client_commit": "e795e746abf72e325099bbc8206207e829302a4b",
   "repl_commit": "661df4e32bb487f52e4bf229a34b155f9e69c76b",
   "protocol_version": 3,
@@ -8,18 +8,18 @@
   "sources": [
     {
       "path": "docker/DOCKER.md",
-      "target_base_sha256": "3f00bf26e72a457f409f3dfcf649336cc78504b289138cc515a5672233b64a52",
-      "sha256": "ddc420d35646dd46e8730d90de0cad7da68066446418d303f186c0514d971b26"
+      "target_base_sha256": "4631d97284339604968da4bccffa87c42fe181ce8fefdda04339c2a0d7648e0f",
+      "sha256": "bc4aaac99594b23020683fa542795a6963bcb820781c531fb94acdefc2f550b7"
     },
     {
       "path": "docker/Dockerfile",
-      "target_base_sha256": "ac48f6f3fb33246caf194fe5fad98a8c104d1abc655f313ea2dafd4fea1f845f",
-      "sha256": "3d081c67300e0e54ba0f5b68b357a60ea08d206bd0134f3c9a53409353a09825"
+      "target_base_sha256": "fb81094f82dfb2e5899305a5df186dc32d8d7b1eee5f09df722aa5f6e73e0e36",
+      "sha256": "63650ae80a98b4cf54ce064bd5bf5494d3ffd7ae55af0424444f8da90462bd2e"
     },
     {
       "path": "maths_ai/api/runtime_backend.py",
-      "target_base_sha256": "67f3b413c5b07985b680e4549536a396d055d4c5ecd11e6fe07dd4c2f8748d24",
-      "sha256": "f1fa6a29d25e28a575ffa762b3bdb7d73326eece0ae691a5503e573c1460da52"
+      "target_base_sha256": "7932fbdd7bf7e00f7096e48ce406b5143e44077fa9c5d0f1889851cda11ebbc2",
+      "sha256": "d915ad0f776a8edccf6fe6b5ecb0b994efc1d74eefee958a56bc6292d7083828"
     },
     {
       "path": "maths_ai/gnn_inference/atp_lean_gnn/rl_live_collection.py",
@@ -33,8 +33,8 @@
     },
     {
       "path": "maths_ai/gnn_inference/atp_lean_gnn/seed_admission.py",
-      "target_base_sha256": "c2cdd0e3259f07e9ac880d98e234588521b516fd3f361294bad65ddd8407ca3a",
-      "sha256": "711b4e852472538eea640bf679b6a7a792d5617634aad6a7b9b991c1cdcc682f"
+      "target_base_sha256": "5fdc2f1c47f48151a2ad4d604ab8df0885080538244a599541a429ffa5e60d4c",
+      "sha256": "dd526cfaca53ce2726e34d43d8c3e4209f59648129508f7759b7625ae84e4548"
     },
     {
       "path": "maths_ai/gnn_inference/docs/dev_plans/mcts_pantograph_failure_bundles_and_replay.md",
@@ -54,7 +54,7 @@
     {
       "path": "maths_ai/gnn_inference/docs/pantograph_failure_evidence_integration.md",
       "target_base_sha256": null,
-      "sha256": "46018871db358d031a40f49a62e7f5df06435e77df67113dc0e53c9b536aaabf"
+      "sha256": "bd274c421143a1e7250477ab99e49a2f06de02bf2b5aafecd6c3e5d2f15a4951"
     },
     {
       "path": "maths_ai/gnn_inference/pantograph_backport/README.md",
@@ -88,8 +88,8 @@
     },
     {
       "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
-      "target_base_sha256": "28653d27f82c25538337160027a9816e2bc0cc0a42423559a5ed5da31d5c4dfb",
-      "sha256": "21400eea5b97b2c94edb4b9bb4b77bbf4a10f19b3217f1dd1db40eab3e557a8b"
+      "target_base_sha256": "a74463008081b2a896e07d1ae8c6ba95bc831933a4a98a30424f032696a549fc",
+      "sha256": "6a5c303e6e4c9eca977e1b974c065910fe8706279c7b10990f53a55fd2fcaf1e"
     },
     {
       "path": "maths_ai/gnn_inference/tests/test_rl_training_driver.py",

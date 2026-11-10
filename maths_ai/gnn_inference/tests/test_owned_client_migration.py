@@ -397,7 +397,7 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
     failure_evidence = json.loads(
         (WIDENING_MANIFEST.parent.parent / "failure_evidence/source_manifest.json").read_text()
     )
-    assert failure_evidence["target_base_commit"].startswith("bdd96c7")
+    assert failure_evidence["target_base_commit"].startswith("d94115d")
     assert failure_evidence["client_commit"] == CLIENT_COMMIT
     assert failure_evidence["repl_commit"] == "661df4e32bb487f52e4bf229a34b155f9e69c76b"
     for entry in failure_evidence["sources"]:

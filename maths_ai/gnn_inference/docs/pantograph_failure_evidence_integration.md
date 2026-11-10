@@ -90,10 +90,19 @@ Rebind the active deployment to the new REPL with
 [compiler-aware handoff](pantograph_compiler_aware_application_integration.md),
 using the compiler-aware REPL as `--old-repl`. No model tensor changes.
 
+The same applies to a published serving release. Its declaration inventory is
+bound to the REPL it was published with (its commit, or for older releases its
+exact bytes), so an image built from this branch reports an environment
+mismatch at readiness for a release bound to the previous REPL. Rebind the
+deployment and publish it as a new version rather than editing the existing
+one.
+
 ## Verification
 
 Local, CPU, with the pinned client, the companion built from `661df4e` and the
-pinned Mathlib `29dcec07`. Offline suite: 986 passed (two environmental failures also fail on the base). Native live suite: 54 passed; four fail identically on the base (no provisioned PeTTa or checkpoint artifacts). Not run here:
-Docker image build, PLN-enabled native search, and the GPU trial on JupyterHub.
+pinned Mathlib `29dcec07`. Offline suite: 981 passed (two environmental
+failures also fail on the base). Native live suite: 62 passed; four fail
+identically on the base (no provisioned PeTTa or checkpoint artifacts). Not run
+here: PLN-enabled native search and the GPU trial on JupyterHub.
 Re-running the PUCT/no-PLN configuration there is what will show how many of
 the historical failures this repair removes and what the rest are.
