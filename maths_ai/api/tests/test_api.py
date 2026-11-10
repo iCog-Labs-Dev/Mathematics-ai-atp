@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from maths_ai.api.app import create_app
 from maths_ai.api.service import InferenceService
 from maths_ai.data_models.proof_components import STV, TacticCandidate
+from maths_ai.hybrid_reasoner.joint_inference import PantographExecutor
 from maths_ai.pln_inference.model import PLNResult
 
 
@@ -33,6 +34,18 @@ class FakeGnnEngine:
             TacticCandidate(tactic_name="simp", arguments=[], probability=0.4),
         ]
         return candidates[:top_k]
+
+
+class PlaceholderGnnEngine(FakeGnnEngine):
+    def inference(self, goal_expression: str, top_k: int = 3) -> List[TacticCandidate]:
+        return [
+            TacticCandidate(
+                tactic_name="exact",
+                arguments=["<lemma_-1>"],
+                probability=0.99,
+            ),
+            TacticCandidate(tactic_name="rfl", arguments=[], probability=0.01),
+        ][:top_k]
 
 
 class FakePlnChainer:
@@ -58,18 +71,25 @@ class FakeGraph:
     trace: Optional[Dict] = None
     num_nodes: int = 3
     num_edges: int = 2
+    budget_exhausted: bool = False
+    termination_reason: Optional[str] = None
 
     def is_solved(self) -> bool:
         return self.solved
 
     def is_exhausted(self) -> bool:
-        return self.exhausted
+        return self.budget_exhausted or self.exhausted
 
     def proof_trace(self) -> Optional[Dict]:
         return self.trace
 
     def summary(self) -> Dict:
-        return {"solved": self.solved, "exhausted": self.exhausted}
+        return {
+            "solved": self.solved,
+            "exhausted": self.is_exhausted(),
+            "budget_exhausted": self.budget_exhausted,
+            "termination_reason": self.termination_reason,
+        }
 
     def __len__(self) -> int:
         return self.num_nodes
@@ -107,6 +127,9 @@ class FakeReasoner:
             raise ServerError("Lean server failed while starting a goal")
         if goal == "internal crash":
             raise RuntimeError("lean backend exploded")
+        if self.max_nodes is not None and getattr(self.graph, "num_nodes", 0) >= self.max_nodes and not self.graph.is_solved():
+            self.graph.budget_exhausted = True
+            self.graph.termination_reason = "budget_exhausted"
         return self.graph
 
 
@@ -232,6 +255,20 @@ def test_prove_unsolved_returns_summary_without_trace(api):
         assert body["exhausted"] is True
         assert body["proof_trace"] is None
         assert body["summary"]["solved"] is False
+
+
+def test_prove_node_budget_exhausted_returns_budget_exhausted_reason(api):
+    unsolved = FakeGraph(solved=False, exhausted=False, num_nodes=1, trace=None)
+    api.reasoner.graph = unsolved
+
+    response = api.client.post("/prove", json={"goal": "True", "max_nodes": 1})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["solved"] is False
+    assert body["exhausted"] is True
+    assert body["termination_reason"] == "budget_exhausted"
+    assert body["proof_trace"] is None
 
 
 def test_prove_persists_dts_state_after_search(api):
@@ -392,6 +429,54 @@ def test_predict_tactic_rejects_empty_goal(api):
     assert response.status_code == 422
 
 
+def test_pantograph_executor_rejects_placeholder_before_server_call():
+    class FakeServer:
+        def __init__(self):
+            self.called = False
+
+        async def goal_tactic_async(self, *_args):
+            self.called = True
+            raise AssertionError("server must not receive placeholder tactics")
+
+    server = FakeServer()
+    executor = PantographExecutor(server)
+
+    import asyncio
+
+    outcome = asyncio.run(
+        executor.apply(
+            server,
+            SimpleNamespace(goals=[SimpleNamespace()]),
+            TacticCandidate(
+                tactic_name="exact",
+                arguments=["<lemma_-1>"],
+                probability=1.0,
+            ),
+        )
+    )
+
+    assert outcome.success is False
+    assert "unresolved lemma placeholder" in outcome.error
+    assert server.called is False
+
+
+def test_predict_tactic_filters_unresolved_lemma_placeholders(tmp_path: Path):
+    reasoner = FakeReasoner()
+    reasoner.gnn_engine = PlaceholderGnnEngine()
+    service = InferenceService(reasoner=reasoner, dts_state_path=tmp_path / "dts" / "state.json")
+
+    async def factory():
+        return service
+
+    with TestClient(create_app(service_factory=factory)) as client:
+        response = client.post("/gnn/predict_tactic", json={"goal": "Or q p"})
+
+    assert response.status_code == 200
+    assert response.json()["candidates"] == [
+        {"tactic_name": "rfl", "arguments": [], "probability": 0.01}
+    ]
+
+
 # POST /pln/evaluate ----------------------------------------------------------
 
 
@@ -539,6 +624,50 @@ def test_formal_search_unsolved_result_is_not_found(tmp_path: Path):
 
         assert status["status"] == "exhausted"
         assert status["result"]["solved"] is False
+
+
+def test_formal_search_node_budget_exhausted_exposes_budget_exhausted(tmp_path: Path):
+    reasoner = FakeReasoner(graph=FakeGraph(solved=False, exhausted=False, num_nodes=1, trace=None))
+    service = InferenceService(reasoner=reasoner)
+
+    async def factory():
+        return service
+
+    with TestClient(create_app(service_factory=factory, formal_runs_dir=tmp_path / "runs")) as client:
+        response = client.post(
+            "/formal-search/start",
+            json={"run_id": "budget-test", "problem": {"goal": "True"}, "budget": {"max_nodes": 1}},
+        )
+        assert response.status_code == 202
+
+        import time
+        for _ in range(20):
+            status = client.get("/formal-search/budget-test").json()
+            if status["status"] == "exhausted":
+                break
+            time.sleep(0.01)
+
+        assert status["status"] == "exhausted"
+        assert status["result"]["solved"] is False
+        assert status["result"]["exhausted"] is True
+        assert status["result"]["termination_reason"] == "budget_exhausted"
+
+
+def test_proof_hypergraph_mark_budget_exhausted():
+    from maths_ai.data_models.proof_components import Goal
+    from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph
+
+    graph = ProofHypergraph(Goal(expression="True"))
+    assert graph.is_exhausted() is False
+    assert graph.budget_exhausted is False
+
+    graph.mark_budget_exhausted(note="node budget (1) reached")
+    assert graph.is_exhausted() is True
+    assert graph.budget_exhausted is True
+    assert graph.termination_reason == "budget_exhausted"
+    assert graph.summary()["exhausted"] is True
+    assert graph.summary()["budget_exhausted"] is True
+    assert graph.summary()["termination_reason"] == "budget_exhausted"
 
 
 def test_formal_replay_cannot_verify_a_different_problem(api):

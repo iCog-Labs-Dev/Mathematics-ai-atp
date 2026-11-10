@@ -65,3 +65,25 @@ class PremisePoolTests(unittest.TestCase):
         self.assertEqual(pool1.candidate_sources.count("local"), 2)
         self.assertEqual(pool1.candidate_sources.count("lemma"), 2)
         self.assertEqual(pool1.candidate_vectors.shape[0], 4)
+
+    def test_filters_invalid_faiss_ids(self) -> None:
+        class InvalidIdIndex:
+            def search(self, goal_vecs, *, k):
+                return (
+                    [[12, -1]],
+                    np.array([[[1.0], [0.0]]], dtype=np.float32),
+                    np.zeros((1, 2), dtype=np.float32),
+                )
+
+        pools = build_unified_pools(
+            torch.tensor([[1.0]]),
+            torch.tensor([[2.0]]),
+            torch.tensor([False]),
+            torch.tensor([0], dtype=torch.long),
+            lemma_index=InvalidIdIndex(),
+            k=2,
+        )
+
+        self.assertEqual(pools[0].lemma_ids, [12])
+        self.assertEqual(pools[0].candidate_ids, [12])
+        self.assertEqual(pools[0].candidate_sources, ["lemma"])

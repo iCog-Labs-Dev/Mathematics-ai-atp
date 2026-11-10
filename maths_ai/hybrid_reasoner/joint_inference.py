@@ -11,7 +11,13 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from pantograph.server import Server, GoalState, ServerError
 
-from maths_ai.data_models.proof_components import Goal, RankedSubgoal, STV, TacticCandidate
+from maths_ai.data_models.proof_components import (
+    Goal,
+    RankedSubgoal,
+    STV,
+    TacticCandidate,
+    has_unresolved_lemma_argument,
+)
 try:
     from maths_ai.gnn_inference.inference_engine import GNNModelEngine
 except ImportError:
@@ -152,6 +158,13 @@ class PantographExecutor(TacticExecutor):
             On a Lean-side error (the tactic doesn't apply), returns
             ``TacticOutcome(success=False, error=...)``.
         """
+        if has_unresolved_lemma_argument(tactic):
+            return TacticOutcome(
+                success=False,
+                subgoals=[],
+                error="tactic contains an unresolved lemma placeholder",
+            )
+
         arguments = " ".join(arg.rstrip(":") for arg in tactic.arguments)
         tactic_cmd = " ".join([tactic.tactic_name, arguments]).strip()
 
@@ -396,6 +409,9 @@ class HybridReasoner:
             node = frontier[0]
             print(f"\n=== Loop {loop_count}: expanding node {node.id} (depth {node.depth}) | goal: {node.goal.expression} ===")
             await self._expand(graph, node)
+
+        if not graph.is_solved() and not graph.is_exhausted() and len(graph.nodes) >= self.max_nodes:
+            graph.mark_budget_exhausted(note=f"global node budget ({self.max_nodes}) reached")
 
         return graph
 
