@@ -1,6 +1,16 @@
 """Tests for :mod:`maths_ai.pln_inference.model` (PeTTaChainer wrapper).
 
-Uses stub ``petta`` executables so no real PeTTa install is needed.
+Uses stub ``petta`` executables so no real PeTTa install is needed. The stub
+output mimics the *ordering* of real PeTTa runs: imported-module/axiom
+compilation and ``compileadd`` hypothesis facts are printed first (these may
+mention arbitrary formulas — including the queried one — and contain words
+like "error"), then the query is echoed/compiled to a Prolog ``findall``
+goal, and only the output after that marker is the query's own result. The
+formula-scoped, marker-scoped extraction must respect that ordering.
+
+These stubs cannot prove output-format fidelity — that is the job of the
+real-runtime integration tests in ``test_pln_integration.py``, which run
+inside the Docker image against the actual ``petta`` executable.
 """
 
 from __future__ import annotations
@@ -13,24 +23,51 @@ from maths_ai.data_models.proof_components import STV
 from maths_ai.pln_inference.model import PLNInference
 
 
-# Representative petta output: axioms compiled, the query compiled to a prolog
-# findall goal (proof of chainer engagement), real STVs in the log.
-SUCCESSFUL_RUN = (
-    "(rules (((: (kb $0 $1) $2 (P) $3) (CPU MpFormula ((STV 1.0 1.0) $3) $4)) |"
-    "- (: (kb $0 $1) ($2 rule) (Q) $4)))\n"
-    "(: (kb MAIN Nil) probe-hyp (P) (STV 1.0 1.0))\n"
-    ":- findall(A, query(10, kb, [:, _, ['P'], _], A), _).\n"
-)
+# --- real-run output building blocks (in emission order) ---------------------
 
-AXIOM_AND_QUERY_RUN = (
+# Compiled axiom records: PeTTaChainer prints an STV for every compiled
+# axiom. These may mention the queried formula and are printed BEFORE the
+# query — they are KB state, never query results.
+AXIOM_RECORDS = (
     "(: (kb MAIN Nil) axiom (Implication (Premises ($phi)) "
     "(Conclusions ($phi))) (STV 1.0 1.0))\n"
-    "(: (kb MAIN Nil) query-proof (P) (STV 0.35 0.8))\n"
+    "(: (kb MAIN Nil) axiom-p (P) (STV 1.0 1.0))\n"
+)
+
+# compileadd of a local hypothesis: also pre-query, also carries an STV.
+HYPOTHESIS_RECORDS = "(: (kb MAIN Nil) local-hyp-0 (P) (STV 1.0 1.0))\n"
+
+# The query marker: the interpreter echoes the `!(query ...)` runnable and
+# prints its compiled Prolog `findall(A, query(...))` goal.
+QUERY_MARKER = (
+    "!(query 10 kb (: $prf (P) $tv))\n"
     ":- findall(A, query(10, kb, [:, _, ['P'], _], A), _).\n"
 )
 
+# Query output after the marker: the actual result records.
+QUERY_RESULT_P = "(: (kb MAIN Nil) query-proof (P) (STV 0.35 0.8))\n"
+
+# Imported source / compiler chatter: contains error-ish words but is NOT a
+# runtime failure. Real logs of successful runs contain such lines.
+PRE_QUERY_CHATTER = (
+    "warning: unknown procedure in imported module (ignored)\n"
+    "ERROR: user:some-imported-module library/3: stale directive\n"
+)
+
+
+def successful_run(result_record: str = QUERY_RESULT_P) -> str:
+    """A run where the chainer loaded and the query produced ``result_record``."""
+    return (
+        PRE_QUERY_CHATTER
+        + AXIOM_RECORDS
+        + HYPOTHESIS_RECORDS
+        + QUERY_MARKER
+        + result_record
+    )
+
+
 # A run where the chainer import failed: the query remains an unevaluated
-# echo — no `findall(A, query(...))` prolog goal appears.
+# echo — no query marker and no result.
 CHAINER_NOT_LOADED_RUN = (
     "(import! &self petta_chainer)\n"
     "(compileadd kb (: local-hyp-0 (P) (STV 1.0 1.0)))\n"
@@ -122,7 +159,7 @@ class TestWorkspace:
     def test_missing_chainer_dir_is_tolerated(self, tmp_path, axioms_file):
         pln = make_pln(
             tmp_path, axioms_file, tmp_path / "does-not-exist",
-            petta_bin=make_petta_stub(tmp_path, SUCCESSFUL_RUN),
+            petta_bin=make_petta_stub(tmp_path, successful_run()),
         )
         assert pln._workspace_entries == {}
         # petta still runs (evaluate succeeds) — probe coverage is separate.
@@ -133,35 +170,99 @@ class TestEvaluate:
     def test_successful_run_is_real_result(self, tmp_path, axioms_file, chainer_dir):
         pln = make_pln(
             tmp_path, axioms_file, chainer_dir,
-            petta_bin=make_petta_stub(tmp_path, SUCCESSFUL_RUN),
+            petta_bin=make_petta_stub(tmp_path, successful_run()),
         )
         result = pln.evaluate("P")
         assert result.is_fallback is False
         assert result.status == "ok"
-        assert result.stv == STV(strength=1.0, confidence=1.0)
+        # The post-marker query result, not the perfect (1.0, 1.0) KB records.
+        assert result.stv == STV(strength=0.35, confidence=0.8)
+
+    def test_query_given_hypothesis_is_real_result(
+        self, tmp_path, axioms_file, chainer_dir
+    ):
+        """P given hypothesis P is the canonical real, non-fallback query."""
+        pln = make_pln(
+            tmp_path, axioms_file, chainer_dir,
+            petta_bin=make_petta_stub(tmp_path, successful_run()),
+        )
+        result = pln.evaluate("P", ["P"])
+        assert result.is_fallback is False
+        assert result.status == "ok"
+        assert result.stv.score > 0.0
 
     def test_identical_requests_are_consistent(self, tmp_path, axioms_file, chainer_dir):
         pln = make_pln(
             tmp_path, axioms_file, chainer_dir,
-            petta_bin=make_petta_stub(tmp_path, SUCCESSFUL_RUN),
+            petta_bin=make_petta_stub(tmp_path, successful_run()),
         )
         first, second = pln.evaluate("P"), pln.evaluate("P")
         assert (first.status, first.stv == second.stv) == ("ok", True)
 
-    def test_compiled_axiom_stv_does_not_score_unrelated_query(
+    def test_unrelated_axiom_stv_is_not_reused(self, tmp_path, axioms_file, chainer_dir):
+        """A pre-query KB fact for the same formula must not score the query.
+
+        Both the compiled axiom `axiom-p` and the asserted hypothesis carry
+        (STV 1.0 1.0) for P, yet the query result is weaker — the result must
+        come from post-marker output only.
+        """
+        pln = make_pln(
+            tmp_path, axioms_file, chainer_dir,
+            petta_bin=make_petta_stub(tmp_path, successful_run()),
+        )
+        result = pln.evaluate("P")
+        assert result.stv == STV(strength=0.35, confidence=0.8)
+        assert result.stv != STV(strength=1.0, confidence=1.0)
+
+    def test_hypothesis_stv_not_reused_without_query_result(
         self, tmp_path, axioms_file, chainer_dir
     ):
+        """P without evidence: pre-query P facts exist but the query itself
+        finds nothing -> zero-evidence fallback, never the KB fact's STV."""
+        no_result_run = PRE_QUERY_CHATTER + AXIOM_RECORDS + HYPOTHESIS_RECORDS + QUERY_MARKER
         pln = make_pln(
-            tmp_path,
-            axioms_file,
-            chainer_dir,
-            petta_bin=make_petta_stub(tmp_path, AXIOM_AND_QUERY_RUN),
+            tmp_path, axioms_file, chainer_dir,
+            petta_bin=make_petta_stub(tmp_path, no_result_run),
         )
+        result = pln.evaluate("P", ["P"])
+        assert result.is_fallback is True
+        assert result.status == "no_stv_found"
+        assert result.stv == STV(strength=0.0, confidence=0.0)
 
+    def test_false_is_zero_evidence_fallback(self, tmp_path, axioms_file, chainer_dir):
+        no_result_run = PRE_QUERY_CHATTER + AXIOM_RECORDS + QUERY_MARKER
+        pln = make_pln(
+            tmp_path, axioms_file, chainer_dir,
+            petta_bin=make_petta_stub(tmp_path, no_result_run),
+        )
+        result = pln.evaluate("False")
+        assert result.is_fallback is True
+        assert result.status == "no_stv_found"
+        assert result.stv == STV(strength=0.0, confidence=0.0)
+
+    def test_pre_query_error_chatter_is_not_an_error(
+        self, tmp_path, axioms_file, chainer_dir
+    ):
+        """Imported-source/compiler output may contain ERROR lines; a run
+        that exits 0 with no query result is a normal no_stv_found."""
+        pln = make_pln(
+            tmp_path, axioms_file, chainer_dir,
+            petta_bin=make_petta_stub(tmp_path, PRE_QUERY_CHATTER + QUERY_MARKER),
+        )
         result = pln.evaluate("P")
+        assert result.status == "no_stv_found"
+        assert result.is_fallback is True
 
-        assert result.is_fallback is False
-        assert result.stv == STV(strength=0.35, confidence=0.8)
+    def test_query_runtime_error_is_flagged(self, tmp_path, axioms_file, chainer_dir):
+        """An ERROR line in the query's own output classifies as log_error."""
+        error_in_query = PRE_QUERY_CHATTER + QUERY_MARKER + "ERROR: findall/3: evaluation failed\n"
+        pln = make_pln(
+            tmp_path, axioms_file, chainer_dir,
+            petta_bin=make_petta_stub(tmp_path, error_in_query),
+        )
+        result = pln.evaluate("P")
+        assert result.status == "log_error_no_stv"
+        assert result.is_fallback is True
 
 
 class TestFallbackScores:
@@ -199,7 +300,7 @@ class TestFallbackScores:
         """A non-zero petta exit is flagged as fallback, never presented as evidence."""
         pln = make_pln(
             tmp_path, axioms_file, chainer_dir,
-            petta_bin=make_petta_stub(tmp_path, SUCCESSFUL_RUN, returncode=2),
+            petta_bin=make_petta_stub(tmp_path, successful_run(), returncode=2),
         )
         result = pln.evaluate("P")
         assert result.is_fallback is True
@@ -211,7 +312,7 @@ class TestInitialize:
     def test_happy_path(self, tmp_path, axioms_file, chainer_dir):
         pln = make_pln(
             tmp_path, axioms_file, chainer_dir,
-            petta_bin=make_petta_stub(tmp_path, SUCCESSFUL_RUN),
+            petta_bin=make_petta_stub(tmp_path, successful_run()),
         )
         pln.initialize()
         assert pln.is_available is True
@@ -246,7 +347,8 @@ class TestInitialize:
         assert pln.is_available is False
 
     def test_no_stv_detected(self, tmp_path, axioms_file, chainer_dir):
-        empty_run = ":- findall(A, query(10, kb, [:, _, ['P'], _], A), _).\n"
+        """Query ran (marker present) but produced no STV -> probe fails."""
+        empty_run = PRE_QUERY_CHATTER + AXIOM_RECORDS + HYPOTHESIS_RECORDS + QUERY_MARKER
         pln = make_pln(
             tmp_path, axioms_file, chainer_dir,
             petta_bin=make_petta_stub(tmp_path, empty_run),
@@ -260,7 +362,7 @@ class TestEnvironmentOverrides:
     def test_env_bin_chainer_and_workspace(
         self, tmp_path, axioms_file, monkeypatch
     ):
-        petta_bin = make_petta_stub(tmp_path, SUCCESSFUL_RUN)
+        petta_bin = make_petta_stub(tmp_path, successful_run())
         chainer = tmp_path / "custom_chainer"
         chainer.mkdir()
         (chainer / "petta_chainer.metta").write_text("", encoding="utf-8")
@@ -274,7 +376,6 @@ class TestEnvironmentOverrides:
         assert pln.workspace_dir == tmp_path / "custom_workspace"
         assert (tmp_path / "custom_workspace" / "petta_chainer.metta").is_symlink()
         assert pln.evaluate("P").is_fallback is False
-
     def test_explicit_args_win_over_env(
         self, tmp_path, axioms_file, monkeypatch
     ):

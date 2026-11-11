@@ -180,6 +180,24 @@ PeTTaChainer workspace (`PETTA_WORKSPACE`, default `/tmp/petta_workspace`)
 that links the vendored chainer modules (`PETTA_CHAINER_DIR`), so their
 relative `import!`s resolve without runtime network access.
 
+### PeTTa integration tests
+
+The PLN unit tests stub the `petta` executable and cannot verify real
+output-format fidelity. The real-runtime integration tests
+(`maths_ai/pln_inference/tests/test_pln_integration.py`) run the actual
+`petta` binary and are skipped outside a configured runtime. Run them inside
+the image:
+
+```bash
+docker compose run --rm api \
+    python -m pytest maths_ai/pln_inference/tests/test_pln_integration.py -v
+```
+
+They cover: the startup probe (query `P` given hypothesis `P` → real,
+non-fallback STV), `P` without evidence and `False` → zero-evidence
+fallback, no reuse of pre-query axiom/hypothesis STVs, and determinism of
+repeated requests.
+
 ## GPU Support (training target)
 
 ### NVIDIA Host Setup

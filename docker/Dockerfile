@@ -60,18 +60,18 @@ ENV MATHS_AI_DATA_ROOT=/data
 ENV HOME=/home/maths_ai
 
 # Set up workspace and install Python dependencies.
-# This image is CPU-only, so we must resolve PyTorch from the CPU wheel index.
-# The default torch package on PyPI brings in CUDA wheel metadata and tries to
-# fetch the nvidia packages that fail in constrained Docker builds.
+# The shared base installs the CPU PyTorch fork (`--extra cpu` resolves torch
+# from the CPU wheel index, so the CPU-only core/experimental images never
+# download CUDA 13 / NVIDIA / Triton wheels). The GPU-capable training target
+# re-syncs the default PyPI GPU build from the same lockfile.
 WORKDIR /workspace
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 ENV UV_HTTP_TIMEOUT=300
-ENV UV_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
 COPY pyproject.toml uv.lock /workspace/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv --seed /opt/venv && \
-    uv sync --no-dev --inexact --no-install-project --extra-index-url https://download.pytorch.org/whl/cpu && \
-    uv pip install --python /opt/venv/bin/python --extra-index-url https://download.pytorch.org/whl/cpu -e . --no-deps
+    uv sync --no-dev --inexact --no-install-project --extra cpu && \
+    uv pip install --python /opt/venv/bin/python -e . --no-deps
 
 # Build the Lean Pantograph executable from the requested implementation.
 # The Python package supplies the client API used by this project; its bundled
@@ -160,6 +160,14 @@ ENTRYPOINT ["/entrypoint.sh"]
 # ---------- training ----------
 # Training service: batch job, GPU-optional, different lifecycle
 FROM base AS training
+
+# Swap the shared base's CPU torch for the GPU build from the same lockfile
+# (plain sync = default PyPI resolution; no `cpu` extra). Runs as root because
+# /opt/venv is root-owned.
+USER root
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-dev --inexact --no-install-project --reinstall-package torch
+USER maths_ai
 
 # Copy application code
 COPY maths_ai/ /workspace/maths_ai/
