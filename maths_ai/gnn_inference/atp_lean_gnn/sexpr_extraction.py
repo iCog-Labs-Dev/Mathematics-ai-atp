@@ -91,6 +91,7 @@ class PantographInvocationClient:
         file_timeout: int = 600,
         buffer_limit: int = 256 * 1024 * 1024,
         capture_model_sexprs: bool = False,
+        imports: tuple[str, ...] = ("Init",),
     ) -> None:
         self.source_root = Path(source_root).resolve()
         self.pantograph_repl = Path(pantograph_repl).resolve()
@@ -98,6 +99,7 @@ class PantographInvocationClient:
         self.file_timeout = file_timeout
         self.buffer_limit = buffer_limit
         self.capture_model_sexprs = capture_model_sexprs
+        self.imports = imports
         self.proc: asyncio.subprocess.Process | None = None
         self._stderr_task: asyncio.Task[None] | None = None
         self.stderr_tail: list[str] = []
@@ -111,7 +113,7 @@ class PantographInvocationClient:
             "stdbuf",
             "-oL",
             str(self.pantograph_repl),
-            "Init",
+            *self.imports,
             cwd=self.source_root,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
