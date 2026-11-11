@@ -38,6 +38,7 @@ from maths_ai.data_models.proof_components import (
     filter_executable_tactic_candidates,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.joint_bundle import load_joint_source_bundle
+from maths_ai.hybrid_reasoner.pantograph_adapter import structured_goal_from_text
 from maths_ai.pln_inference.model import PLNInference, PLNResult
 
 logger = logging.getLogger(__name__)
@@ -255,6 +256,25 @@ class InferenceService:
             error = (completed.stderr or completed.stdout).strip()
             raise ValueError(error[-4000:] or "Lean rejected the proof declaration")
 
+    async def _structured_goal_for_prediction(
+        self,
+        goal: str,
+        hypotheses: Optional[List[str]],
+    ) -> Goal:
+        """Obtain the structured live state the v2 policy requires.
+
+        The GNN cannot consume printed goal text losslessly, so the state is
+        extracted from the shared Pantograph server through its raw wire
+        protocol (the pinned client strips v2 fields from parsed states).
+        """
+        server = getattr(self.reasoner, "server", None)
+        if server is None:
+            raise RuntimeError(
+                "The Mathlib-Sexpr-GNN v2 policy requires a structured live state, "
+                "but no Pantograph server is available to extract one."
+            )
+        return await structured_goal_from_text(server, goal, hypotheses)
+
     async def predict_tactics(
         self,
         goal: str,
@@ -264,7 +284,18 @@ class InferenceService:
     ) -> List[TacticCandidate]:
         """Predict tactics for a goal using the GNN engine."""
         async with self.gnn_lock:
-            if hypotheses:
+            engine = self.reasoner.gnn_engine
+            if getattr(engine, "_is_joint_v2", False):
+                # The v2 bundle rejects text-only states; obtain the required
+                # structured live state from Pantograph before predicting.
+                structured_goal = await self._structured_goal_for_prediction(goal, hypotheses)
+                candidates = await asyncio.to_thread(
+                    engine.inference,
+                    goal,
+                    top_k=top_k,
+                    structured_goal=structured_goal,
+                )
+            elif hypotheses:
                 candidates = await asyncio.to_thread(
                     self.reasoner.gnn_engine.inference,
                     goal,

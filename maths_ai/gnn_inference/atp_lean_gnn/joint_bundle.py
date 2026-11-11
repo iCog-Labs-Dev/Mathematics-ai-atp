@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -22,11 +22,18 @@ class JointBundle:
     policy_config: dict[str, Any]
     retriever_config: dict[str, Any]
     index_manifest: dict[str, Any]
+    inference_config: dict[str, Any] = field(default_factory=dict)
 
     @property
     def live_pantograph_parity_verified(self) -> bool:
         contract = self.policy_config.get("input_contract", {})
         return contract.get("live_pantograph_parity_verified") is True
+
+    @property
+    def default_retrieval_k(self) -> int:
+        """Published retrieval width from ``policy/inference.json``."""
+        k = self.inference_config.get("retrieval_k")
+        return int(k) if isinstance(k, int) and k > 0 else 500
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -116,6 +123,20 @@ def load_joint_source_bundle(
     retriever_config = _read_json(bundle_root / "retriever" / "config.json")
     index_manifest = _read_json(bundle_root / "retriever" / "index" / "manifest.json")
 
+    # Inference-time policy knobs (retrieval_k, max_args, …) are optional so
+    # legacy bundles still load — but a present file must be valid, and a
+    # declared retrieval_k must be a positive integer.
+    inference_path = bundle_root / "policy" / "inference.json"
+    if inference_path.is_file():
+        inference_config = _read_json(inference_path)
+        retrieval_k = inference_config.get("retrieval_k")
+        if retrieval_k is not None and (not isinstance(retrieval_k, int) or retrieval_k <= 0):
+            raise ValueError(
+                "Joint bundle policy/inference.json must declare a positive integer retrieval_k."
+            )
+    else:
+        inference_config = {}
+
     contract = policy_config.get("input_contract")
     if not isinstance(contract, dict):
         raise ValueError("Joint bundle policy is missing input_contract metadata.")
@@ -136,6 +157,7 @@ def load_joint_source_bundle(
         policy_config=policy_config,
         retriever_config=retriever_config,
         index_manifest=index_manifest,
+        inference_config=inference_config,
     )
     if require_live_parity and not bundle.live_pantograph_parity_verified:
         raise RuntimeError(

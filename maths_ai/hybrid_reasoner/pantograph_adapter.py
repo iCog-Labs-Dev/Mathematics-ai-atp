@@ -207,6 +207,52 @@ async def _raw_goal_payload(server: Any, expression: str, replay: tuple[str, ...
     return raw
 
 
+def _hypothesis_binder_name(hypothesis: str) -> str:
+    return hypothesis.split(":", 1)[0].strip()
+
+
+async def structured_goal_from_text(
+    server: Any,
+    expression: str,
+    hypotheses: list[str] | None = None,
+) -> Goal:
+    """Materialize a structured ``Goal`` for arbitrary goal text via raw Pantograph.
+
+    Both standalone prediction and proof search need the structured
+    ``lean-model-sexp-v2`` state, and neither can get it from the parsed
+    ``GoalState`` (the pinned client strips those fields) nor from
+    ``goal.start`` (which returns no goals payload at all). This drives the
+    raw wire protocol instead: the goal is started with its hypotheses
+    universally quantified, one ``intro`` replay binds them back — reproducing
+    exactly the live state the caller describes — and hypothesis-free goals
+    materialize their payload through a no-op ``skip`` replay.
+
+    Servers without ``run_async`` fail closed with an actionable message.
+    """
+    run_async = getattr(server, "run_async", None)
+    if not callable(run_async):
+        raise RuntimeError(
+            "server does not expose raw payload access (run_async); "
+            "the pinned client parses and strips v2 fields from GoalState."
+        )
+    start_expression = expression
+    replay: tuple[str, ...] = ()
+    if hypotheses:
+        for hypothesis in reversed(hypotheses):
+            start_expression = f"∀ ({hypothesis}), {start_expression}"
+        names = [_hypothesis_binder_name(hypothesis) for hypothesis in hypotheses]
+        replay = (f"intro {' '.join(names)}",)
+    else:
+        # goal.start alone returns no goals payload; a no-op replay
+        # materializes the goal without changing the state.
+        replay = ("skip",)
+    raw = await _raw_goal_payload(server, start_expression, replay)
+    goals = pantograph_state_to_goals(raw)
+    if not goals:
+        raise ValueError("Live state carries no goals; cannot build a structured Goal.")
+    return goals[0]
+
+
 async def probe_model_state(
     server: Any,
     expression: str = "∀ (p : Prop), p → p",

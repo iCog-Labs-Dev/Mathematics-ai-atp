@@ -9,6 +9,7 @@ from typing import Any
 
 import torch
 from safetensors.torch import load_file
+from torch import Tensor
 
 from .argument_selector import JointSourcePolicy
 from .joint_bundle import JointBundle, load_joint_source_bundle
@@ -36,6 +37,7 @@ class JointNeuralBundle:
     policy: JointSourcePolicy
     tokenizer: Any
     text_encoder: Any
+    lemma_encoder: Any
     lemma_index: LemmaIndex
     lemma_corpus: dict[int, Any]
     node_vocab: dict[str, int]
@@ -60,13 +62,17 @@ class JointNeuralBundle:
             normalize=bool(self.artifact.retriever_config.get("normalize", True)),
         )
 
+    def _default_pool_size(self) -> int:
+        """Published retrieval width from ``policy/inference.json``."""
+        return self.artifact.default_retrieval_k
+
     def retrieve_library_pool(self, state_text: str, *, k: int | None = None) -> tuple[tuple[int, ...], Tensor, Tensor]:
         """Return ``(lemma_ids, lemma_vectors, lemma_scores)`` for one state.
 
         Queries the matched text-space FAISS index with the packaged text
         encoder; GNN embeddings are never fed to the text index.
         """
-        pool_size = int(self.artifact.index_manifest.get("k", 500)) if k is None else int(k)
+        pool_size = self._default_pool_size() if k is None else int(k)
         pool_size = max(1, min(pool_size, len(self.lemma_index.lemma_ids)))
         embeddings = self.encode_text([state_text]).cpu().numpy()
         lemma_ids, lemma_vectors, lemma_scores = self.lemma_index.search(embeddings, k=pool_size)
@@ -75,7 +81,7 @@ class JointNeuralBundle:
         ), torch.as_tensor(lemma_scores[0], dtype=torch.float32)
 
     def pool_size(self, *, k: int | None = None) -> int:
-        pool_size = int(self.artifact.index_manifest.get("k", 500)) if k is None else int(k)
+        pool_size = self._default_pool_size() if k is None else int(k)
         return max(1, min(pool_size, len(self.lemma_index.lemma_ids)))
 
 
@@ -112,7 +118,43 @@ def _load_policy(bundle: JointBundle, device: torch.device) -> JointSourcePolicy
     return model.to(device).eval()
 
 
-def _load_retriever(bundle: JointBundle, device: torch.device) -> tuple[Any, Any]:
+def split_dual_encoder_weights(
+    weights: dict[str, torch.Tensor],
+) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+    """Split a flat dual-encoder checkpoint into its two towers.
+
+    The published retriever stores full ``BertModel`` state dicts under the
+    ``state_encoder.*`` and ``lemma_encoder.*`` prefixes. Returns
+    ``(state_tower, lemma_tower)`` with prefixes stripped; tensors outside the
+    two declared prefixes fail closed.
+    """
+    prefixes = ("state_encoder.", "lemma_encoder.")
+    unexpected = sorted(key for key in weights if not key.startswith(prefixes))
+    if unexpected:
+        preview = ", ".join(unexpected[:3])
+        raise ValueError(
+            "Retriever checkpoint has tensors outside the dual-encoder towers: "
+            f"{preview}{'…' if len(unexpected) > 3 else ''}."
+        )
+    towers: dict[str, dict[str, torch.Tensor]] = {"state": {}, "lemma": {}}
+    for name in ("state", "lemma"):
+        prefix = f"{name}_encoder."
+        towers[name] = {
+            key[len(prefix):]: value for key, value in weights.items() if key.startswith(prefix)
+        }
+        if not towers[name]:
+            raise ValueError(f"Retriever checkpoint is missing the {name}_encoder tower.")
+    return towers["state"], towers["lemma"]
+
+
+def _load_retriever(bundle: JointBundle, device: torch.device) -> tuple[Any, Any, Any]:
+    """Load the published dual text encoder.
+
+    The checkpoint stores two full ``BertModel`` towers under the
+    ``state_encoder.*`` and ``lemma_encoder.*`` prefixes. Loading the flat
+    tensor map into a single ``BertModel`` fails; instead the towers are
+    split by prefix and strict-loaded into separate encoders.
+    """
     try:
         from transformers import AutoModel, AutoTokenizer, BertConfig
     except ImportError as exc:
@@ -123,10 +165,14 @@ def _load_retriever(bundle: JointBundle, device: torch.device) -> tuple[Any, Any
     config = bundle.retriever_config.get("encoder_config")
     if not isinstance(config, dict):
         raise ValueError("Joint bundle retriever is missing encoder_config metadata.")
-    encoder = AutoModel.from_config(BertConfig.from_dict(config))
     weights = load_file(str(bundle.root / "retriever" / "model.safetensors"), device=str(device))
-    encoder.load_state_dict(weights)
-    return tokenizer, encoder.to(device).eval()
+    state_tower, lemma_tower = split_dual_encoder_weights(weights)
+    encoders: dict[str, Any] = {}
+    for name, tower_weights in (("state", state_tower), ("lemma", lemma_tower)):
+        encoder = AutoModel.from_config(BertConfig.from_dict(config))
+        encoder.load_state_dict(tower_weights)
+        encoders[name] = encoder.to(device).eval()
+    return tokenizer, encoders["state"], encoders["lemma"]
 
 
 def load_joint_neural_bundle(
@@ -144,7 +190,7 @@ def load_joint_neural_bundle(
     )
     resolved_device = torch.device(device)
     policy = _load_policy(artifact, resolved_device)
-    tokenizer, text_encoder = _load_retriever(artifact, resolved_device)
+    tokenizer, text_encoder, lemma_encoder = _load_retriever(artifact, resolved_device)
     index = LemmaIndex.load(
         artifact.root / "retriever" / "index",
         normalize_queries=bool(artifact.retriever_config.get("normalize", False)),
@@ -158,6 +204,7 @@ def load_joint_neural_bundle(
         policy=policy,
         tokenizer=tokenizer,
         text_encoder=text_encoder,
+        lemma_encoder=lemma_encoder,
         lemma_index=index,
         lemma_corpus=corpus,
         node_vocab={

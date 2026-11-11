@@ -100,3 +100,75 @@ def test_render_action_drops_unresolvable_identities_fail_closed() -> None:
 def test_render_action_accepts_zero_argument_actions() -> None:
     bundle = SimpleNamespace(lemma_corpus={})
     assert _render(bundle, DecodedAction(1, (), True)) == ([], True)
+
+
+def test_render_action_resolves_bare_fv_selections() -> None:
+    from maths_ai.gnn_inference.inference_engine import GNNModelEngine
+
+    bundle = SimpleNamespace(lemma_corpus={})
+    dag = goal_to_model_dag(_structured_goal())
+    fv_row = next(
+        index for index, node in enumerate(dag.nodes) if node.label == "FV0"
+    )
+
+    # The pointer head can select the FV{i} node itself; rendering must map it
+    # back to the Lean name instead of emitting the raw pointer label.
+    rendered, complete = GNNModelEngine._render_action(
+        dag, list(dag.nodes), bundle,
+        DecodedAction(1, (DecodedArgument(CandidateSource.LOCAL, fv_row, 0, 0.5),), True),
+    )
+    assert rendered == ["h"]
+    assert complete is True
+
+
+def test_render_action_reads_structured_hypothesis_name() -> None:
+    from maths_ai.gnn_inference.inference_engine import GNNModelEngine
+
+    bundle = SimpleNamespace(lemma_corpus={})
+    dag = goal_to_model_dag(_structured_goal())
+    hyp_row = next(
+        index
+        for index, node in enumerate(dag.nodes)
+        if node.label == "Hyp" and len(node.children) == 4
+    )
+
+    # Structured Hyp nodes carry the name at children[1] (children[0] is the
+    # FV{i} pointer); reading children[0] would emit "FV0", which is not Lean.
+    rendered, complete = GNNModelEngine._render_action(
+        dag, list(dag.nodes), bundle,
+        DecodedAction(1, (DecodedArgument(CandidateSource.LOCAL, hyp_row, 0, 0.5),), True),
+    )
+    assert rendered == ["h"]
+    assert complete is True
+
+
+def test_render_action_is_tactic_family_aware() -> None:
+    from maths_ai.gnn_inference.inference_engine import GNNModelEngine
+
+    bundle = SimpleNamespace(lemma_corpus={5: SimpleNamespace(name="Nat.add_zero")})
+    dag = goal_to_model_dag(_structured_goal())
+
+    action = DecodedAction(
+        1, (DecodedArgument(CandidateSource.LIBRARY, 5, 0, 0.4),), True
+    )
+    rendered, complete = GNNModelEngine._render_action(
+        dag, list(dag.nodes), bundle, action, tactic_name="rw"
+    )
+    # Rewriting families render one bracketed rule list: rw [Nat.add_zero].
+    assert rendered == ["[Nat.add_zero]"]
+    assert complete is True
+
+    # Non-rewriting families keep bare references.
+    rendered, complete = GNNModelEngine._render_action(
+        dag, list(dag.nodes), bundle, action, tactic_name="exact"
+    )
+    assert rendered == ["Nat.add_zero"]
+    assert complete is True
+
+    # Zero-argument rewriting actions stay bare (rw with no rules).
+    rendered, complete = GNNModelEngine._render_action(
+        dag, list(dag.nodes), SimpleNamespace(lemma_corpus={}),
+        DecodedAction(1, (), True), tactic_name="rw",
+    )
+    assert rendered == []
+    assert complete is True

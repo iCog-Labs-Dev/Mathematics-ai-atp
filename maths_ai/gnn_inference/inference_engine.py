@@ -1,6 +1,7 @@
 from pathlib import Path
 from collections.abc import Mapping
 from typing import List, Optional, cast
+import re
 
 import torch
 
@@ -43,6 +44,55 @@ def _build_source_candidates(bundle, node_embeddings, local_positions, goal: Goa
         lemma_vectors=lemma_vectors.to(node_embeddings.device, dtype=node_embeddings.dtype),
         lemma_scores=lemma_scores.to(node_embeddings.device, dtype=node_embeddings.dtype),
     )
+
+
+_FV_LABEL_RE = re.compile(r"^FV(\d+)$")
+
+# Tactic families whose rule arguments are rendered as one bracketed list:
+# ``rw [Nat.add_zero]`` / ``simp [Nat.add_assoc]`` — never bare ``rw Nat.add_zero``.
+_BRACKETED_RULE_TACTICS = frozenset(
+    {"rw", "rewrite", "simp", "simp_all", "simp_arith"}
+)
+
+
+def _local_names_by_fv_label(dag: DAGBuilder) -> dict[str, str]:
+    """Map each ``FV{i}`` pointer label to the Lean name of the local it denotes.
+
+    Structured hypothesis nodes are ``Hyp(FV{i}, name, HypRole:role, type)``, so
+    the graph already carries the correspondence. Legacy two-child
+    ``Hyp(name, type)`` nodes have no ``FV{i}`` child and contribute nothing.
+    """
+    names: dict[str, str] = {}
+    for node in dag.nodes:
+        if node.label != "Hyp" or len(node.children) != 4:
+            continue
+        context_label = dag.nodes[node.children[0]].label
+        if _FV_LABEL_RE.match(context_label):
+            names[context_label] = dag.nodes[node.children[1]].label
+    return names
+
+
+def _resolve_local_node_name(node, dag: DAGBuilder, local_names: dict[str, str]) -> str | None:
+    """Extract a Lean-usable name for a selected local-context node.
+
+    Both hypothesis shapes appear and the name sits at a different child index
+    in each: structured nodes are ``Hyp(FV{i}, name, HypRole:role, type)`` and
+    legacy ones ``Hyp(name, type)``. A bare ``FV{i}`` selection (the pointer
+    head can pick those directly) resolves through ``local_names``.
+    """
+    if node.label == "Hyp" and node.children:
+        name_index = 1 if len(node.children) == 4 else 0
+        return dag.nodes[node.children[name_index]].label
+    if _FV_LABEL_RE.match(node.label):
+        return local_names.get(node.label)
+    return node.label
+
+
+def _render_arguments_for_family(tactic_name: str | None, arguments: List[str]) -> List[str]:
+    """Apply tactic-family-aware Lean surface syntax to rendered references."""
+    if tactic_name in _BRACKETED_RULE_TACTICS and arguments:
+        return ["[" + ",".join(arguments) + "]"]
+    return list(arguments)
 
 
 class GNNModelEngine:
@@ -230,7 +280,7 @@ class GNNModelEngine:
             else data.premise_mask
         ).nonzero(as_tuple=False).view(-1).tolist()
         pool = _build_source_candidates(
-            bundle, node_embeddings[0], local_positions, goal
+            bundle, node_embeddings, local_positions, goal
         )
         candidates: list[TacticCandidate] = []
         diagnostics: list[str] = []
@@ -239,7 +289,15 @@ class GNNModelEngine:
             action = decode_action(
                 policy, state_embeddings[0], int(tactic_id), pool
             )
-            rendered, complete = self._render_action(dag, dag_rows, bundle, action)
+            if not action.complete:
+                diagnostics.append(
+                    f"{tactic_name}: decode stopped before every predicted argument "
+                    "slot resolved; candidate dropped."
+                )
+                continue
+            rendered, complete = self._render_action(
+                dag, dag_rows, bundle, action, tactic_name=tactic_name
+            )
             if not complete:
                 diagnostics.append(
                     f"{tactic_name}: rendered "
@@ -263,30 +321,37 @@ class GNNModelEngine:
         dag_rows: list,
         bundle,
         action: DecodedAction,
+        *,
+        tactic_name: str | None = None,
     ) -> tuple[List[str], bool]:
         """Render decoded identities into usable Lean references.
 
         Local identities map to per-graph node names; library identities map to
         corpus lemma names. Unresolvable identities make the whole action
-        incomplete — placeholders are never stringified into arguments.
+        incomplete — placeholders are never stringified into arguments. The
+        final references are formatted per the tactic family (rewriting
+        families take a single bracketed rule list).
         """
         arguments: List[str] = []
         corpus = bundle.lemma_corpus or {}
+        local_names = _local_names_by_fv_label(dag)
         for argument in action.arguments:
             if argument.source is CandidateSource.LOCAL:
                 if not 0 <= argument.stable_id < len(dag_rows):
                     return [], False
                 node = dag_rows[argument.stable_id]
                 if node.label == "Hyp" and node.children:
-                    name_node = dag.nodes[node.children[0]]
-                    if not name_node.label:
-                        return [], False
-                    arguments.append(name_node.label)
+                    name = _resolve_local_node_name(node, dag, local_names)
+                elif _FV_LABEL_RE.match(node.label):
+                    name = local_names.get(node.label)
                 else:
+                    name = None
+                if not name:
                     return [], False
+                arguments.append(name)
             else:
                 record = corpus.get(argument.stable_id)
                 if record is None or not getattr(record, "name", ""):
                     return [], False
                 arguments.append(record.name)
-        return arguments, True
+        return _render_arguments_for_family(tactic_name, arguments), True

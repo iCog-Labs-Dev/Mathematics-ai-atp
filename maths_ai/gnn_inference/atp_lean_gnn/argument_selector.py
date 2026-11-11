@@ -394,9 +394,13 @@ class JointSourcePolicy(nn.Module):
             max_args=max_args,
         )
         self.arg_count_head = nn.Linear(hidden_dim, max_args + 1)
+        # Reference layout: Linear → LayerNorm → Tanh. The Tanh sits at index 2
+        # (parameter-less, absent from the checkpoint) and is part of the
+        # trained forward computation, not an optional detail.
         self.lemma_adapter = nn.Sequential(
             nn.Linear(384, hidden_dim),
             nn.LayerNorm(hidden_dim),
+            nn.Tanh(),
         )
         self.library_residual_scale = nn.Parameter(torch.tensor(1.0))
         self.log_inverse_text_temperature = nn.Parameter(torch.tensor(0.0))
