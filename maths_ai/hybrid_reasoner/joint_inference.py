@@ -445,10 +445,8 @@ class HybridReasoner:
                 print(f"  [PLN Fallback] DTS recorded observation: score={stv.score:.3f}")
 
             print(f"  [PLN Fallback] final STV=({stv.strength:.3f}, {stv.confidence:.3f})  score={stv.score:.3f}  is_fallback={pln_result.is_fallback}")
-            if stv.score >= 0.9:
-                print(f"  [PLN Fallback] high confidence — closing node {node.id} as solved!")
-                graph.add_edge(node.id, TacticCandidate(tactic_name="PLN_fallback", arguments=[], probability=1.0), ranked_subgoals=[])
-                return
+            # PLN scores guide search, but they cannot discharge a Lean goal.
+            # Only a tactic accepted by the executor may create a solved edge.
 
         note = None if any_applied else "executor rejected every candidate tactic"
         if note:

@@ -109,6 +109,13 @@ def make_pln(
 
 
 @pytest.fixture
+def no_petta(monkeypatch):
+    """Simulate a missing PeTTa binary even when tests run inside Docker."""
+    monkeypatch.delenv("PETTA_BIN", raising=False)
+    monkeypatch.setattr("maths_ai.pln_inference.model.shutil.which", lambda _: None)
+
+
+@pytest.fixture
 def axioms_file(tmp_path: Path) -> Path:
     path = tmp_path / "metamath_axioms.metta"
     path.write_text(";; stub axioms\n", encoding="utf-8")
@@ -266,7 +273,7 @@ class TestEvaluate:
 
 
 class TestFallbackScores:
-    def test_random_fallback_disabled_by_default(self, tmp_path, axioms_file, chainer_dir):
+    def test_random_fallback_disabled_by_default(self, tmp_path, axioms_file, chainer_dir, no_petta):
         """No petta => a deterministic zero-evidence placeholder, not noise."""
         pln = make_pln(tmp_path, axioms_file, chainer_dir, petta_bin=None)
         first, second = pln.evaluate("P"), pln.evaluate("P")
@@ -276,7 +283,7 @@ class TestFallbackScores:
         assert first.stv == STV(strength=0.0, confidence=0.0)
         assert first.stv == second.stv
 
-    def test_missing_binary_falls_back(self, tmp_path, axioms_file):
+    def test_missing_binary_falls_back(self, tmp_path, axioms_file, no_petta):
         pln = make_pln(
             tmp_path, axioms_file, tmp_path / "chainer", petta_bin=None
         )
@@ -284,7 +291,7 @@ class TestFallbackScores:
         assert result.status == "petta_unavailable"
         assert result.is_fallback is True
 
-    def test_random_fallback_sampled_when_enabled(self, tmp_path, axioms_file, chainer_dir):
+    def test_random_fallback_sampled_when_enabled(self, tmp_path, axioms_file, chainer_dir, no_petta):
         pln = make_pln(
             tmp_path, axioms_file, chainer_dir,
             petta_bin=None,
@@ -318,7 +325,7 @@ class TestInitialize:
         assert pln.is_available is True
         assert pln.initialization_error is None
 
-    def test_missing_binary(self, tmp_path, axioms_file, chainer_dir):
+    def test_missing_binary(self, tmp_path, axioms_file, chainer_dir, no_petta):
         pln = make_pln(tmp_path, axioms_file, chainer_dir, petta_bin=None)
         with pytest.raises(RuntimeError, match="not found"):
             pln.initialize()
