@@ -72,9 +72,9 @@ and exact DAG parity between a reopened declaration and its frontend capture.
 Controlled GNN/GRU fixtures exercise model → render → native execution; these
 checks do not measure the accepted checkpoint's prediction quality.
 The day-one focused regression run passed **64 tests**. The combined current
-regression run passes **90 tests**, including **13 live-policy checks**,
-**19 search checks**, and seven structured-supervision checks; six checks exercise
-native Lean. All three CLI help paths load.
+regression run passes **117 tests**, including **13 live-policy checks**,
+**19 search checks**, seven supervision checks and 27 codec/compiler checks;
+seven checks exercise native Lean. All four CLI help paths load.
 
 The accepted-checkpoint live loop now passes locally, and the accepted model's
 best-first proofs pass independent compilation and axiom checks on four small
@@ -129,7 +129,12 @@ Reports live under `maths_ai/gnn_inference/runs/`:
 
 Policy state hash: `a16d7f63ddde721c35611dcc2c604096cbe31d17490407669e2516c72d38e2ce`.
 Retriever state hash: `48ac6ab921bd8a6a7c2c49b3fdc307b97293a9f3737f33484673141f456aa5fd`.
-Full Mathlib environment integration and a fixed benchmark cohort remain next gates.
+The server full-Mathlib smoke subsequently passed: `GnnServerSmoke` solved in one
+model call, one tactic trial, two controller nodes, and **4.49 active seconds**.
+User-supplied console output records report
+`runs/gnn_server_smoke_20261111_070320.json`; its JSON bytes have not been inspected
+locally. This confirms server smoke integration, not a benchmark solve rate.
+A fixed benchmark cohort remains a next evaluation gate.
 
 ## Best-first prototype
 
@@ -176,6 +181,13 @@ is an expansion target after the working prover and decoder pilot are secured.
 
 The bounded candidate-preparation entrypoint is now implemented in
 `scripts/prepare_structured_supervision.py`; see
-[structured-supervision pilot](structured_supervision_pilot.md). Server-side V9
-caches are required for the actual data export. Binder canonicalization,
-train-only neural vocabulary/codec construction, and decoder training remain next.
+[structured-supervision pilot](structured_supervision_pilot.md). The server run
+exported **5,000 train / 500 validation** candidates from first-pass typed pools
+of **158,079 / 3,212**, preserving populations **218,727 / 4,157**. These pool
+counts precede selected-row corpus/context checks and native/retrieval validation.
+The bounded native pilot passed **24/24** exact original/input/generated transition
+checks, including five actions beyond flat representation. The emitted four-schema
+codec, declaration-slot handling and train-only vocabulary compiler are now
+implemented; see [codec contract](structured_action_codec.md). Next: server
+compilation, retrieval-aligned loader and structured-decoder training. First pilot
+preserves binder spellings to retain exact checked successor-state names.

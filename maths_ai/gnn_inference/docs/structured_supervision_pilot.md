@@ -58,15 +58,16 @@ certify every emitted target as natively executable or retrievable.
 
 ## Next training steps
 
-1. Run this bounded preparation on the server caches and inspect actual emitted
-   counts/exclusions; no full-cohort exported counts have been measured locally.
-2. Check selected native validation transitions, preserving original-control
-   failures as failures rather than changing goal parity.
-3. Canonicalize declaration slots with capture-avoiding fresh names, keeping
-   input pointers and lexical references distinct. Preserve syntax labels such
-   as method selectors and named parameters as labels, not invented premises.
-4. Build the structured action codec and neural vocabulary from **train only**;
-   validation-only payloads remain explicit unknowns/unrepresentable cases.
+1. Server bounded preparation and 24-row native validation completed. Recorded
+   counts and schema scope appear below; original-control parity was preserved.
+2. Compile the four schemas with the typed codec and **train-only** structural
+   vocabulary; see [codec contract](structured_action_codec.md).
+3. First pilot canonicalizes declaration-slot identities and preserves checked
+   binder spellings as fixed-alphabet UTF-8 name payloads. Input-local, lexical,
+   and library identities remain distinct. Source binder spellings are not
+   alpha-renamed, so existing native transition checks remain exact.
+4. Keep validation-only structural tokens as explicit unknown/unrepresentable
+   cases. Name bytes use a predefined alphabet, not validation-fitted vocabulary.
 5. Align local references with the normalized graph and library references with
    the frozen matched retrieval pool. Retrieval misses remain misses in reported
    end-to-end evaluation, never silently injected validation candidates.
@@ -75,5 +76,42 @@ certify every emitted target as natively executable or retrievable.
 
 Seven regression checks cover reference ID spaces, binder-vs-input distinctions,
 nonexact/context exclusions, frozen-source preservation, stale cache/index
-rejection, split isolation, and deterministic bounded selection. The full server
-package and new decoder training have not yet run.
+rejection, split isolation, and deterministic bounded selection. New decoder
+training has not yet run.
+
+## Completed server preparation
+
+User-supplied server console output confirms successful bounded preparation:
+
+| Split | Frozen population | First-pass typed candidate pool | Exported pilot |
+| --- | ---: | ---: | ---: |
+| train | 218,727 | 158,079 | 5,000 |
+| val | 4,157 | 3,212 | 500 |
+
+Pool counts apply the saved V9 quarantine/alignment/render-path selection. They
+precede selected-row normalized-context/corpus checks, native replay and retrieval
+reachability; do not label all pool members verified training examples. Exported
+records retain the unmeasured/incomplete markers described above.
+
+User-supplied schema totals:
+
+| Schema | Train | Val |
+| --- | ---: | ---: |
+| `flat_reference_v2` | 3,471 | 248 |
+| `intro_binders_v1` | 122 | 18 |
+| `math_notation_pattern_v1` | 303 | 61 |
+| `math_notation_tactic_v1` | 1,104 | 173 |
+
+Selected candidates excluded for `flat_reference_binding`: **85 train / 8 val**;
+selection backfilled to the requested 5,000/500 exports.
+
+The bounded native pilot completed **24/24 rendered transition matches**, with
+all 24 input graphs, captured-original controls, reparsed-original controls and
+exact dataset/source alignment checks matching. Nineteen actions were also flat
+renderable, so five exercise expanded representation. Report:
+`runs/structured_v3_native_val_20261111_070320/report.json`.
+No introduction, method-selector or math-notation feature was counted in this
+particular native sample. Additional codec fixtures check introductions, selectors
+and quantifiers; broader server strata remain unmeasured.
+This is a step-transition pilot, not whole-proof success or all-row validity.
+Raw server report bytes have not been inspected locally.
