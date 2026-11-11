@@ -91,10 +91,11 @@ native-validated pilot row. Only those validation records become
 The compiler reuses native evidence; it does not run Lean over every training row.
 
 `neural_target_compiled=true` means token/payload targets exist, **not that a model
-has trained**. `ready_for_training=false` and
-`candidate_pool_positions_aligned=false` explicitly retain the next tasks:
-retrieval-aligned loader, structured decoder/loss, and training/evaluation loop.
-The accepted GNN/retriever weights are not changed by this compilation.
+has trained**. The compiled package retains `ready_for_training=false` and
+`candidate_pool_positions_aligned=false`; the implemented frozen-feature loader
+performs that next alignment and writes a separate ready feature cache. See
+[decoder training](structured_decoder_training.md) for the learner and runner.
+The accepted GNN/retriever weights are not changed by compilation or head training.
 
 ## Verification
 
@@ -107,5 +108,20 @@ quantifiers, existentials and two-goal constructor transitions.
 This supplements the server's **24/24** native pilot, which contained no counted
 introduction or method-selector/math-notation features. Fixture results and source
 round-trips do not establish learned generation accuracy, all-row native validity,
-or premise-retrieval reachability. The actual server compilation and new decoder
-training remain to be run.
+or premise-retrieval reachability.
+
+## Completed server compilation
+
+User-supplied server console output confirms:
+
+| Split | Candidates | Compiled | Excluded | Maximum tokens | Mean tokens |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| train | 5,000 | 5,000 | 0 | 595 | 29.65 |
+| val | 500 | 496 | 4 | 503 | 44.20 |
+
+Vocabulary size is **519**, with **24/24 native codec round-trips**. Report:
+`artifacts/prepared/structured_v3_compiled_20261111_070320/report.json` under the
+support-files root. The four validation exclusions remain in the 500-row
+evaluation denominator; their individual reasons have not been supplied locally.
+The new decoder, aligned feature loader and resumable training runner are now
+implemented and tested locally. Actual server pilot training has not yet run.

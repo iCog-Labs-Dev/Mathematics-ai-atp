@@ -72,9 +72,10 @@ and exact DAG parity between a reopened declaration and its frontend capture.
 Controlled GNN/GRU fixtures exercise model → render → native execution; these
 checks do not measure the accepted checkpoint's prediction quality.
 The day-one focused regression run passed **64 tests**. The combined current
-regression run passes **117 tests**, including **13 live-policy checks**,
-**19 search checks**, seven supervision checks and 27 codec/compiler checks;
-seven checks exercise native Lean. All four CLI help paths load.
+regression run passes **126 tests**, including **13 live-policy checks**,
+**19 search checks**, seven supervision checks, 27 codec/compiler checks and nine
+feature/training checks; seven checks exercise native Lean. All five CLI help
+paths load.
 
 The accepted-checkpoint live loop now passes locally, and the accepted model's
 best-first proofs pass independent compilation and axiom checks on four small
@@ -188,6 +189,9 @@ counts precede selected-row corpus/context checks and native/retrieval validatio
 The bounded native pilot passed **24/24** exact original/input/generated transition
 checks, including five actions beyond flat representation. The emitted four-schema
 codec, declaration-slot handling and train-only vocabulary compiler are now
-implemented; see [codec contract](structured_action_codec.md). Next: server
-compilation, retrieval-aligned loader and structured-decoder training. First pilot
-preserves binder spellings to retain exact checked successor-state names.
+implemented; see [codec contract](structured_action_codec.md). Server
+compilation completed with 5,000 train / 496 val targets, vocabulary 519, train/val
+token maxima 595/503 and 24/24 native round-trips. First pilot preserves binder
+spellings to retain exact checked successor-state names. The retrieval-aligned
+feature loader, trainable structured decoder and resumable optimizer runner are
+implemented; [server training](structured_decoder_training.md) is the next run.
