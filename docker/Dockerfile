@@ -56,7 +56,18 @@ RUN git init -q . \
     && test "$(cat lean-toolchain)" = "${LEAN_TOOLCHAIN}" \
     && (lake exe cache get || true) \
     && lake build Mathlib \
-    && rm -rf .git .lake/packages/*/.git
+    && rm -rf .git
+# Package clones keep their .git: lake env compares each package's remote with
+# the manifest and otherwise deletes and re-clones it at every worker launch.
+
+# Deployments identify the REPL by the clean commit it was built from, so keep
+# its checkout (with .git) and, of its build products, only the executable.
+WORKDIR /opt/pantograph
+RUN mv .lake/build/bin/repl /tmp/repl \
+    && rm -rf .lake \
+    && mkdir -p .lake/build/bin \
+    && mv /tmp/repl .lake/build/bin/repl \
+    && test -z "$(git status --porcelain --untracked-files=no)"
 
 # ---------- python ----------
 FROM ${PYTHON_IMAGE} AS python
@@ -90,8 +101,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=lean /opt/elan /opt/elan
-COPY --from=lean /opt/pantograph/.lake/build/bin/repl /opt/pantograph/repl
+# The client accepts a REPL outside a build manifest only in its Lake checkout
+# layout, so keep that layout; /opt/pantograph/repl stays the configured path.
+COPY --from=lean /opt/pantograph /opt/pantograph
+RUN ln -s .lake/build/bin/repl /opt/pantograph/repl
 COPY --from=lean /opt/mathlib4 /opt/mathlib4
+# The service user does not own these root-owned clones; without this git
+# refuses them, lake env re-clones every package at worker launch and the
+# REPL's commit cannot be read.
+RUN for checkout in /opt/pantograph /opt/mathlib4/.lake/packages/*; do \
+        git config --system --add safe.directory "$checkout"; \
+    done
 COPY --from=python /opt/venv /opt/venv
 COPY --from=pln /opt/pln /opt/pln
 
@@ -105,7 +125,8 @@ ENV ELAN_HOME=/opt/elan \
     PYTHONUNBUFFERED=1 \
     MATHS_AI_SERVICE_CONFIG=/config/service.json \
     MATHS_AI_API_HOST=0.0.0.0 \
-    MATHS_AI_API_PORT=8000
+    MATHS_AI_API_PORT=8000 \
+    MATHS_AI_DEVICE=cpu
 
 WORKDIR /workspace
 COPY maths_ai/ /workspace/maths_ai/

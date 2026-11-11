@@ -83,6 +83,23 @@ def test_native_header_roles_roundtrip_and_proof_nonexecution(native_env):
 
 
 @pytest.mark.pantograph_live
+def test_native_statement_errors_and_large_literals(native_env):
+    # `n!` lexes as one unknown identifier: the statement is reported, never exported with sorry.
+    # Large numerals round-trip exactly instead of being unfolded by the equivalence check.
+    source = """import MiniF2F.Minif2fImport
+open BigOperators Real Nat Topology
+theorem unknown_factorial (n : ℕ) (h₀ : 3 ≤ n) : n! < n^(n - 1) := by sorry
+theorem large_literals : (∑ k in Nat.divisors (30 ^ 4), 1) - 2 = 123 := by sorry
+theorem large_factorial : (10000!) / ((2^5000) * (5000!)) = 1 := by sorry
+"""
+    _, rows = asyncio.run(conversion.run_helper(source, "import Mathlib\n", native_env))
+    unknown, literals, factorial = rows
+    assert unknown["status"] == "incompatible" and "n!" in unknown["error"]
+    assert literals["status"] == factorial["status"] == "ok"
+    assert "sorryAx" not in literals["problem"]["expression"]
+
+
+@pytest.mark.pantograph_live
 @pytest.mark.parametrize("source,wrapper", [
     ("import MiniF2F.Minif2fImport\nnamespace Unsafe\n", "import Mathlib\n"),
     ("import MiniF2F.Test\n", "import Mathlib\n"),

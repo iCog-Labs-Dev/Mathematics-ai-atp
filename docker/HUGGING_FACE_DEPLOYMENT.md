@@ -49,7 +49,6 @@ Obtain these values from the release publisher:
 | Full release commit | Exact 40-character Hugging Face commit to download; this is not the application GitHub commit |
 | Manifest SHA-256 | Trusted checksum of the published `release.json`, preferably provided through release notes or another trusted channel |
 | Application revision | Compatible GitHub code revision used to build the service image |
-| Serving device | Whether the release's generated configuration selects `cpu` or `cuda:0` |
 
 **`upload-receipt.json` belongs to the upload workflow.** The upload script saves it locally for the person publishing the release. It contains the resulting commit, manifest digest, and upload-verification information. It is not a model artifact, is not uploaded by default, and is not required on the deployment host. Deployment users only need the published identifiers above; the publisher can share those values without sharing the receipt itself.
 
@@ -189,15 +188,15 @@ Compose mounts these directories read-only at `/artifacts` and `/config`. It cre
 
 ## 6. Launch one API container
 
-Choose the service matching the release's generated `config/rl.json` device settings. Check `device`, `collection_devices`, `update_device`, and `retrieval.device` if unsure. Starting the GPU service does not automatically rewrite a CPU configuration, or the reverse.
+Choose the service for your hardware. The service sets the serving device through `MATHS_AI_DEVICE` (`cpu` for `mcts-api`, `cuda:0` for `mcts-api-gpu`), and that overrides the device fields in the release's `config/rl.json`, so the same release serves on either. Export `MATHS_AI_DEVICE` before starting Compose to choose another GPU, for example `cuda:1`.
 
-For a CPU-configured release:
+For CPU serving:
 
 ```bash
 HF_TOKEN= docker compose up -d mcts-api
 ```
 
-For a release configured for one GPU at `cuda:0`:
+For one GPU at `cuda:0`:
 
 ```bash
 HF_TOKEN= docker compose --profile gpu up -d mcts-api-gpu
@@ -230,7 +229,7 @@ curl --fail http://localhost:8000/ready
 
 `/health` reports API liveness. `/ready` remains unavailable while initialization runs and reports failure if model or runtime validation fails. Startup can take minutes. Readiness also verifies the provisioned PLN runtime when the configured profiles require it.
 
-The declaration inventory is bound to **REPL executable bytes and compiled Mathlib contents**. Building the same source revisions does not guarantee the same environment identity. If readiness reports an environment mismatch, deploy a compatible runtime or use the verified environment-migration workflow to publish a new matched release. Do not edit inventory hashes or disable validation to make startup pass.
+The declaration inventory is bound to the **REPL's source commit and toolchain and the compiled Mathlib contents**. The image keeps the REPL's Git checkout so that its commit can be read; a REPL that is not in a clean checkout of its commit can only match an inventory bound to its exact executable bytes, as releases published before this binding were. If readiness reports an environment mismatch, deploy a compatible runtime or use the verified environment-migration workflow to publish a new matched release. Do not edit inventory hashes or disable validation to make startup pass.
 
 A trusted checkpoint is required: PyTorch checkpoint loading can execute pickle content. Valid checksums establish identity, not that an unknown publisher is safe.
 

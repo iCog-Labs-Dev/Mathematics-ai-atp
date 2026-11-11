@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import asdict, dataclass, field, fields
+import re
+from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any
 
@@ -209,3 +210,23 @@ class ServiceConfig:
     def from_json(cls, path: str | Path) -> "ServiceConfig":
         path = Path(path)
         return cls.from_dict(json.loads(path.read_text()), base=path.parent)
+
+
+DEVICE_ENV = "MATHS_AI_DEVICE"
+
+
+def serving_device(cfg: Any, device: str | None) -> Any:
+    """Serve on ``device`` (``cpu`` or ``cuda:N``) whatever the release config says.
+
+    One image serves both; the host chooses the device when it starts the
+    service. ``None`` or an empty value keeps the configuration's devices.
+    """
+    if not device:
+        return cfg
+    if device != "cpu" and not re.fullmatch(r"cuda:[0-9]+", device):
+        raise ValueError(f"{DEVICE_ENV} must be cpu or cuda:N, not {device!r}.")
+    workers = len(cfg.collection_devices or ()) or 1
+    return replace(
+        cfg, device=device, update_device=device, collection_devices=[device] * workers,
+        retrieval=None if cfg.retrieval is None else replace(cfg.retrieval, device=device),
+    )

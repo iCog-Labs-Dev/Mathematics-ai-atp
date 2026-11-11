@@ -102,11 +102,16 @@ async def run_helper(source, wrapper, env, *, checks=None, timeout_s=300, max_by
                     os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-            await proc.wait()
             for task in tasks:
                 if not task.done():
                     task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+            # asyncio only reports exit once both pipes reach end of file. A reader
+            # stopped at the byte limit leaves data behind, so drain and discard it.
+            async def drain(stream):
+                while await stream.read(65536):
+                    pass
+            await asyncio.wait_for(asyncio.gather(drain(proc.stdout), drain(proc.stderr), proc.wait()), 30)
 
 
 def _write(path, value):

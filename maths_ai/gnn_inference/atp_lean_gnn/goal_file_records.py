@@ -85,5 +85,14 @@ def execution_goal_record(goal, *, source):
 
 
 def record_size(row):
-    """Bound the full input, including structured context and provenance."""
+    """Size used for ``max_state_chars`` and size-sorted pools.
+
+    A text record is measured by its printed state (goal and hypotheses), as
+    dataset rows are, so a tactic label or JSON layout does not change it. A
+    structured record has no printed state, so its full content is bounded,
+    including structured context and provenance."""
+    if isinstance(row, dict) and "schema" not in row and isinstance(row.get("goal"), str):
+        hypotheses = row.get("hypotheses", [])
+        if isinstance(hypotheses, list) and all(isinstance(h, str) for h in hypotheses):
+            return len(row["goal"]) + sum(len(h) for h in hypotheses)
     return len(json.dumps(row, ensure_ascii=False, sort_keys=True))

@@ -74,3 +74,11 @@ def test_local_types_and_identity_are_checked_before_lean():
     row["locals"][0]["is_instance"] = "false"
     with pytest.raises(ReplayInputError, match="boolean"):
         decode(row)
+
+
+def test_text_record_size_is_its_printed_state():
+    from maths_ai.gnn_inference.atp_lean_gnn.goal_file_records import record_size
+    labelled = {"goal": "p → p", "hypotheses": ["p : Prop"], "tactic": "intro"}
+    assert record_size(labelled) == record_size({"goal": "p → p", "hypotheses": ["p : Prop"]}) == 13
+    structured = {"schema": "lean-structured-goal-v1", "target_sexp": "x", "model_target": "x", "locals": []}
+    assert record_size(structured) > len("x")

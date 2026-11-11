@@ -18,7 +18,8 @@ private def role (info : BinderInfo) : String :=
 private def closedType (sig : Syntax) (levels : List Name) : Command.CommandElabM (Expr × Array Json) :=
   Command.runTermElabM fun sectionVars => do
     unless sectionVars.isEmpty do throwError "section variables are unsupported"
-    Term.withLevelNames levels <| Term.elabBinders sig[0].getArgs fun xs => do
+    -- An elaboration error must reject the statement, never become a `sorry`.
+    Term.withoutErrToSorry <| Term.withLevelNames levels <| Term.elabBinders sig[0].getArgs fun xs => do
       let target ← Term.elabType sig[1][1]
       Term.synthesizeSyntheticMVarsNoPostponing
       unless ← isProp target do throwError "theorem target is not a proposition"
@@ -31,18 +32,20 @@ private def closedType (sig : Syntax) (levels : List Name) : Command.CommandElab
       let e ← Term.levelMVarToParam e
       let e ← instantiateMVars e
       if e.hasMVar || e.hasFVar then throwError "unresolved theorem parameters"
+      if e.hasSorry then throwError "theorem statement contains sorry"
       return (e, locals)
 
 private def checkType (original : Expr) (text : String) : Command.CommandElabM Unit :=
   Command.runTermElabM fun _ => do
     let levels := (collectLevelParams {} original).params.toList
-    Term.withLevelNames levels do
+    Term.withoutErrToSorry <| Term.withLevelNames levels do
       let env ← getEnv
       let stx ← ofExcept <| Parser.runParserCategory env `term text
       let e ← Term.elabType stx
       Term.synthesizeSyntheticMVarsNoPostponing
       let e ← instantiateMVars e
       if e.hasMVar || e.hasFVar then throwError "round-trip has unresolved variables"
+      if e.hasSorry then throwError "round-trip contains sorry"
       unless ← isDefEq original e do throwError "round-trip changes the theorem type"
 
 private def extract (cmd : Syntax) (check : Option String) : Command.CommandElabM Json := do
@@ -56,7 +59,10 @@ private def extract (cmd : Syntax) (check : Option String) : Command.CommandElab
   let (original, locals) ← closedType thm[2] levels
   let text ← Command.runTermElabM fun _ => do
     withOptions (fun o => o.setBool `pp.all true |>.setBool `pp.universes true
-      |>.setBool `pp.fullNames true |>.setBool `pp.notation false) do
+      |>.setBool `pp.fullNames true |>.setBool `pp.notation false
+      -- Raw literals print as `nat_lit`, so the text re-elaborates to the same term
+      -- and equivalence never has to unfold large numerals.
+      |>.setBool `pp.natLit true) do
       return (← ppExpr original).pretty
   let saved ← Command.getScope
   Command.modifyScope fun s => { s with openDecls := [], currNamespace := .anonymous }
@@ -136,7 +142,9 @@ def main (args : List String) : IO Unit := do
     else if cmd.isOfKind ``Parser.Command.declaration && cmd[1].isOfKind ``Parser.Command.theorem then
       let name := cmd[1][1][0].getId.toString
       try
-        let (row, _) ← runCommand input state (extract cmd ((checks.getObjVal? name).bind Json.getStr?).toOption)
+        let (row, after) ← runCommand input state (extract cmd ((checks.getObjVal? name).bind Json.getStr?).toOption)
+        for msg in after.messages.toList do
+          if msg.severity == .error then throw <| IO.userError (← msg.data.toString)
         emit <| Json.mkObj [("status", toJson "ok"), ("problem", row)]
       catch e =>
         emit <| Json.mkObj [("status", toJson "incompatible"), ("name", toJson name),
