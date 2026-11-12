@@ -141,7 +141,7 @@ def test_lazy_exports_preserve_existing_package_api():
 
 
 CLIENT_REPOSITORY = "https://github.com/123nol/Pantograph-Client"
-CLIENT_COMMIT = "189a7b1ade1d1df88d3bab2108932d3f1297ba88"
+CLIENT_COMMIT = "2b3265083908b2d1e1e1c5698570d94bfb51c56c"
 
 
 def test_dependency_is_the_pinned_client_and_not_pypantograph():
@@ -175,7 +175,7 @@ def test_dependency_is_the_pinned_client_and_not_pypantograph():
     assert source["url"] == CLIENT_REPOSITORY
     assert source["vcs_info"]["commit_id"] == CLIENT_COMMIT
     verify_contract()
-    assert companion_base()["source_commit"] == "91dbc0fb8b0af2d879abc51517693ec134343b33"
+    assert companion_base()["source_commit"] == "46a33e1c4e311cdc03ff1a2baa8eaeb36a69ff40"
     fixture = json.loads((Path(__file__).parent / "fixtures/pantograph/future_contract.json").read_text())
     assert fixture["descriptor"] == dict(PROTOCOL_DESCRIPTION)
     assert fixture["descriptor"]["transitionValidationVersion"] == 3
@@ -409,7 +409,7 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
     )
     assert recursion_depth["target_base_commit"].startswith("fc2b3b5")
     assert recursion_depth["client_commit"] == CLIENT_COMMIT
-    assert recursion_depth["repl_commit"] == "91dbc0fb8b0af2d879abc51517693ec134343b33"
+    assert recursion_depth["repl_commit"] == "46a33e1c4e311cdc03ff1a2baa8eaeb36a69ff40"
     for entry in recursion_depth["sources"]:
         if entry["path"] in expected:
             assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]

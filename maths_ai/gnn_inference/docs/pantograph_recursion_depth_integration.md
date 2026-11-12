@@ -13,14 +13,15 @@ back and search tries the other candidates.
 
 ## Runtime pair
 
-- REPL `123nol/Pantograph` `91dbc0fb8b0af2d879abc51517693ec134343b33`: the phase
+- REPL `123nol/Pantograph` `46a33e1c4e311cdc03ff1a2baa8eaeb36a69ff40`: the phase
   boundary recognizes recursion exhaustion with Lean's
   `Exception.isMaxRecDepth` and reports it as a resource error,
-  `kind: "recursion-depth"`, with the command's configured `maxRecDepth` as its
-  limit. The transaction discards the staged state, so the answer is
+  `kind: "recursion-depth"`. Its limit is the bound of the innermost
+  `set_option maxRecDepth N in` scope the exception left, or else the command's
+  configured `maxRecDepth`. The transaction discards the staged state, so the answer is
   `command-rolled-back` (`frontend.process` stays `session-unusable`), and
   certification that exhausts it is `inconclusive`.
-- Client `123nol/Pantograph-Client` `189a7b1ade1d1df88d3bab2108932d3f1297ba88`
+- Client `123nol/Pantograph-Client` `2b3265083908b2d1e1e1c5698570d94bfb51c56c`
   (0.7.0): resource details version 2, kinds `heartbeats` and
   `recursion-depth`. Both raise `PantographResourceError` after a verified
   rollback and `PantographSessionResourceError` otherwise. A companion that
@@ -48,9 +49,9 @@ recorded failure archives are unchanged.
 ```bash
 conda activate atp-mcts
 python -m pip install --upgrade --no-deps \
-  'pantograph-async-client @ git+https://github.com/123nol/Pantograph-Client@189a7b1ade1d1df88d3bab2108932d3f1297ba88'
+  'pantograph-async-client @ git+https://github.com/123nol/Pantograph-Client@2b3265083908b2d1e1e1c5698570d94bfb51c56c'
 git clone --no-checkout https://github.com/123nol/Pantograph.git /home/jovyan/Pantograph-recursion-depth
-git -C /home/jovyan/Pantograph-recursion-depth checkout --detach 91dbc0fb8b0af2d879abc51517693ec134343b33
+git -C /home/jovyan/Pantograph-recursion-depth checkout --detach 46a33e1c4e311cdc03ff1a2baa8eaeb36a69ff40
 cd /home/jovyan/Pantograph-recursion-depth && lake build repl && cd -
 ```
 
@@ -62,7 +63,7 @@ as they are; a release for this runtime is published as a new version.
 
 ## Verification
 
-Local, CPU, with the pinned client, the companion built from `91dbc0f` and the
+Local, CPU, with the pinned client, the companion built from `46a33e1` and the
 pinned Mathlib `29dcec07`:
 
 - **Offline:** the resource-integration tests run for both kinds, including
