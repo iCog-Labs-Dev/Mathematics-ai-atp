@@ -13,9 +13,9 @@
 
 ARG PYTHON_IMAGE=python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f
 ARG LEAN_TOOLCHAIN=leanprover/lean4:v4.10.0-rc1
-# The REPL the pinned client (123nol/Pantograph-Client@e795e74) was built against.
+# The REPL the pinned client (123nol/Pantograph-Client@6a6d611) was built against.
 ARG PANTOGRAPH_REPO=https://github.com/123nol/Pantograph.git
-ARG PANTOGRAPH_COMMIT=661df4e32bb487f52e4bf229a34b155f9e69c76b
+ARG PANTOGRAPH_COMMIT=91dbc0fb8b0af2d879abc51517693ec134343b33
 # The Mathlib revision on the same toolchain.
 ARG MATHLIB_COMMIT=29dcec074de168ac2bf835a77ef68bbe069194c5
 

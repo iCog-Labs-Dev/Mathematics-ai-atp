@@ -37,7 +37,7 @@ class Proposal(BaseModel):
 
 class ResourceFailure(_Strict):
     command: str
-    kind: Literal["heartbeats"]
+    kind: Literal["heartbeats", "recursion-depth"]
     phase: Literal["execute", "validate", "observe", "serialize"]
     limit: StrictInt = Field(gt=0)
     recovery: Literal["command-rolled-back", "session-unusable"]

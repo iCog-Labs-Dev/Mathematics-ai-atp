@@ -12,7 +12,7 @@
     "messageVersion": 1,
     "goalSelection": "explicit-focused-v1",
     "tacticErrorsFormat": "string-array-v1",
-    "resourceErrorVersion": 1,
+    "resourceErrorVersion": 2,
     "commandTransactionVersion": 1
   },
   "successes": {

@@ -19,9 +19,13 @@ from maths_ai.gnn_inference.tests.test_execution_registry import admitted, ROOT,
 from maths_ai.gnn_inference.atp_lean_gnn.search_harvest import compute_backups
 
 
-def exhaustion(command="goal.tactic", phase="execute", *, fatal=False):
-    kind = PantographSessionResourceError if fatal else PantographResourceError
-    return kind("Heartbeat budget exhausted", resource=ResourceDetails(1, "heartbeats", phase, 100), command=command)
+KINDS = ["heartbeats", "recursion-depth"]
+
+
+def exhaustion(command="goal.tactic", phase="execute", *, fatal=False, kind="heartbeats"):
+    error = PantographSessionResourceError if fatal else PantographResourceError
+    limit = 100 if kind == "heartbeats" else 512
+    return error(f"{kind} exhausted", resource=ResourceDetails(2, kind, phase, limit), command=command)
 
 
 def search(monkeypatch, rules, proposals, policy="puct"):
@@ -37,10 +41,11 @@ def search(monkeypatch, rules, proposals, policy="puct"):
 
 
 @pytest.mark.parametrize("policy", ["legacy", "puct"])
-def test_resource_candidate_keeps_input_for_a_valid_alternative(monkeypatch, policy):
+@pytest.mark.parametrize("kind", KINDS)
+def test_resource_candidate_keeps_input_for_a_valid_alternative(monkeypatch, policy, kind):
     def rules(spec, command):
         if command == "expensive":
-            raise exhaustion()
+            raise exhaustion(kind=kind)
         return Step()
 
     graph = search(monkeypatch, rules, [("expensive", .9), ("trivial", .8)], policy)
@@ -52,9 +57,10 @@ def test_resource_candidate_keeps_input_for_a_valid_alternative(monkeypatch, pol
 
 
 @pytest.mark.parametrize("policy", ["legacy", "puct"])
-def test_only_resource_failures_produce_unknown_learning_evidence(monkeypatch, policy):
+@pytest.mark.parametrize("kind", KINDS)
+def test_only_resource_failures_produce_unknown_learning_evidence(monkeypatch, policy, kind):
     def rules(spec, command):
-        raise exhaustion()
+        raise exhaustion(kind=kind)
 
     graph = search(monkeypatch, rules, [("expensive", .9)], policy)
     assert not graph.is_solved()
@@ -62,7 +68,8 @@ def test_only_resource_failures_produce_unknown_learning_evidence(monkeypatch, p
     assert compute_backups(graph).node_targets[0].validity is BackupValidity.UNKNOWN
 
 
-def test_failed_post_tactic_inspection_releases_the_result(monkeypatch):
+@pytest.mark.parametrize("kind", KINDS)
+def test_failed_post_tactic_inspection_releases_the_result(monkeypatch, kind):
     original = FakeSnapshotScope.inspect
     failed = False
 
@@ -70,7 +77,7 @@ def test_failed_post_tactic_inspection_releases_the_result(monkeypatch):
         nonlocal failed
         if not failed:
             failed = True
-            raise exhaustion("goal.inspect", "observe")
+            raise exhaustion("goal.inspect", "observe", kind=kind)
         return await original(scope, state, names)
 
     monkeypatch.setattr(FakeSnapshotScope, "inspect", inspect)
@@ -80,7 +87,8 @@ def test_failed_post_tactic_inspection_releases_the_result(monkeypatch):
     assert graph.execution["resource_errors"][0]["command"] == "goal.inspect"
 
 
-def test_replay_resource_failure_tries_another_recipe_without_conflict_memo(monkeypatch):
+@pytest.mark.parametrize("kind", KINDS)
+def test_replay_resource_failure_tries_another_recipe_without_conflict_memo(monkeypatch, kind):
     attempts = 0
 
     def rules(spec, command):
@@ -88,7 +96,7 @@ def test_replay_resource_failure_tries_another_recipe_without_conflict_memo(monk
         if command == "first":
             attempts += 1
             if attempts > 1:
-                raise exhaustion()
+                raise exhaustion(kind=kind)
         return Step()
 
     graph = search(monkeypatch, rules, [("first", .9), ("second", .8)])
@@ -99,7 +107,8 @@ def test_replay_resource_failure_tries_another_recipe_without_conflict_memo(monk
 
 
 @pytest.mark.parametrize("operation", ["inspect", "certify"])
-def test_replay_resource_errors_are_not_remembered_as_logical_conflicts(operation):
+@pytest.mark.parametrize("kind", KINDS)
+def test_replay_resource_errors_are_not_remembered_as_logical_conflicts(operation, kind):
     from maths_ai.gnn_inference.tests.test_proof_replay import explorer_for, RULES as replay_rules
     from maths_ai.hybrid_reasoner.proof_replay import ReplayCoordinator, ReplayStatus
 
@@ -113,7 +122,7 @@ def test_replay_resource_errors_are_not_remembered_as_logical_conflicts(operatio
             nonlocal first
             if first:
                 first = False
-                raise exhaustion(f"goal.{operation}", "observe")
+                raise exhaustion(f"goal.{operation}", "observe", kind=kind)
             return await original(*args, **kwargs)
 
         setattr(scope, operation, fail_once)
@@ -132,7 +141,8 @@ def test_replay_resource_errors_are_not_remembered_as_logical_conflicts(operatio
 
 
 @pytest.mark.parametrize("policy", ["legacy", "puct"])
-def test_rl_resource_aliases_settle_once_without_rejection_records(policy):
+@pytest.mark.parametrize("kind", KINDS)
+def test_rl_resource_aliases_settle_once_without_rejection_records(policy, kind):
     import torch
     from maths_ai.gnn_inference.tests import test_action_priors as priors
     from maths_ai.gnn_inference.tests.test_command_identity import RecordingExecutor
@@ -144,7 +154,7 @@ def test_rl_resource_aliases_settle_once_without_rejection_records(policy):
     class Executor(RecordingExecutor):
         async def apply(self, registry, occurrence, command, *, holder="operation"):
             self.calls.append(command)
-            return RetainedOutcome(False, command, resource=ResourceDiagnostic.from_error(exhaustion()))
+            return RetainedOutcome(False, command, resource=ResourceDiagnostic.from_error(exhaustion(kind=kind)))
 
     executor = Executor({})
     reasoner, model, _ = _make_reasoner(executor, top_k=3, selection_policy=policy,
@@ -206,7 +216,8 @@ def test_resource_observations_do_not_score_or_train_the_actor():
     model.evaluate_actions.assert_not_called()
 
 
-def test_admission_resource_failure_is_not_quarantine_or_cached(monkeypatch):
+@pytest.mark.parametrize("kind", KINDS)
+def test_admission_resource_failure_is_not_quarantine_or_cached(monkeypatch, kind):
     from maths_ai.gnn_inference.atp_lean_gnn import seed_admission as admission
     from maths_ai.gnn_inference.tests.test_admission_session import _items
     from maths_ai.gnn_inference.tests.test_rl_training_driver import _ReplayClient, _factory
@@ -214,7 +225,7 @@ def test_admission_resource_failure_is_not_quarantine_or_cached(monkeypatch):
 
     async def materialize(scope, seed):
         if seed.target == "P":
-            raise exhaustion("goal.start")
+            raise exhaustion("goal.start", kind=kind)
         return None, None, SimpleNamespace(name_drift=False, source_indices=(), replay_indices=())
 
     monkeypatch.setattr(admission, "materialize_seed", materialize)
@@ -240,7 +251,8 @@ def test_admission_resource_failure_is_not_quarantine_or_cached(monkeypatch):
 
 
 @pytest.mark.parametrize("fatal", [False, True])
-def test_collection_preserves_resource_metadata_and_only_replaces_unusable_sessions(fatal):
+@pytest.mark.parametrize("kind", KINDS)
+def test_collection_preserves_resource_metadata_and_only_replaces_unusable_sessions(fatal, kind):
     from maths_ai.gnn_inference.tests.test_rl_live_collection import _create_pool, _Result
 
     async def run():
@@ -251,14 +263,14 @@ def test_collection_preserves_resource_metadata_and_only_replaces_unusable_sessi
         async def factory(reasoner, theorem, proposal, deadline):
             if theorem == "resource":
                 reasoner.server.is_usable = not fatal
-                raise exhaustion(fatal=fatal)
+                raise exhaustion(fatal=fatal, kind=kind)
             return _Result(theorem)
 
         pool.search_factory = factory
         try:
             result = await pool.collect_round(["resource", "solve-next"], timeout_s=1, proposals=[None, None], model_generation=0)
             assert result.records[0].outcome == "resource_limit"
-            assert result.records[0].resource["kind"] == "heartbeats"
+            assert result.records[0].resource["kind"] == kind
             assert result.records[1].outcome == "solved"
             assert result.stats["workers_replaced"] == int(fatal)
             assert result.stats["searches_resource_limited"] == 1
@@ -295,6 +307,42 @@ def test_native_heartbeat_then_certified_search_in_same_session(policy, request)
             assert graph.is_solved()
             assert graph.execution["resource_error_count"] == 1
             assert graph.root.command_outcomes["contract_heartbeat"].status is CommandStatus.RESOURCE_LIMIT
+            assert client.is_usable and (await client.stat()).n_goals == 0
+
+    asyncio.run(run())
+
+
+@pytest.mark.pantograph_live
+@pytest.mark.parametrize("policy", ["legacy", "puct"])
+def test_native_recursion_depth_then_certified_search_in_same_session(policy, request):
+    """A candidate past Lean's recursion limit is skipped; the next one certifies."""
+    import os
+    from pathlib import Path
+    from pantograph_async import PantographClient, PantographEnv
+    from maths_ai.lean_replay import seed_from_text
+
+    source = os.environ.get("PANTOGRAPH_RESOURCE_SOURCE_ROOT")
+    repl = os.environ.get("PANTOGRAPH_TEST_REPL")
+    if not source or not repl:
+        if request.config.getoption("--run-pantograph-live"):
+            pytest.fail("Native resource gate requires PANTOGRAPH_RESOURCE_SOURCE_ROOT and PANTOGRAPH_TEST_REPL")
+        pytest.skip("Explicit transactional companion fixture paths not configured")
+    goal = "(List.replicate 2000 0).length = 2000"
+
+    async def run():
+        env = PantographEnv(source_root=Path(source), pantograph_repl=Path(repl), imports=("Init", "Test.ContractFixtures"))
+        async with await PantographClient.create(env) as client:
+            reasoner = _Scripted(
+                {goal: [("decide", .9), ("exact List.length_replicate 2000 0", .8)]},
+                executor=PantographExecutor(client), selection_policy=policy,
+                **({"num_simulations": 16} if policy == "puct" else {}),
+            )
+            graph = await reasoner.prove(seed_from_text(goal=goal))
+            assert graph.is_solved() and graph.certificate.is_certified
+            assert graph.execution["resource_error_count"] == 1
+            outcome = graph.root.command_outcomes["decide"]
+            assert outcome.status is CommandStatus.RESOURCE_LIMIT
+            assert (outcome.resource.kind, outcome.resource.recovery) == ("recursion-depth", "command-rolled-back")
             assert client.is_usable and (await client.stat()).n_goals == 0
 
     asyncio.run(run())
