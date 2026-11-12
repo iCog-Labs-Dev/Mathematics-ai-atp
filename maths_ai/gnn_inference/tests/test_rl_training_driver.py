@@ -696,6 +696,10 @@ class PoolTests(unittest.TestCase):
             self.assertEqual(report["skipped"], {"replay-repl-failure": 1})
             self.assertEqual(report["quarantined"], {})
             self.assertEqual(len(created), 2)
+            # The failed session's evidence travels with the skipped row.
+            example = report["examples"]["replay-repl-failure"][0]
+            self.assertIn("failure", example)
+            self.assertIn("snapshot", example)
 
             # Consecutive heavy rows of one proof are each skipped, not fatal.
             many = tmp / "many"

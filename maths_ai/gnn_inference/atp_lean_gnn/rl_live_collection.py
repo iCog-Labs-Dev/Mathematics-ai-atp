@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import time
+import dataclasses
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Literal, Sequence
 
@@ -21,6 +22,7 @@ from pantograph_async import (
     PantographTransportError,
 )
 
+from maths_ai.hybrid_reasoner.failure_evidence import FailureArchive, failure_record, runtime_identity
 from .rl_resources import ResourcePlan
 from maths_ai.hybrid_reasoner.resource_outcomes import resource_from_exception
 
@@ -79,6 +81,9 @@ class CollectionRecord:
     result: Any | None = None
     exception_category: str | None = None
     resource: dict | None = None
+    #: Plain summary of a failed session: failure ID, archive path when stored,
+    #: and what the REPL reported. ``None`` when the attempt did not fail one.
+    failure: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -172,6 +177,8 @@ class LiveReasonerPool:
         self.environment_description = environment_description
         self.model_generation = int(model_generation)
         self.log = log
+        #: Run-owned failure bundles; set by the driver or service that owns the run.
+        self.failure_archive: FailureArchive | None = None
         self._closed = False
         self.close_callbacks = []
         self._close_task: asyncio.Task | None = None
@@ -408,6 +415,70 @@ class LiveReasonerPool:
     def collecting(self) -> bool:
         return self._collecting
 
+    async def _begin_failure(
+        self, *, batch_index: int, worker_id: int, outcome: str, search_s: float, theorem: Any,
+        proposal: Any, error: BaseException, server: Any, backstop_expired: bool,
+    ) -> dict[str, Any]:
+        """Persist preliminary evidence before the failed session is cleaned up."""
+        timeout_owner = (
+            "theorem-backstop" if backstop_expired
+            else "client-request-deadline" if isinstance(error, PantographRequestTimeout)
+            else None
+        )
+        context = {
+            "batch_index": batch_index, "worker_id": worker_id, "model_generation": self.model_generation,
+            "outcome": outcome, "search_s": search_s, "replacement": "pending",
+            "proposal": {
+                "mode": getattr(proposal, "mode", None), "seed": getattr(proposal, "seed", None),
+                "derivation": getattr(proposal, "derivation", None),
+            },
+            "environment": self.environment_description,
+        }
+        capture: dict[str, Any] = {
+            "state": {"context": context, "theorem": theorem, "error": error, "server": server,
+                      "timeout_owner": timeout_owner},
+            "summary": {"failure_id": None, "summary": None, "stored": False},
+        }
+        try:
+            try:
+                identity = await asyncio.to_thread(runtime_identity, server)
+            except Exception as exc:
+                identity = {"error": f"{type(exc).__name__}: {exc}"[:512]}
+            capture["state"]["identity"] = identity
+            evidence = failure_record(**capture["state"])
+            if self.failure_archive is not None:
+                capture["summary"] = self.failure_archive.begin(evidence)
+            else:
+                capture["summary"].update(summary=evidence["summary"], replayable=evidence["replayable"])
+        except Exception as capture_error:
+            # Evidence capture never replaces the original failure.
+            capture["summary"]["capture_error"] = f"{type(capture_error).__name__}: {capture_error}"[:512]
+        return capture
+
+    def _finish_failure(
+        self, capture: dict[str, Any], replacement: str, cleanup_error: BaseException | None = None,
+    ) -> dict[str, Any]:
+        """Finalize the evidence after cleanup; the old session's stderr is now drained."""
+        state, summary = capture["state"], capture["summary"]
+        state["context"]["replacement"] = replacement
+        try:
+            evidence = failure_record(**state, cleanup_error=cleanup_error)
+            if self.failure_archive is not None and summary.get("stored"):
+                summary = self.failure_archive.finish(summary, evidence)
+            else:
+                summary = {**summary, "summary": evidence["summary"], "replayable": evidence["replayable"]}
+        except Exception as capture_error:
+            summary = {**summary, "capture_error": f"{type(capture_error).__name__}: {capture_error}"[:512]}
+        summary["timeout_owner"] = state["timeout_owner"]
+        if cleanup_error is not None:
+            summary["cleanup_error"] = f"{type(cleanup_error).__name__}: {cleanup_error}"[:512]
+        where = f" -> {summary['path']}" if summary.get("path") else ""
+        self.log(
+            f"  [collect worker={state['context']['worker_id']}] "
+            f"{summary.get('summary') or type(state['error']).__name__}; Pantograph worker {replacement}{where}"
+        )
+        return summary
+
     async def _replacement_worker(
         self, worker: LiveReasonerWorker
     ) -> LiveReasonerWorker:
@@ -586,15 +657,16 @@ class LiveReasonerPool:
                     if isinstance(exc, PantographResourceError) and worker.server.is_usable:
                         self.log(f"  [collect worker={worker.worker_id}] resource-limited root; session retained")
                         continue
-                    self.log(
-                        f"  [collect worker={worker.worker_id}] "
-                        f"{'hard timeout' if hard_timeout else type(exc).__name__}; "
-                        "replacing Pantograph worker"
-                    )
+                    capture = await self._begin_failure(
+                        batch_index=index, worker_id=worker.worker_id, outcome=record.outcome,
+                        search_s=record.search_s, theorem=theorem, proposal=proposals[index],
+                        error=exc, server=worker.server, backstop_expired=backstop.expired())
                     try:
                         worker = await self._replacement_worker(worker)
                         replacements[worker.worker_id] += 1
                     except WorkerStartupError as replacement_error:
+                        record = dataclasses.replace(record, failure=self._finish_failure(
+                            capture, "replacement failed", replacement_error))
                         if isinstance(replacement_error.cause, FATAL_SESSION_ERRORS):
                             raise replacement_error.cause
                         replacement_failures[worker.worker_id] += 1
@@ -605,7 +677,21 @@ class LiveReasonerPool:
                                 "Every live collection worker became unavailable."
                             ) from replacement_error
                         return
-                except FATAL_SESSION_ERRORS:
+                    except BaseException as cleanup_error:
+                        # Closing the old client failed: keep both errors, then propagate.
+                        record = dataclasses.replace(record, failure=self._finish_failure(
+                            capture, "cleanup failed", cleanup_error))
+                        raise
+                    # The old session is closed, so its failure evidence is final.
+                    record = dataclasses.replace(record, failure=self._finish_failure(capture, "replaced"))
+                except FATAL_SESSION_ERRORS as exc:
+                    # Integrity failures propagate at once; record what is known first.
+                    capture = await self._begin_failure(
+                        batch_index=index, worker_id=worker.worker_id, outcome="fatal",
+                        search_s=time.perf_counter() - search_started, theorem=theorem,
+                        proposal=proposals[index], error=exc, server=worker.server,
+                        backstop_expired=backstop.expired())
+                    self._finish_failure(capture, "not replaced (fatal)")
                     raise
                 except Exception as exc:
                     record = CollectionRecord(

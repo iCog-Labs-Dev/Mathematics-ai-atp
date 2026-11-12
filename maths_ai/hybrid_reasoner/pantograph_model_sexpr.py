@@ -29,6 +29,7 @@ from maths_ai.lean_replay import (
     validate_replay,
 )
 
+from .failure_evidence import RequestHistory
 from .pantograph_adapter import (
     execution_goal_to_goal,
     execution_goal_to_structured_locals,
@@ -44,7 +45,10 @@ async def create_model_sexpr_client(env: PantographEnv) -> PantographClient:
     client = None
     try:
         async with asyncio.timeout_at(started + strict_env.server_start_timeout_s):
-            client = await PantographClient.create(strict_env)
+            history = RequestHistory()
+            client = await PantographClient.create(strict_env, observer=history)
+            # Read by failure capture after the session ends; holds plain events only.
+            client.request_history = history
             await probe_model_client(client)
         return client
     except BaseException as exc:

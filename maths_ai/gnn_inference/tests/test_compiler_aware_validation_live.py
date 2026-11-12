@@ -27,6 +27,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.pyg import build_vocab
 from maths_ai.gnn_inference.atp_lean_gnn.rl_reasoner import RLHybridReasoner
 from maths_ai.gnn_inference.atp_lean_gnn.seed_admission import TheoremItem
 from maths_ai.hybrid_reasoner.command_journal import JOURNAL_ENV
+from maths_ai.hybrid_reasoner.failure_evidence import RequestHistory
 from maths_ai.hybrid_reasoner.joint_inference import PantographExecutor
 from maths_ai.hybrid_reasoner.mcts_diagnostics import ScriptedSearchReasoner
 from maths_ai.hybrid_reasoner.pantograph_model_sexpr import create_model_sexpr_client, materialize_seed
@@ -174,14 +175,16 @@ def test_command_journal_records_each_command_before_its_outcome(live_env, tmp_p
 
     asyncio.run(run())
     records = [json.loads(line) for line in path.read_text().splitlines()]
-    commands = [r for r in records if r["kind"] == "command"]
-    outcomes = {r["seq"]: r for r in records if r["kind"] == "outcome"}
-    assert {r["phase"] for r in commands} >= {"operation", "replay"}
-    assert [r["command"] for r in commands if r["phase"] == "operation"] == ["unfold Nat.pow", "split <;> rfl"]
-    for record in commands:
-        assert records.index(record) < records.index(outcomes[record["seq"]])
-        assert outcomes[record["seq"]]["outcome"] == "accepted"
-        assert outcomes[record["seq"]]["validation"].startswith(f"{TRANSITION_VALIDATION_VERSION}:")
+    prepared = [r for r in records if r["stage"] == "prepared"]
+    finished = {r["sequence"]: r for r in records if r["stage"] in ("completed", "failed")}
+    tactics = [r for r in prepared if r["operation"] == "goal.tactic"]
+    assert {r["phase"] for r in tactics} >= {"operation", "replay"}
+    commands = [json.loads(r["request"].split(" ", 1)[1])["tactic"] for r in tactics if r["phase"] == "operation"]
+    assert commands == ["unfold Nat.pow", "split <;> rfl"]
+    assert any(r["operation"] == "goal.certify" and r["phase"] == "certify" for r in prepared)
+    for record in prepared:
+        assert records.index(record) < records.index(finished[record["sequence"]])
+        assert finished[record["sequence"]]["stage"] == "completed"
 
 
 @pytest.mark.pantograph_live
@@ -201,7 +204,7 @@ def test_journal_keeps_the_last_command_of_a_terminal_failure(request, tmp_path,
 
     async def run():
         env = PantographEnv(source_root=Path(source), pantograph_repl=Path(repl), imports=("Init", "Test.ContractFixtures"))
-        async with await PantographClient.create(env) as client:
+        async with await PantographClient.create(env, observer=RequestHistory()) as client:
             reasoner = ScriptedSearchReasoner(client, {"True": (("contract_invalid_mutation", 1.0),)})
             with pytest.raises(PantographProtocolError, match="owner="):
                 await reasoner.prove(seed_from_text(goal="True"))
@@ -209,6 +212,6 @@ def test_journal_keeps_the_last_command_of_a_terminal_failure(request, tmp_path,
 
     asyncio.run(run())
     records = [json.loads(line) for line in path.read_text().splitlines()]
-    assert records[-2]["kind"] == "command" and records[-2]["command"] == "contract_invalid_mutation"
-    assert records[-1]["outcome"] == "terminal" and records[-1]["error_type"] == "PantographProtocolError"
-    assert "validation" in records[-1]["payload"]
+    assert records[-2]["stage"] == "prepared" and "contract_invalid_mutation" in records[-2]["request"]
+    assert records[-1]["stage"] == "failed" and records[-1]["error_type"] == "PantographProtocolError"
+    assert records[-1]["sequence"] == records[-2]["sequence"]

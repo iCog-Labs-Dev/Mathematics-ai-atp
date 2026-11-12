@@ -10,7 +10,7 @@ dependencies = [
     "fastapi>=0.115.0",
     "graphviz>=0.21",
     "huggingface-hub>=0.36.2,<1",
-    "pantograph-async-client @ git+https://github.com/123nol/Pantograph-Client@e8aa9ecc17686cfa2703c7082c02d45310ce421f",
+    "pantograph-async-client @ git+https://github.com/123nol/Pantograph-Client@e795e746abf72e325099bbc8206207e829302a4b",
     "pydantic>=2.13.4",
     "pytest>=9.0.3",
     "torch>=2.12.0",

@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import os
 import time
+from pathlib import Path
 from typing import Any
 
+from maths_ai.hybrid_reasoner.failure_evidence import FailureArchive
 from maths_ai.gnn_inference.atp_lean_gnn.evaluation_runtime import (
     EvaluationSettings,
     chunk_stats,
@@ -79,6 +81,7 @@ class LiveBackend:
             self.cfg, checkpoint=self.config.checkpoint, search_kwargs=default.search_kwargs(),
             pln_spec=self.config.pln, enable_pln=any(p.use_pln for p in self.config.search_profiles.values())
         )
+        self.runtime.pool.failure_archive = FailureArchive(Path(self.config.state_dir) / "failures")
         return self.provenance()
 
     def provenance(self) -> dict[str, Any]:

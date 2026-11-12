@@ -39,6 +39,7 @@ from pantograph_async import (
 )
 from pantograph_async.diagnostics import distribution_source
 
+from maths_ai.hybrid_reasoner.failure_evidence import failure_summary
 from maths_ai.hybrid_reasoner.pantograph_model_sexpr import materialize_seed
 from maths_ai.lean_replay import (
     RENDERER_VERSION,
@@ -468,17 +469,21 @@ class AdmissionSession:
                 )
                 report.skipped[kind] += 1
                 report.cover(item.seed.source_dict, item.size, "skipped")
+                await client.aclose()
                 bucket = report.examples.setdefault(kind, [])
                 if len(bucket) < EXAMPLES_PER_REASON:
+                    # The session is closed, so its failure snapshot is final.
+                    snapshot = getattr(client, "last_failure", None)
                     bucket.append(
                         {
                             "source": item.seed.source_dict,
                             "replay_chars": len(replay.expression),
                             "error": str(exc)[:300],
                             "resource": diagnostic.as_dict() if diagnostic else None,
+                            "failure": failure_summary(snapshot) if snapshot is not None else None,
+                            "snapshot": snapshot.to_dict() if snapshot is not None else None,
                         }
                     )
-                await client.aclose()
                 self._client = await self._client_factory()
                 return False
             if validation.name_drift:
