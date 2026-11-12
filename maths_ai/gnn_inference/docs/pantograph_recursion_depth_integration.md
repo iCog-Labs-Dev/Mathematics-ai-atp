@@ -20,7 +20,7 @@ back and search tries the other candidates.
   limit. The transaction discards the staged state, so the answer is
   `command-rolled-back` (`frontend.process` stays `session-unusable`), and
   certification that exhausts it is `inconclusive`.
-- Client `123nol/Pantograph-Client` `6a6d611bee093e3a8f389a22bab01518fc60531f`
+- Client `123nol/Pantograph-Client` `189a7b1ade1d1df88d3bab2108932d3f1297ba88`
   (0.7.0): resource details version 2, kinds `heartbeats` and
   `recursion-depth`. Both raise `PantographResourceError` after a verified
   rollback and `PantographSessionResourceError` otherwise. A companion that
@@ -48,7 +48,7 @@ recorded failure archives are unchanged.
 ```bash
 conda activate atp-mcts
 python -m pip install --upgrade --no-deps \
-  'pantograph-async-client @ git+https://github.com/123nol/Pantograph-Client@6a6d611bee093e3a8f389a22bab01518fc60531f'
+  'pantograph-async-client @ git+https://github.com/123nol/Pantograph-Client@189a7b1ade1d1df88d3bab2108932d3f1297ba88'
 git clone --no-checkout https://github.com/123nol/Pantograph.git /home/jovyan/Pantograph-recursion-depth
 git -C /home/jovyan/Pantograph-recursion-depth checkout --detach 91dbc0fb8b0af2d879abc51517693ec134343b33
 cd /home/jovyan/Pantograph-recursion-depth && lake build repl && cd -

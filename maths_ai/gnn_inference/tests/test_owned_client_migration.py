@@ -141,7 +141,7 @@ def test_lazy_exports_preserve_existing_package_api():
 
 
 CLIENT_REPOSITORY = "https://github.com/123nol/Pantograph-Client"
-CLIENT_COMMIT = "6a6d611bee093e3a8f389a22bab01518fc60531f"
+CLIENT_COMMIT = "189a7b1ade1d1df88d3bab2108932d3f1297ba88"
 
 
 def test_dependency_is_the_pinned_client_and_not_pypantograph():
