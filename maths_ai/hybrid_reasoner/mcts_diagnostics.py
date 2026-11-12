@@ -42,7 +42,7 @@ TARGET_BRANCH = "MCTS-AC-branch"
 TARGET_BASE_COMMIT = "61f6d384730fca3dd7a56918377af4efb2c912cc"
 APPLICATION_SOURCE_COMMIT = "54d7cefe04aed980734798f06528ed80c71b81ac"
 CLIENT_REPOSITORY = "https://github.com/123nol/Pantograph-Client"
-CLIENT_COMMIT = "e795e746abf72e325099bbc8206207e829302a4b"
+CLIENT_COMMIT = "2b3265083908b2d1e1e1c5698570d94bfb51c56c"
 GOLDEN_PATH = (
     Path(__file__).parents[1]
     / "gnn_inference/tests/fixtures/pantograph/canonical_graph_expectations.json"

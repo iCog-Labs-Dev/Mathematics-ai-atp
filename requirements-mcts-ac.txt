@@ -164,7 +164,7 @@ packaging==26.1
     #   transformers
 pandas==3.0.5
     # via datasets
-pantograph-async-client @ git+https://github.com/123nol/Pantograph-Client@e795e746abf72e325099bbc8206207e829302a4b
+pantograph-async-client @ git+https://github.com/123nol/Pantograph-Client@2b3265083908b2d1e1e1c5698570d94bfb51c56c
     # via mathematics-ai-atp
 pluggy==1.6.0
     # via pytest

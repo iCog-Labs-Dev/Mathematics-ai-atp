@@ -49,11 +49,13 @@ class FakeBackend:
             raise BackendError("input:malformed-text", "scripted input failure")
         elif goal == "inadmissible":
             return {"outcome": "inadmissible", "exception_category": "lean-rejected"}
-        elif goal == "resource":
+        elif goal in ("resource", "resource-recursion"):
+            heartbeats = goal == "resource"
             return {
                 "outcome": "resource_limit", "certified": False,
-                "resource": {"command": "goal.tactic", "kind": "heartbeats",
-                             "phase": "execute", "limit": 200000,
+                "resource": {"command": "goal.tactic",
+                             "kind": "heartbeats" if heartbeats else "recursion-depth",
+                             "phase": "execute", "limit": 200000 if heartbeats else 512,
                              "recovery": "command-rolled-back"},
             }
         return {

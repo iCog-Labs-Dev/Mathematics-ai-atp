@@ -97,7 +97,7 @@ def main():
             result = {
                 "protocol": "maths-ai-pantograph",
                 "protocolVersion": 3,
-                "resourceErrorVersion": 1,
+                "resourceErrorVersion": 2,
                 "commandTransactionVersion": 1,
                 "modelSexpVersion": 1,
                 "transitionValidationVersion": 3,
