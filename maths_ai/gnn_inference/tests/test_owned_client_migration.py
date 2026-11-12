@@ -141,7 +141,7 @@ def test_lazy_exports_preserve_existing_package_api():
 
 
 CLIENT_REPOSITORY = "https://github.com/123nol/Pantograph-Client"
-CLIENT_COMMIT = "e795e746abf72e325099bbc8206207e829302a4b"
+CLIENT_COMMIT = "6a6d611bee093e3a8f389a22bab01518fc60531f"
 
 
 def test_dependency_is_the_pinned_client_and_not_pypantograph():
@@ -175,7 +175,7 @@ def test_dependency_is_the_pinned_client_and_not_pypantograph():
     assert source["url"] == CLIENT_REPOSITORY
     assert source["vcs_info"]["commit_id"] == CLIENT_COMMIT
     verify_contract()
-    assert companion_base()["source_commit"] == "661df4e32bb487f52e4bf229a34b155f9e69c76b"
+    assert companion_base()["source_commit"] == "91dbc0fb8b0af2d879abc51517693ec134343b33"
     fixture = json.loads((Path(__file__).parent / "fixtures/pantograph/future_contract.json").read_text())
     assert fixture["descriptor"] == dict(PROTOCOL_DESCRIPTION)
     assert fixture["descriptor"]["transitionValidationVersion"] == 3
@@ -398,9 +398,19 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
         (WIDENING_MANIFEST.parent.parent / "failure_evidence/source_manifest.json").read_text()
     )
     assert failure_evidence["target_base_commit"].startswith("d94115d")
-    assert failure_evidence["client_commit"] == CLIENT_COMMIT
+    assert failure_evidence["client_commit"] == "e795e746abf72e325099bbc8206207e829302a4b"
     assert failure_evidence["repl_commit"] == "661df4e32bb487f52e4bf229a34b155f9e69c76b"
     for entry in failure_evidence["sources"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        expected[entry["path"]] = entry["sha256"]
+    recursion_depth = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "recursion_depth/source_manifest.json").read_text()
+    )
+    assert recursion_depth["target_base_commit"].startswith("fc2b3b5")
+    assert recursion_depth["client_commit"] == CLIENT_COMMIT
+    assert recursion_depth["repl_commit"] == "91dbc0fb8b0af2d879abc51517693ec134343b33"
+    for entry in recursion_depth["sources"]:
         if entry["path"] in expected:
             assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
         expected[entry["path"]] = entry["sha256"]

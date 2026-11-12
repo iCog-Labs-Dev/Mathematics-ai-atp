@@ -1,0 +1,85 @@
+{
+  "kind": "mcts-pantograph-recursion-depth-integration",
+  "target_base_commit": "fc2b3b5b6292eaea89f5ddc6fcc28e79caf1a80f",
+  "client_commit": "6a6d611bee093e3a8f389a22bab01518fc60531f",
+  "repl_commit": "91dbc0fb8b0af2d879abc51517693ec134343b33",
+  "protocol_version": 3,
+  "resource_error_version": 2,
+  "sources": [
+    {
+      "path": "docker/DOCKER.md",
+      "target_base_sha256": "bc4aaac99594b23020683fa542795a6963bcb820781c531fb94acdefc2f550b7",
+      "sha256": "b06cef1dc81e15bf5e983a5c603ac2ade0f8144f88b9cb1d0143ed47b2783e48"
+    },
+    {
+      "path": "docker/Dockerfile",
+      "target_base_sha256": "63650ae80a98b4cf54ce064bd5bf5494d3ffd7ae55af0424444f8da90462bd2e",
+      "sha256": "dd3ee40eacf3badd32e4a56f539717846dbac0d533cbc61521421c94a39385e3"
+    },
+    {
+      "path": "maths_ai/api/schemas.py",
+      "target_base_sha256": "52fb92583499c9b20ab0e365c0c5a9ba9a0f61190e436ff2346f4324871eee21",
+      "sha256": "837862ee836b361bba892ad0ace165798f02f58f7d1663e04994c1bcf41e36db"
+    },
+    {
+      "path": "maths_ai/api/tests/fake_backend.py",
+      "target_base_sha256": "1444a764550a22188d5e9eaa9678e5d424a2338cf968974d6eae56d41486e591",
+      "sha256": "59261c52cd0bf219719226da61f7800ccfe306745ca24d0f8b728d55e9cc385e"
+    },
+    {
+      "path": "maths_ai/api/tests/test_api.py",
+      "target_base_sha256": "abd68a45736762762b38fb22817a024feddb39a681a0ff54ab9a1b93be045e76",
+      "sha256": "a78fbafddb04e271c4c6f4b47126777234117d0502e1e40a2e1deff334e0eb63"
+    },
+    {
+      "path": "maths_ai/gnn_inference/docs/mcts_conda_setup.md",
+      "target_base_sha256": "9e08c68640c418c823a4327ad5a48fd8898427872e0558a0a4d263497873e8e5",
+      "sha256": "7f62cdb7cce6c633c931a4d2c3b4566044b59d4b70eae1531d67e704c8f443d1"
+    },
+    {
+      "path": "maths_ai/gnn_inference/docs/pantograph_recursion_depth_integration.md",
+      "target_base_sha256": null,
+      "sha256": "191c0577496570328fe4cf5f95ffa75bf1442a99e774d52f0b8ff550102d252b"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/fixtures/pantograph/fake_repl.py",
+      "target_base_sha256": "307822181225f5bf86be53486380a8f92b6ec1e57e55ead558abf5f55ce98105",
+      "sha256": "d2f2d67cd67858434194cd42082f30e9790f37f77ee14d2fbdbf20cfa6353fea"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/fixtures/pantograph/future_contract.json",
+      "target_base_sha256": "70a0cdf09932942dbf76c643627c6ae5f595503a9abc8aff674cb2c0aa5705fe",
+      "sha256": "7b4961cdde1a00342e073ab40479f2feb4928fba90c3fa6a5b3940d39043bf98"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
+      "target_base_sha256": "6a5c303e6e4c9eca977e1b974c065910fe8706279c7b10990f53a55fd2fcaf1e",
+      "sha256": "3429ce9fc48beb2cefc95c677fdf0ea1cc62b085d4c0614494085d5865394558"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_transactional_resource_integration.py",
+      "target_base_sha256": "b62cb974c2d535290dcb69d14d20e723571d933b36c69a04fee9d61a324e5f2d",
+      "sha256": "c1e6acf4da28586636ec90beb1d527b6466a19e53661d04b9b9d575bf1d830ce"
+    },
+    {
+      "path": "maths_ai/hybrid_reasoner/mcts_diagnostics.py",
+      "target_base_sha256": "354205ad6a4b168589b900b3f8a2333df0fd313746c4b0f3d11283bfa7ae0715",
+      "sha256": "17cba505dc2b26aab1faddd463938847e51eba702c1268f64642b6de8f0a5db0"
+    },
+    {
+      "path": "pyproject.toml",
+      "target_base_sha256": "a557bec7ec40032fb583bdf443e98c4201ed45fcae94c57cbff1aa74ea22210b",
+      "sha256": "97980300df8d71368775438b4cd5589fbdda78feeac66a4b1b82df9764b163d5"
+    },
+    {
+      "path": "requirements-mcts-ac.txt",
+      "target_base_sha256": "b64c1c40f8205bc666c628b34971b8942f2d1b8554e8df5ac814534743216bde",
+      "sha256": "63f2ee760e01236e793a27c201a2f909271499a960820e870857a847197be01e"
+    },
+    {
+      "path": "uv.lock",
+      "target_base_sha256": "43a5c40cac4e51fc57e00817f082b8a1c0ff39bb5164a2fa79c48e3abc2fa982",
+      "sha256": "f01ea6253a4b67c3b9b5a5d02f608ae6bd908ceb2dda23f18919b31aa0903494"
+    }
+  ]
+}
