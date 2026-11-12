@@ -103,8 +103,10 @@ RUN git clone --depth 1 --branch ${PETTA_REF} https://github.com/trueagi-io/PeTT
 # a runtime `git-import!` (network access) and the `(library Name "<abs path>")`
 # form are both unsupported by PeTTa's import resolution.
 ARG PETTACHAINER_REF=b1678e97c4498b376b91e8cce215f5ab0398ddef
-RUN git clone --depth 1 https://github.com/123nol/petta_chainer.git /opt/pettachainer \
-    && if [ "${PETTACHAINER_REF}" != "HEAD" ]; then git -C /opt/pettachainer checkout "${PETTACHAINER_REF}"; fi
+RUN git init /opt/pettachainer && \
+    git -C /opt/pettachainer remote add origin https://github.com/123nol/petta_chainer.git && \
+    git -C /opt/pettachainer fetch --depth 1 origin "${PETTACHAINER_REF}" && \
+    git -C /opt/pettachainer checkout --detach FETCH_HEAD
 
 ENV PETTA_CHAINER_DIR=/opt/pettachainer/pettachainer/metta
 
