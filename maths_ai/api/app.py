@@ -155,7 +155,7 @@ def create_app(
                 summary={"error": "timeout"},
             )
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=f"invalid goal or hypotheses: {exc}") from exc
+            raise HTTPException(status_code=400, detail=f"Lean parsing error: {exc}") from exc
         except asyncio.CancelledError:
             raise
         except Exception as exc:
