@@ -64,6 +64,9 @@ services:
       - MATHS_AI_API_PORT=8000
       - MATHS_AI_FORMAL_RUNS_DIR=/state/formal_runs
       - MATHS_AI_DTS_STATE_FILE=/state/dts/thompson_sampler_state.json
+      - PETTA_BIN=/opt/venv/bin/petta
+      - PETTA_CHAINER_DIR=/opt/pettachainer/pettachainer/metta
+      - PETTA_WORKSPACE=/tmp/petta_workspace
     healthcheck:
       test: ["CMD", "python", "-m", "maths_ai.healthcheck"]
       interval: 30s
@@ -91,6 +94,9 @@ services:
       - MATHS_AI_MODEL_CONFIG=/workspace/maths_ai/config/models/pointer_gnn.yaml
       - MATHS_AI_CORPUS_CONFIG=/workspace/maths_ai/config/corpus/lemma_corpus_v1.yaml
       - MATHS_AI_LEAN_PROJECT=/opt/lean_project
+      - PETTA_BIN=/opt/venv/bin/petta
+      - PETTA_CHAINER_DIR=/opt/pettachainer/pettachainer/metta
+      - PETTA_WORKSPACE=/tmp/petta_workspace
     # Override CMD to run batch prover instead of API
     command: ["python", "-m", "maths_ai.hybrid_reasoner.joint_inference"]
     profiles:

@@ -90,7 +90,7 @@ until a compatible index and corpus are supplied separately.
 │  ├── Mathlib4 (cached via lake)                             │
 │  ├── uv (Python package manager)                            │
 │  ├── SWI-Prolog 9.3+ (from PPA)                             │
-│  ├── petta (v1.0.3)                                         │
+│  ├── petta (v1.0.6)                                         │
 │  └── PeTTaChainer (pinned commit)                           │
 │  └── uv venv + Python deps (pyproject.toml)                 │
 └─────────────────────────────────────────────────────────────┘
@@ -117,13 +117,13 @@ until a compatible index and corpus are supplied separately.
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `PETTA_REF` | `v1.0.3` | petta git tag/branch |
-| `PETTACHAINER_REF` | `HEAD` | PeTTaChainer commit/ref |
+| `PETTA_REF` | `v1.0.6` | petta git tag/branch (needs working pip wheel) |
+| `PETTACHAINER_REF` | pinned commit | PeTTaChainer commit/ref (vendored, no runtime git-import) |
 
 ```bash
 docker build --target core \
-  --build-arg PETTA_REF=v1.0.3 \
-  --build-arg PETTACHAINER_REF=abc123 \
+  --build-arg PETTA_REF=v1.0.6 \
+  --build-arg PETTACHAINER_REF=b1678e97c4498b376b91e8cce215f5ab0398ddef \
   -t maths_ai-core -f docker/Dockerfile .
 ```
 
@@ -170,6 +170,33 @@ python -m maths_ai.healthcheck
 The image builds the Lean Pantograph executable from
 [jajos12/Pantograph](https://github.com/jajos12/Pantograph) and installs it
 alongside the Python Pantograph client used by the API.
+
+The image installs PeTTa (v1.0.6+, proper pip package with the `petta`
+console script) into the project virtualenv and vendors PeTTaChainer under
+`/opt/pettachainer`. The API runs a PeTTa startup probe before marking the
+service ready; `/health` includes `petta_available` and reports degraded
+readiness if the probe fails. Query files are generated inside a
+PeTTaChainer workspace (`PETTA_WORKSPACE`, default `/tmp/petta_workspace`)
+that links the vendored chainer modules (`PETTA_CHAINER_DIR`), so their
+relative `import!`s resolve without runtime network access.
+
+### PeTTa integration tests
+
+The PLN unit tests stub the `petta` executable and cannot verify real
+output-format fidelity. The real-runtime integration tests
+(`maths_ai/pln_inference/tests/test_pln_integration.py`) run the actual
+`petta` binary and are skipped outside a configured runtime. Run them inside
+the image:
+
+```bash
+docker compose run --rm api \
+    python -m pytest maths_ai/pln_inference/tests/test_pln_integration.py -v
+```
+
+They cover: the startup probe (query `P` given hypothesis `P` → real,
+non-fallback STV), `P` without evidence and `False` → zero-evidence
+fallback, no reuse of pre-query axiom/hypothesis STVs, and determinism of
+repeated requests.
 
 ## GPU Support (training target)
 

@@ -217,6 +217,7 @@ class HealthResponse(BaseModel):
     status: str
     ready: bool
     error: Optional[str] = None
+    petta_available: Optional[bool] = None
 
 
 class FormalEnvironment(BaseModel):
