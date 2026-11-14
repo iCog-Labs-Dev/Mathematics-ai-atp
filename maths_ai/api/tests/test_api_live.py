@@ -167,7 +167,7 @@ def test_http_proving_and_evaluation_over_the_custom_repl(tmp_path, request, pln
             certified = []
             for profile in ("puct", "best_first"):
                 for mode in ("sample", "greedy"):
-                    response = client.post("/prove", json={
+                    response = client.post("/prove", json={"backend": "mcts-actor-critic", 
                         "goal": "True ∧ True", "search_profile": profile,
                         "proposal_mode": mode, "seed": 0, "timeout_s": 120,
                     })
@@ -187,7 +187,7 @@ def test_http_proving_and_evaluation_over_the_custom_repl(tmp_path, request, pln
                     certified.append(body["certified"])
             assert all(certified), certified
             if pln_enabled:
-                scored = client.post("/prove", json={
+                scored = client.post("/prove", json={"backend": "mcts-actor-critic", 
                     "goal": "Q ∧ Q", "hypotheses": ["P Q : Prop", "hP : P", "hPQ : P → Q"],
                     "search_profile": "best_first", "proposal_mode": "greedy", "timeout_s": 120,
                 })
@@ -196,7 +196,7 @@ def test_http_proving_and_evaluation_over_the_custom_repl(tmp_path, request, pln
                 assert scored["execution"]["pln_counts"].get("ok", 0) >= 1, scored
                 assert scored["runtime"]["provenance"]["pln"]["translation"]
 
-            bad = client.post("/prove", json={"goal": "undefined_name_xyz", "timeout_s": 60})
+            bad = client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "undefined_name_xyz", "timeout_s": 60})
             assert bad.status_code == 422 and bad.json()["category"].startswith("input:")
 
             job = client.post("/evaluations", json={

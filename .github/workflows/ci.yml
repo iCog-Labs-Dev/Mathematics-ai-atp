@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true    
+
+permissions:
+  contents: read 
+
+jobs:
+  test:
+    runs-on: ubuntu-latest 
+
+    steps:
+      - name: Checkout code # checking out the ubuntu machine is empty 
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11  
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+   
+      - name: Install uv 
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Lean
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | \
+            sh -s -- -y --default-toolchain leanprover/lean4:v4.29.1
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Verify Lean installation
+        run: |
+          command -v lake
+          lake --version
+
+      - name: Install dependencies
+        env:
+          UV_HTTP_TIMEOUT: 300
+        # accepted-gnn installs the synchronous PyPantograph client, whose
+        # build hook compiles its bundled REPL with elan.
+        run: uv sync --no-dev --extra cpu --extra accepted-gnn
+
+      - name: Install project
+        env:
+          UV_HTTP_TIMEOUT: 300
+        run: uv pip install --python .venv/bin/python -e . --no-deps
+
+      - name: Run tests
+        # --no-sync: the environment is already synced with the CPU torch
+        # fork; a plain `uv run` would re-sync the default GPU build.
+        run: uv run --no-sync pytest maths_ai -v --tb=short

@@ -52,6 +52,8 @@ class LemmaIndex:
             self.lemma_vectors.shape[1]
         ):
             raise ValueError("FAISS index dimension does not match lemma_vectors.")
+        if hasattr(self.index, "ntotal") and int(self.index.ntotal) != len(self.lemma_ids):
+            raise ValueError("FAISS index size must match lemma_ids and lemma_vectors rows.")
 
     @classmethod
     def load(
@@ -59,7 +61,16 @@ class LemmaIndex:
         index_dir: str | Path,
         *,
         normalize_queries: bool = False,
+        require_encoder_fingerprint: bool = True,
     ) -> "LemmaIndex":
+        """Load an index directory (or its ``faiss.index`` file).
+
+        An index built from a tactic model's encoder carries that encoder's
+        fingerprint, and it is required by default. A caller whose index is
+        bound another way, such as the v2 bundle whose files are pinned by
+        content hash and whose retriever is a separate text encoder, passes
+        ``require_encoder_fingerprint=False``.
+        """
         import faiss
 
         input_path = Path(index_dir)
@@ -100,7 +111,9 @@ class LemmaIndex:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         encoder_fingerprint = manifest.get("encoder_fingerprint")
         if not isinstance(encoder_fingerprint, str) or not encoder_fingerprint:
-            raise ValueError("Lemma index manifest is missing 'encoder_fingerprint'.")
+            if require_encoder_fingerprint or encoder_fingerprint is not None:
+                raise ValueError("Lemma index manifest is missing 'encoder_fingerprint'.")
+            encoder_fingerprint = None
 
         index = faiss.read_index(str(index_path))
         return cls(

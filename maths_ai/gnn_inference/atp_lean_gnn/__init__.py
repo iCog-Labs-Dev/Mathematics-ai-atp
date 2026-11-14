@@ -3,9 +3,26 @@
 from importlib import import_module
 
 _EXPORT_GROUPS = {
+    "joint_source_decoder": (
+        "CandidateSource",
+        "DecodedAction",
+        "DecodedArgument",
+        "SourceCandidates",
+        "decode_action",
+        "goal_state_text",
+    ),
+    "joint_loader": (
+        "JointNeuralBundle",
+        "load_joint_neural_bundle",
+    ),
+    "bundle": (
+        "PointerBundle",
+        "load_pointer_bundle",
+    ),
     "argument_selector": (
         "TacticWithArgsClassifier",
         "supervised_loss",
+        "JointSourcePolicy",
     ),
     "source_aware_decoder": ("SourceAwareDecoder",),
     "policy_actions": ("ArgumentReference", "CandidatePoolSnapshot", "OfflineCandidateProvider", "local_pools"),
@@ -75,7 +92,8 @@ _EXPORT_GROUPS = {
         "LemmaIndex",
         "LemmaIndexConfig",
     ),
-    "model": ("SupervisedTacticClassifier",),
+    "model": ("SupervisedTacticClassifier",
+    ),
     "model_spec": ("ModelSpec",),
     "preparation": (
         "PreparedExample",

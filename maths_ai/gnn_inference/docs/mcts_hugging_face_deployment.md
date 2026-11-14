@@ -230,7 +230,7 @@ After readiness succeeds, try a small proof before scheduling dataset evaluation
 ```bash
 curl --fail http://localhost:8000/prove \
   -H 'Content-Type: application/json' \
-  -d '{"goal":"True","hypotheses":[],"search_profile":"best_first_pln","proposal_mode":"sample","seed":42,"timeout_s":60}'
+  -d '{"backend":"mcts-actor-critic","goal":"True","hypotheses":[],"search_profile":"best_first_pln","proposal_mode":"sample","seed":42,"timeout_s":60}'
 ```
 
 This exercises the PLN-enabled profile, but a learned policy is not guaranteed to solve even this control within the budget. Inspect the response and logs for certification and PLN outcomes. Uploading and downloading files is not evidence of proof-search quality.

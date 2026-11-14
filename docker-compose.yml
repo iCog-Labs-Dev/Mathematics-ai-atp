@@ -1,35 +1,41 @@
-# MCTS actor-critic proving service.
+# Proving service: MCTS actor-critic and accepted-GNN backends in one API.
 #
-#   docker compose up --build mcts-api                    # CPU
-#   docker compose --profile gpu up --build mcts-api-gpu  # one NVIDIA GPU
+#   docker compose up --build api                         # CPU
+#   docker compose --profile gpu up --build api-gpu       # one NVIDIA GPU
+#   docker compose --profile batch run --rm prove --goal_statement '...'
 #
-# The service chooses the device (MATHS_AI_DEVICE: cpu, or cuda:N for the GPU
-# service); it overrides the devices in the mounted rl.json.
+# The MCTS backend is enabled by the service config mounted at ./docker/config
+# (or MATHS_AI_CONFIG) and reads its trained checkpoint and prepared root from
+# ./artifacts (or MATHS_AI_ARTIFACTS). The accepted-GNN backend is enabled by
+# MATHS_AI_ACCEPTED_GNN=1; its pinned v2 bundle is fetched into the
+# models-cache volume on first start. /prove requires an explicit "backend".
 #
-# Mount the trained checkpoint and prepared root at ./artifacts (or set
-# MATHS_AI_ARTIFACTS) and the service config at ./docker/config (or set
-# MATHS_AI_CONFIG). The port is bound to loopback only: the service has no
-# authentication. Job state and results live in the mcts-state volume.
+# The service chooses the MCTS device (MATHS_AI_DEVICE: cpu, or cuda:N for the
+# GPU service); it overrides the devices in the mounted rl.json. The port is
+# bound to loopback only: the service has no authentication. Job, formal-run
+# and DTS state live in the state volume.
 
-x-mcts-api: &mcts-api
+x-api: &api
   build:
     context: .
     dockerfile: docker/Dockerfile
     target: runtime
-  image: maths-ai-mcts-api
+  image: maths-ai-api
   init: false  # tini is the image's entrypoint
   ports:
     - "127.0.0.1:${MATHS_AI_API_PORT:-8000}:8000"
   volumes:
     - mcts-state:/state
+    - models-cache:/data
     - ${MATHS_AI_CONFIG:-./docker/config}:/config:ro
     - ${MATHS_AI_ARTIFACTS:-./artifacts}:/artifacts:ro
   environment:
     - HF_TOKEN=${HF_TOKEN:-}
     - MATHS_AI_DEVICE=${MATHS_AI_DEVICE:-cpu}
+    - MATHS_AI_ACCEPTED_GNN=${MATHS_AI_ACCEPTED_GNN:-0}
   healthcheck:
-    # Readiness, not liveness: a failed or recovering runtime is unhealthy.
-    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=5)"]
+    # Readiness, not liveness: a failed or recovering backend is unhealthy.
+    test: ["CMD", "python", "-m", "maths_ai.healthcheck"]
     interval: 30s
     timeout: 10s
     retries: 3
@@ -38,25 +44,42 @@ x-mcts-api: &mcts-api
   restart: unless-stopped
 
 services:
-  mcts-api:
-    <<: *mcts-api
-    container_name: maths-ai-mcts-api
+  api:
+    <<: *api
+    container_name: maths-ai-api
 
-  mcts-api-gpu:
-    <<: *mcts-api
-    container_name: maths-ai-mcts-api-gpu
+  api-gpu:
+    <<: *api
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: runtime
+      args:
+        TORCH_VARIANT: gpu
+    image: maths-ai-api-gpu
+    container_name: maths-ai-api-gpu
     profiles: ["gpu"]
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
       - MATHS_AI_DEVICE=${MATHS_AI_DEVICE:-cuda:0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+      - MATHS_AI_ACCEPTED_GNN=${MATHS_AI_ACCEPTED_GNN:-0}
+
+  # One-off accepted-GNN best-first proof run (no HTTP).
+  prove:
+    <<: *api
+    container_name: maths-ai-prove
+    profiles: ["batch"]
+    ports: []
+    healthcheck:
+      disable: true
+    restart: "no"
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - MATHS_AI_ACCEPTED_GNN=1
+    command: ["prove.sh"]
 
 volumes:
   mcts-state:
     name: maths-ai-mcts-state
+  models-cache:
+    name: maths-ai-models-cache

@@ -73,8 +73,14 @@ def _classify_label(label: str) -> str:
     # Text parser labels
     if label in ("App", "Arrow", "Forall", "Explicit"):
         return "app"
-    if label in ("Hyp", "Goal", "State"):
+    if label in ("Binder", "SBinder", ":binder", ":forall", ":lambda", ":let"):
+        return "binder"
+    if label in ("Hyp", "Goal", "State", "Meta"):
         return "meta"
+    if label in ("Type", "Sort", ":sort", ":type"):
+        return "type"
+    if label in ("Const", "SConst", ":c"):
+        return "const"
     if label == "\u2115" or (label[0].isupper() and len(label) <= 2):
         return "type"
     if label[0].isupper():
@@ -208,6 +214,18 @@ class DAGBuilder:
 
     def stats(self) -> GraphStats:
         return graph_stats(self)
+
+
+def root_state_node_id(dag: DAGBuilder) -> int:
+    """Return structural proof-state root, ignoring constants named ``State``."""
+    root_ids = {node.id for node in dag.root_nodes()}
+    candidates = [
+        node.id for node in dag.nodes if node.label == "State" and node.id in root_ids
+    ]
+    if len(candidates) != 1:
+        raise ValueError(f"expected one root State node, found {len(candidates)}")
+    return candidates[0]
+
 
 def graph_stats(dag: DAGBuilder) -> GraphStats:
     child_counts = dag.incoming_counts()

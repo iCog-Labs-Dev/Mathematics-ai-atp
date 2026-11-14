@@ -59,7 +59,7 @@ def test_health_is_independent_of_readiness(tmp_path):
         assert client.get("/ready").status_code == 503
         assert readiness["runtime"] == "failed"
         assert "startup:artifacts" in readiness["error"]
-        response = client.post("/prove", json={"goal": "proved"})
+        response = client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "proved"})
         assert response.status_code == 503
 
 
@@ -67,7 +67,7 @@ def test_a_certified_proof_and_its_settings(tmp_path):
     with _client(tmp_path) as client:
         readiness = _wait_ready(client)
         assert readiness["ready"] and readiness["provenance"] == {"checkpoint": "fake", "workers": 1}
-        response = client.post("/prove", json={
+        response = client.post("/prove", json={"backend": "mcts-actor-critic", 
             "goal": "proved", "hypotheses": ["p : Prop"], "search_profile": "puct",
             "proposal_mode": "greedy", "seed": 7, "num_simulations": 16,
         })
@@ -79,7 +79,7 @@ def test_a_certified_proof_and_its_settings(tmp_path):
         assert body["echo"]["profile"]["num_simulations"] == 16
         assert body["echo"]["proposal_mode"] == "greedy" and body["echo"]["seed"] == 7
         assert body["timing"]["queue_wait_s"] >= 0 and body["runtime"]["generation"] == 1
-        unsolved = client.post("/prove", json={"goal": "open", "search_profile": "best_first"}).json()
+        unsolved = client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "open", "search_profile": "best_first"}).json()
         assert unsolved["certified"] is False and unsolved["outcome"] == "unsolved"
 
 
@@ -87,13 +87,13 @@ def test_a_certified_proof_and_its_settings(tmp_path):
 def test_resource_outcome_is_reported_without_invalid_input_or_false_success(tmp_path, goal, kind):
     with _client(tmp_path) as client:
         _wait_ready(client)
-        response = client.post("/prove", json={"goal": goal})
+        response = client.post("/prove", json={"backend": "mcts-actor-critic", "goal": goal})
         assert response.status_code == 200
         body = response.json()
         assert body["outcome"] == "resource_limit" and not body["certified"]
         assert body["resource"]["kind"] == kind
         assert body["resource"]["recovery"] == "command-rolled-back"
-        assert client.post("/prove", json={"goal": "proved"}).json()["certified"]
+        assert client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "proved"}).json()["certified"]
 
 
 @pytest.mark.parametrize(
@@ -110,7 +110,7 @@ def test_resource_outcome_is_reported_without_invalid_input_or_false_success(tmp
 def test_input_errors_are_typed_422s(tmp_path, body, category):
     with _client(tmp_path) as client:
         _wait_ready(client)
-        response = client.post("/prove", json=body)
+        response = client.post("/prove", json={"backend": "mcts-actor-critic", **body})
         assert response.status_code == 422, response.text
         assert response.json()["category"].startswith(category)
 
@@ -118,13 +118,13 @@ def test_input_errors_are_typed_422s(tmp_path, body, category):
 def test_strict_request_types(tmp_path):
     with _client(tmp_path) as client:
         _wait_ready(client)
-        assert client.post("/prove", json={"goal": "p", "seed": True}).status_code == 422
-        assert client.post("/prove", json={"goal": "p", "max_depth": "3"}).status_code == 422
-        assert client.post("/prove", json={"goal": "p", "checkpoint": "/x.pt"}).status_code == 422
+        assert client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "p", "seed": True}).status_code == 422
+        assert client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "p", "max_depth": "3"}).status_code == 422
+        assert client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "p", "checkpoint": "/x.pt"}).status_code == 422
 
 
 def _background(client, body, sink):
-    sink.append(client.post("/prove", json=body))
+    sink.append(client.post("/prove", json={"backend": "mcts-actor-critic", **body}))
 
 
 def test_a_full_queue_is_a_429_and_a_queued_expiry_a_504(tmp_path):
@@ -141,7 +141,7 @@ def test_a_full_queue_is_a_429_and_a_queued_expiry_a_504(tmp_path):
         )
         waiter.start()
         time.sleep(0.2)
-        full = client.post("/prove", json={"goal": "proved"})
+        full = client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "proved"})
         assert full.status_code == 429 and full.headers["Retry-After"]
         waiter.join()
         thread.join()
@@ -153,12 +153,12 @@ def test_an_execution_deadline_is_a_504_and_the_runtime_recovers(tmp_path):
     with _client(tmp_path) as client:
         _wait_ready(client)
         started = time.monotonic()
-        response = client.post("/prove", json={"goal": "sleep:30", "timeout_s": 1})
+        response = client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "sleep:30", "timeout_s": 1})
         assert response.status_code == 504 and response.json()["category"] == "deadline"
         assert time.monotonic() - started < 5
         assert client.get("/health").status_code == 200
         _wait_ready(client)
-        assert client.post("/prove", json={"goal": "proved"}).json()["certified"]
+        assert client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "proved"}).json()["certified"]
 
 
 def test_an_evaluation_job_runs_to_a_complete_result(tmp_path):
@@ -201,7 +201,7 @@ def test_cancelling_a_running_job_keeps_a_labelled_partial_result(tmp_path):
         assert result["partial"] is True and "summary" not in result
         assert result["partial_summary"]["repeats"]  # completed chunks survive
         # A proof still runs after the cancellation settled.
-        assert client.post("/prove", json={"goal": "proved"}).json()["certified"]
+        assert client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "proved"}).json()["certified"]
 
 
 def test_a_service_restart_interrupts_unfinished_jobs(tmp_path):
