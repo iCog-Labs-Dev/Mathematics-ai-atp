@@ -432,5 +432,21 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
         if entry["path"] in expected:
             assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
         expected[entry["path"]] = entry["sha256"]
+    # Merging main (the accepted-GNN backend, formal routes, Docker) follows.
+    merged = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "mcts_main_integration/source_manifest.json").read_text()
+    )
+    assert merged["target_base_commit"] == "c53b75034e8229ca16236e60deaa0c6b388346ae"
+    assert merged["merged_commit"] == "444e057df1b15c6a2be4afc5b7d9ae8b3cee3d7b"
+    assert merged["client_commit"] == CLIENT_COMMIT
+    assert merged["accepted_runtime"]["pypantograph_commit"] == PYPANTOGRAPH_COMMIT
+    for entry in merged["sources"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        if entry["sha256"] is None:
+            expected.pop(entry["path"], None)
+            assert not (root / entry["path"]).exists(), entry["path"]
+        else:
+            expected[entry["path"]] = entry["sha256"]
     for path, digest in expected.items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path
