@@ -175,7 +175,11 @@ def create_app(
     async def predict_tactic(payload: PredictTacticRequest, request: Request) -> PredictTacticResponse:
         service = _get_service(request)
         try:
-            candidates = await service.predict_tactics(payload.goal, payload.top_k)
+            candidates = await service.predict_tactics(
+                payload.goal,
+                payload.top_k,
+                hypotheses=payload.hypotheses,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=f"invalid goal syntax: {exc}") from exc
         except Exception as exc:

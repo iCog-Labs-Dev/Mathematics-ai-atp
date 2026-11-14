@@ -1,6 +1,7 @@
 import asyncio
 import argparse
 import json
+import logging
 import random
 import re
 try:
@@ -26,12 +27,20 @@ from maths_ai.pln_inference.model import PLNInference
 from maths_ai.pln_inference.metta.translator.translator_modules.runner import DynamicThompsonSampler
 
 from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph, ProofNode, TacticExecutor, TacticOutcome
+from maths_ai.hybrid_reasoner.pantograph_adapter import (
+    has_model_state_payload,
+    model_state_options,
+    pantograph_state_to_goals,
+    structured_goal_from_text,
+)
 from maths_ai.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 _INACCESSIBLE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_']*✝[⁰-⁹¹²³]*")
 
 _INTERNAL_CATEGORIES = {"index", "state", "io"}
-_INPUT_CATEGORIES = {"parse", "elab", "elaboration", "syntax"}
+_INPUT_CATEGORIES = {"parse", "parsing", "elab", "elaboration", "syntax"}
 # Diagnostics emitted by Lean for malformed or ill-typed initial goals.
 # Note: tokens like "unknown identifier" or "failed to synthesize" are only
 # classified as bad requests when depth == 0 (initial user input), ensuring
@@ -103,10 +112,49 @@ def _sanitize_inaccessible_names(goal: Goal) -> Goal:
     def substitute(value: str) -> str:
         return _INACCESSIBLE_NAME_RE.sub(lambda m: rename[m.group(0)], value)
 
+    structure: Dict[str, object] = {}
+    if goal.has_model_state:
+        # Carry the structured lean-model-sexp-v2 state through sanitization so
+        # downstream GNN prediction keeps the exact graph inputs. FV pointer
+        # labels are positional, so only the display names need renaming.
+        structure = {
+            "goal_model_sexp": goal.goal_model_sexp,
+            "model_sexp_version": goal.model_sexp_version,
+            "locals": [
+                local.model_copy(update={"user_name": substitute(local.user_name)})
+                if "✝" in (local.user_name or "")
+                else local
+                for local in goal.locals or []
+            ],
+        }
     return Goal(
         expression=substitute(goal.expression),
         hypotheses=[substitute(h) for h in goal.hypotheses],
+        **structure,
     )
+
+
+def _legacy_goals_from_raw_payload(raw: dict) -> List[Goal]:
+    """Best-effort text-only subgoals from a raw payload lacking v2 fields.
+
+    Only used when strict conversion fails (a server without the
+    normalized-extraction fork); subgoals lose model metadata but keep the
+    proof search usable.
+    """
+    subgoals: List[Goal] = []
+    for goal_payload in raw.get("goals") or []:
+        target = goal_payload.get("target") or {}
+        expression = target.get("pp") or target.get("sexp") or ""
+        hypotheses: List[str] = []
+        variables = goal_payload.get("variables") or goal_payload.get("vars") or []
+        for variable in variables:
+            name = variable.get("userName") or variable.get("name") or "_"
+            type_payload = variable.get("type") or {}
+            hypotheses.append(f"{name} : {type_payload.get('pp', '')}".strip())
+        subgoals.append(Goal(expression=str(expression), hypotheses=hypotheses))
+    return subgoals
+
+
 def plot_hypergraph(graph: ProofHypergraph) -> None:
     """Utility to visualize the proof hypergraph with Graphviz (for debugging
     and analysis).
@@ -168,6 +216,50 @@ class PantographExecutor(TacticExecutor):
         arguments = " ".join(arg.rstrip(":") for arg in tactic.arguments)
         tactic_cmd = " ".join([tactic.tactic_name, arguments]).strip()
 
+        # The pinned PyPantograph client strips the v2 model-S-expression
+        # fields while parsing responses, so tactic application reads the raw
+        # wire payload whenever the server exposes it; subgoals then keep the
+        # structured lean-model-sexp-v2 metadata across transitions.
+        run_async = getattr(server, "run_async", None)
+        if callable(run_async):
+            try:
+                raw = dict(
+                    await run_async(
+                        "goal.tactic", {"stateId": state.state_id, "tactic": tactic_cmd}
+                    )
+                )
+            except Exception as e:
+                return TacticOutcome(success=False, subgoals=[], error=str(e))
+            parse_error = raw.get("parseError")
+            if parse_error:
+                return TacticOutcome(success=False, subgoals=[], error=str(parse_error))
+            if raw.get("error") or raw.get("tacticErrors"):
+                error = raw.get("error") or raw.get("tacticErrors")
+                return TacticOutcome(success=False, subgoals=[], error=str(error))
+            if raw.get("hasSorry") or raw.get("hasUnsafe"):
+                return TacticOutcome(
+                    success=False,
+                    subgoals=[],
+                    error="tactic produced an admitted or unsafe proof",
+                )
+            if not isinstance(raw.get("goals"), list):
+                # Mirror the pinned client's contract: a payload without goals
+                # means the tactic did not go through.
+                messages = raw.get("messages")
+                return TacticOutcome(
+                    success=False, subgoals=[], error=str(messages or raw)
+                )
+            try:
+                subgoals = pantograph_state_to_goals(raw)
+            except ValueError as exc:
+                logger.warning(
+                    "Live goal payload failed strict v2 conversion (%s); "
+                    "falling back to pretty-printed subgoals without model "
+                    "metadata. Run the capability probes to diagnose.", exc,
+                )
+                subgoals = _legacy_goals_from_raw_payload(raw)
+            return TacticOutcome(success=True, subgoals=subgoals, error=None)
+
         try:
             new_state = await server.goal_tactic_async(
                 state,
@@ -177,10 +269,16 @@ class PantographExecutor(TacticExecutor):
         except Exception as e:
             return TacticOutcome(success=False, subgoals=[], error=str(e))
 
-        subgoals = [
-            Goal(expression=str(g.target), hypotheses=[str(v) for v in g.variables])
-            for g in new_state.goals
-        ]
+        if has_model_state_payload(new_state):
+            subgoals = pantograph_state_to_goals(new_state)
+        else:
+            # The pinned PyPantograph client currently strips model-AST fields
+            # while parsing responses. Keep the legacy CLI path usable, but
+            # never present it as a v2-compatible live state.
+            subgoals = [
+                Goal(expression=str(g.target), hypotheses=[str(v) for v in g.variables])
+                for g in new_state.goals
+            ]
         return TacticOutcome(success=True, subgoals=subgoals, error=None)
 
 
@@ -274,7 +372,12 @@ class HybridReasoner:
         self.max_nodes = max_nodes
 
     # GNN side
-    def predict_next_tactic(self, sub_goal: str) -> List[TacticCandidate]:
+    def predict_next_tactic(
+        self,
+        sub_goal: str,
+        hypotheses: Optional[List[str]] = None,
+        structured_goal: Optional[Goal] = None,
+    ) -> List[TacticCandidate]:
         """
             Args:
                 sub_goal: a string expression of the target sub_goal for which tactics are predicated for
@@ -287,7 +390,12 @@ class HybridReasoner:
                 edge case) — callers must treat that as a dead branch, which
                 `_expand` below does via `graph.mark_node_exhausted`.
         """
-        return self.gnn_engine.inference(sub_goal, top_k=self.top_k_tactics)
+        return self.gnn_engine.inference(
+            sub_goal,
+            top_k=self.top_k_tactics,
+            hypotheses=hypotheses,
+            structured_goal=structured_goal,
+        )
 
     # PLN side
     def _make_dts_key(self, parent_goal: str, tactic: TacticCandidate, subgoal: Goal) -> str:
@@ -452,7 +560,24 @@ class HybridReasoner:
 
         sanitized = _sanitize_inaccessible_names(node.goal)
         print(f"  [GNN Input] goal={sanitized.expression}  hyps={sanitized.hypotheses}")
-        candidates = self.predict_next_tactic(sanitized.expression)
+        if getattr(self.gnn_engine, "_is_joint_v2", False) and not sanitized.has_model_state:
+            # The v2 policy requires the structured lean-model-sexp-v2 state.
+            # Nodes discovered before any structured subgoal exists (e.g. the
+            # search root) get one extracted from the live server via the raw
+            # Pantograph wire protocol.
+            try:
+                sanitized = await structured_goal_from_text(
+                    self.server, sanitized.expression, sanitized.hypotheses
+                )
+            except ServerError as exc:
+                if node.depth == 0 and _is_lean_goal_error(exc):
+                    raise ValueError(f"Lean parsing error: {exc}") from exc
+                raise
+        candidates = self.predict_next_tactic(
+            sanitized.expression,
+            sanitized.hypotheses,
+            structured_goal=sanitized,
+        )
         if not candidates:
             graph.mark_node_exhausted(node.id, note="GNN returned no viable tactic")
             return
@@ -545,7 +670,10 @@ async def main(
     top_k_subgoals: int = 3,
 
 ) -> None:
-    server = await Server.create(project_path=str(settings.lean_project_path))
+    server = await Server.create(
+        project_path=str(settings.lean_project_path),
+        options=model_state_options(),
+    )
     
     # Auto-load DTS state from default location if not specified
     if dts_state_input is None and settings.dts_state_file.exists():

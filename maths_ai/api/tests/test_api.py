@@ -407,7 +407,8 @@ def test_prove_with_hybrid_reasoner_maps_real_server_error_payloads(tmp_path: Pa
         def __init__(self):
             self.max_depth = 10
             self.max_nodes = 500
-            self.predict_next_tactic = lambda goal: [object()]
+            self.gnn_engine = SimpleNamespace(_is_joint_v2=False)
+            self.predict_next_tactic = lambda goal, *args, **kwargs: [object()]
 
         async def _start_state(self, goal):
             if goal.expression == "this is not Lean ???":

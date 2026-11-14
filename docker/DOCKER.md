@@ -52,11 +52,11 @@ docker build -f docker/Dockerfile --target experimental -t maths_ai-experimental
 
 The entrypoint fetches assets into `/data` unless the first argument is
 `skip-fetch`. The default model configuration downloads the pinned public
-`jajostrains/Mathlib-Sexpr-GNN` pointer bundle, including its Safetensors
+`iCogLabs-Dev/Mathlib-Sexpr-GNN` v2 joint bundle, including its Safetensors
 weights and shared vocabularies. The runtime bundle is stored at:
 
 ```text
-/data/maths_ai/gnn_inference/models/mathlib_sexpr_gnn/pointer-gat-gru
+/data/maths_ai/gnn_inference/models/mathlib_sexpr_gnn
 ```
 
 To persist downloaded assets, mount a host directory at `/data`:
@@ -73,9 +73,34 @@ bundle location, set `MATHS_AI_GNN_BUNDLE` to the bundle directory inside the
 container. Legacy `.pt` checkpoint settings remain available for local
 training runs.
 
-The published bundle does not include the FAISS lemma index. Inference can
-still use local-context arguments, but library-lemma retrieval remains empty
-until a compatible index and corpus are supplied separately.
+The bundle includes its matched dual text encoder, tokenizer, FAISS index,
+vectors and lemma corpus. Do not supply a separate legacy index or corpus.
+Startup validates the pinned snapshot, then probes the connected Pantograph
+runtime for normalized model S-expressions, binders, shadowing, local lets and
+instance metadata before loading the model and exposing the service. The
+artifact's historical `live_pantograph_parity_verified: false` field is not
+edited: deployment readiness is established by these live checks. Failed
+probes close the server and leave the API unready with an actionable error.
+
+V2 prediction, proof search and replay serialize access to the shared
+Pantograph response stream. Admitted/unsafe tactic results are rejected even
+when they return an empty goal list.
+
+### V2 verification evidence
+
+The follow-up fixes were checked against the pinned v2 artifact and Pantograph
+`0dd5d2225e2d093f66a4b6231c1aa35004f2c8f3` built on Lean `v4.10.0-rc1`.
+Live capability probes passed; the actual published model returned ranked
+predictions for `True`, found `simp`, and its proof passed independent Lean
+replay/compilation. Malformed input returned 400 and a live `sorry` result was
+rejected. The native harness used a fresh snapshot path backed by read-only
+cached artifact files, not a fresh Hub download.
+
+That native smoke used Init-only goals and isolated PLN initialization because
+PeTTa/SWI-Prolog were absent on the host. Production startup imports Mathlib
+and retains the full PeTTa readiness requirement. A full fresh-volume Docker
+smoke has **not** been run on this host (Docker daemon unavailable); do not
+interpret the native GNN smoke as complete Docker/PLN deployment validation.
 
 ## Architecture
 
@@ -86,7 +111,7 @@ until a compatible index and corpus are supplied separately.
 │                        BASE STAGE                           │
 │  Ubuntu 24.04                                               │
 │  ├── System deps (ca-certificates, curl, git, python3)      │
-│  ├── elan → Lean 4.15.0                                     │
+│  ├── elan → Lean 4.10.0-rc1                                 │
 │  ├── Mathlib4 (cached via lake)                             │
 │  ├── uv (Python package manager)                            │
 │  ├── SWI-Prolog 9.3+ (from PPA)                             │
@@ -133,7 +158,7 @@ docker build --target core \
 |----------|---------|-------------|
 | `MATHS_AI_LEAN_PROJECT` | `/opt/lean_project` | Lean project root |
 | `MATHS_AI_DATA_ROOT` | `/data` | Data directory for assets |
-| `MATHS_AI_GNN_BUNDLE` | `/data/maths_ai/gnn_inference/models/mathlib_sexpr_gnn/pointer-gat-gru` | Published pointer bundle directory |
+| `MATHS_AI_GNN_BUNDLE` | `/data/maths_ai/gnn_inference/models/mathlib_sexpr_gnn` | Pinned Mathlib-Sexpr-GNN v2 clean-root bundle |
 | `PATH` | `/opt/venv/bin:...` | Includes venv, elan, uv |
 | `PYTHONPATH` | `/workspace` | Python module path |
 

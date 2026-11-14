@@ -13,7 +13,8 @@ from maths_ai.hybrid_reasoner.joint_inference import HybridReasoner
 def _expand_with_error(payload: dict, depth: int) -> None:
     reasoner = HybridReasoner.__new__(HybridReasoner)
     reasoner.max_depth = 10
-    reasoner.predict_next_tactic = lambda goal: [object()]
+    reasoner.gnn_engine = SimpleNamespace(_is_joint_v2=False)
+    reasoner.predict_next_tactic = lambda goal, *args, **kwargs: [object()]
 
     async def fail_start(g):
         raise ServerError(payload)
@@ -52,7 +53,8 @@ def test_initial_hypothesis_restoration_index_error_remains_internal():
     # (intro names) raises the index protocol error during hypothesis restoration.
     reasoner = HybridReasoner.__new__(HybridReasoner)
     reasoner.max_depth = 10
-    reasoner.predict_next_tactic = lambda goal: [object()]
+    reasoner.gnn_engine = SimpleNamespace(_is_joint_v2=False)
+    reasoner.predict_next_tactic = lambda goal, *args, **kwargs: [object()]
 
     mock_server = SimpleNamespace()
 

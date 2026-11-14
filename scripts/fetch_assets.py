@@ -2,11 +2,12 @@
 """
 Mathematics AI ATP - Asset Fetcher
 
-Fetches model and corpus assets from HuggingFace Hub based on YAML configurations.
+Fetches the pinned v2 model package from HuggingFace Hub. The package includes
+the policy, tokenizer, retriever, index, and bound lemma corpus.
 
 Responsibilities:
-1. Load YAML configs pointed to by MATHS_AI_MODEL_CONFIG and MATHS_AI_CORPUS_CONFIG env vars
-2. For each config, call huggingface_hub.snapshot_download()
+1. Load the YAML config pointed to by MATHS_AI_MODEL_CONFIG
+2. Call huggingface_hub.snapshot_download() for the complete clean-root package
 3. Skip re-download if .snapshot_revision marker file matches pinned revision (idempotent)
 4. Exit non-zero with clear message if repo/revision doesn't resolve
 5. No auth required for public repos (HF_TOKEN env var wired in for future private repos)
@@ -15,13 +16,14 @@ Usage:
     python scripts/fetch_assets.py
 
 Environment variables:
-    MATHS_AI_MODEL_CONFIG: Path to model config YAML (default: maths_ai/config/models/premise_gnn.yaml)
-    MATHS_AI_CORPUS_CONFIG: Path to corpus config YAML (default: maths_ai/config/corpus/lemma_corpus_v1.yaml)
+    MATHS_AI_MODEL_CONFIG: Path to model config YAML (default: maths_ai/config/models/pointer_gnn.yaml)
+    MATHS_AI_CORPUS_CONFIG: Optional legacy corpus config
     MATHS_AI_DATA_ROOT: Root directory for downloaded assets (default: current directory)
     HF_TOKEN: Optional HuggingFace token for private repos
 """
 
 import os
+import shutil
 import sys
 from pathlib import Path
 import yaml
@@ -83,6 +85,28 @@ def write_revision_marker(local_dir: Path, revision: str):
         f.write(revision)
 
 
+def validate_reused_bundle(local_dir: Path, expected_revision: str) -> str | None:
+    """Validate a reused clean-root bundle before trusting it.
+
+    A matching ``.snapshot_revision`` marker alone must not cause a stale or
+    truncated v2 volume to be accepted (the marker is written before anything
+    can verify the payload). Returns ``None`` when the strict manifest/hash
+    validation passes; otherwise a human-readable failure. The strict loader
+    is stdlib-only, so this check is safe inside the fetch environment. If the
+    workspace is not importable the volume is treated as invalid (a redundant
+    re-download is cheap; silently serving a stale bundle is not).
+    """
+    try:
+        from maths_ai.gnn_inference.atp_lean_gnn.joint_bundle import load_joint_source_bundle
+    except Exception as exc:  # pragma: no cover - import-environment dependent
+        return f"bundle validator unavailable ({exc}); rejecting reused volume"
+    try:
+        load_joint_source_bundle(local_dir, expected_revision=expected_revision)
+    except Exception as exc:
+        return f"{type(exc).__name__}: {exc}"
+    return None
+
+
 def fetch_asset(config: dict, data_root: Path, hf_token: str | None = None) -> Path:
     """
     Fetch a single asset (model or dataset) from HuggingFace Hub.
@@ -110,16 +134,29 @@ def fetch_asset(config: dict, data_root: Path, hf_token: str | None = None) -> P
     print(f"Fetching {repo_type} '{name}' from {repo_id}@{revision}...")
     print(f"  Target directory: {local_dir}")
     
-    # Check if already downloaded with correct revision
+    # Check if already downloaded with correct revision. For clean-root model
+    # bundles the marker alone is not sufficient: the payload must also pass
+    # the strict completeness validation before the download is skipped.
     if local_dir.exists() and check_revision_matches(local_dir, revision):
-        print(f"  Already downloaded with matching revision, skipping.")
-        return local_dir
+        if (local_dir / "bundle.json").is_file():
+            validation_error = validate_reused_bundle(local_dir, revision)
+            if validation_error is None:
+                print(f"  Already downloaded with matching revision, skipping.")
+                return local_dir
+            print("  Reused model snapshot failed completeness validation; replacing it.")
+            print(f"    ({validation_error})")
+        else:
+            print(f"  Already downloaded with matching revision, skipping.")
+            return local_dir
+
+    if local_dir.exists():
+        print("  Existing snapshot is stale or unmarked; replacing it.")
+        shutil.rmtree(local_dir)
     
     # Create parent directory if needed
     local_dir.parent.mkdir(parents=True, exist_ok=True)
     
-    # Download from HuggingFace Hub. Bundle repositories keep shared vocabularies
-    # at the root, so restrict the snapshot to the selected bundle and vocab.
+    # A clean-root release must not be narrowed to the legacy subfolder.
     allow_patterns = None
     if subfolder:
         allow_patterns = [f"{subfolder}/**", "vocab/**"]
@@ -197,14 +234,16 @@ def main():
     
     print()
     
-    # Load and fetch corpus config
-    try:
-        corpus_config = load_config(corpus_config_path)
-        print(f"[CORPUS] {corpus_config['name']}")
-        fetch_asset(corpus_config, data_root, hf_token)
-    except Exception as e:
-        print(f"ERROR: Failed to process corpus config: {e}", file=sys.stderr)
-        sys.exit(1)
+    # v2 packages the bound corpus and retriever in the model snapshot. Keep
+    # the separate corpus fetch available only for explicit legacy deployments.
+    if os.getenv("MATHS_AI_CORPUS_CONFIG"):
+        try:
+            corpus_config = load_config(corpus_config_path)
+            print(f"[CORPUS] {corpus_config['name']}")
+            fetch_asset(corpus_config, data_root, hf_token)
+        except Exception as e:
+            print(f"ERROR: Failed to process corpus config: {e}", file=sys.stderr)
+            sys.exit(1)
     
     print()
     print("All assets fetched successfully!")

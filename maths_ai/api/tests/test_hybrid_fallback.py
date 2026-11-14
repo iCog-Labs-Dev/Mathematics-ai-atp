@@ -39,7 +39,8 @@ def test_high_pln_score_does_not_create_unreplayable_proof(is_fallback):
     reasoner.petta_chainer = Chainer()
     reasoner.dts_sampler = Sampler()
     reasoner._dts_rng = random.Random(0)
-    reasoner.predict_next_tactic = lambda goal: [TacticCandidate(tactic_name="bad_tactic", probability=1.0)]
+    reasoner.gnn_engine = SimpleNamespace(_is_joint_v2=False)
+    reasoner.predict_next_tactic = lambda goal, *args, **kwargs: [TacticCandidate(tactic_name="bad_tactic", probability=1.0)]
     reasoner._start_state = start_state
 
     graph = ProofHypergraph(Goal(expression="True"))

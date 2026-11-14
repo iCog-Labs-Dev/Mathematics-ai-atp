@@ -33,7 +33,13 @@ class GNNPredictor:
         )
 
     @torch.no_grad()
-    def predict_tactics_with_arguments(self, goal_expression: str, top_k: int = 3):
+    def predict_tactics_with_arguments(
+        self,
+        goal_expression: str,
+        top_k: int = 3,
+        *,
+        hypotheses: list[str] | None = None,
+    ):
         """
             Args:
                 goal_expression: current goal expression as a string
@@ -43,5 +49,8 @@ class GNNPredictor:
                 "probability", "selected_arguments" and "selected_argument_details",
                 sorted by probability in descending order.
         """
-        result = self.pipeline.predict_tactic_result(goal_expression, top_k=top_k)
+        state_text = goal_expression
+        if hypotheses:
+            state_text = "\n".join([*hypotheses, f"⊢ {goal_expression}"])
+        result = self.pipeline.predict_tactic_result(state_text, top_k=top_k)
         return result.top_tactic_predictions

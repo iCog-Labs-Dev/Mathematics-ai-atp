@@ -36,7 +36,7 @@ GNN_RUNS_DIR = DATA_ROOT / "maths_ai" / "gnn_inference" / "runs"
 GNN_BUNDLE_PATH = Path(
     os.getenv(
         "MATHS_AI_GNN_BUNDLE",
-        str(DATA_ROOT / "maths_ai" / "gnn_inference" / "models" / "mathlib_sexpr_gnn" / "pointer-gat-gru"),
+        str(DATA_ROOT / "maths_ai" / "gnn_inference" / "models" / "mathlib_sexpr_gnn"),
     )
 )
 
@@ -52,9 +52,17 @@ TACTIC_MODEL_PATH = Path(
 ARGUMENT_MODEL_PATH = Path(
     os.getenv("MATHS_AI_ARGUMENT_MODEL", str(GNN_RUNS_DIR / "sexpr_pointer_pipeline" / "premise_gnn" / "best.pt"))
 )
-LEMMA_INDEX_PATH = Path(os.getenv("MATHS_AI_LEMMA_INDEX", str(GNN_RUNS_DIR / "lemma_index_v1")))
+LEMMA_INDEX_PATH = Path(
+    os.getenv(
+        "MATHS_AI_LEMMA_INDEX",
+        str(GNN_BUNDLE_PATH / "retriever" / "index"),
+    )
+)
 LEMMA_CORPUS_PATH = Path(
-    os.getenv("MATHS_AI_LEMMA_CORPUS", str(GNN_RUNS_DIR / "lemma_corpus_v1" / "lemmas.jsonl"))
+    os.getenv(
+        "MATHS_AI_LEMMA_CORPUS",
+        str(GNN_BUNDLE_PATH / "retriever" / "corpus"),
+    )
 )
 
 # Existing hardcoded paths stay as fallback defaults
