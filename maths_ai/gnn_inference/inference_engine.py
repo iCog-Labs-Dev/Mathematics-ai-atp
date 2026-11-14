@@ -51,7 +51,12 @@ _FV_LABEL_RE = re.compile(r"^FV(\d+)$")
 # Tactic families whose rule arguments are rendered as one bracketed list:
 # ``rw [Nat.add_zero]`` / ``simp [Nat.add_assoc]`` — never bare ``rw Nat.add_zero``.
 _BRACKETED_RULE_TACTICS = frozenset(
-    {"rw", "rewrite", "simp", "simp_all", "simp_arith"}
+    {
+        "rw", "rewrite", "rwa", "erw", "erewrite", "rw_mod_cast",
+        "simp", "simp!", "simp?", "simp_rw", "simp_all", "simp_all!",
+        "simp_arith", "simpa", "simpa!", "simpa?", "dsimp",
+        "norm_num", "field_simp", "linarith", "nlinarith",
+    }
 )
 
 

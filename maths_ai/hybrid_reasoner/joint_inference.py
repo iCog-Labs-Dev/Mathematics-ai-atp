@@ -10,7 +10,7 @@ except ImportError:
     Digraph = None
 from pathlib import Path
 from typing import Dict, List, Optional
-from pantograph.server import Server, GoalState
+from pantograph.server import Server, GoalState, ServerError
 
 from maths_ai.data_models.proof_components import (
     Goal,
@@ -19,7 +19,10 @@ from maths_ai.data_models.proof_components import (
     TacticCandidate,
     has_unresolved_lemma_argument,
 )
-from maths_ai.gnn_inference.inference_engine import GNNModelEngine
+try:
+    from maths_ai.gnn_inference.inference_engine import GNNModelEngine
+except ImportError:
+    GNNModelEngine = None
 from maths_ai.pln_inference.model import PLNInference
 from maths_ai.pln_inference.metta.translator.translator_modules.runner import DynamicThompsonSampler
 
@@ -35,6 +38,51 @@ from maths_ai.core.config import settings
 logger = logging.getLogger(__name__)
 
 _INACCESSIBLE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_']*✝[⁰-⁹¹²³]*")
+
+_INTERNAL_CATEGORIES = {"index", "state", "io"}
+_INPUT_CATEGORIES = {"parse", "parsing", "elab", "elaboration", "syntax"}
+# Diagnostics emitted by Lean for malformed or ill-typed initial goals.
+# Note: tokens like "unknown identifier" or "failed to synthesize" are only
+# classified as bad requests when depth == 0 (initial user input), ensuring
+# failures during later proof-search tactic elaboration remain 500.
+_INPUT_DIAGNOSTICS = (
+    "expected '_' or identifier",
+    "unexpected end of input",
+    "unexpected token",
+    "application type mismatch",
+    "type expected",
+    "function expected",
+    "unknown identifier",
+    "unknown constant",
+    "failed to synthesize",
+    "parse error",
+    "syntax error",
+    "elaboration error",
+)
+
+
+def _is_lean_goal_error(exc: ServerError) -> bool:
+    """Recognize Lean diagnostics caused by invalid goal or hypothesis input."""
+    message = str(exc).lower()
+    if any(token in message for token in (
+        "process terminated", "connection closed", "broken pipe",
+        "server crashed", "sigkill", "sigterm",
+    )):
+        return False
+
+    category, desc = None, message
+    first = exc.args[0] if exc.args else None
+    if isinstance(first, dict):
+        category = str(first.get("error", "")).lower()
+        desc = str(first.get("desc", first.get("message", message))).lower()
+    elif isinstance(first, str):
+        desc = first.lower()
+
+    if category in _INTERNAL_CATEGORIES:
+        return False
+    if category in _INPUT_CATEGORIES:
+        return True
+    return any(token in desc for token in _INPUT_DIAGNOSTICS)
 
 
 def _sanitize_inaccessible_names(goal: Goal) -> Goal:
@@ -188,7 +236,13 @@ class PantographExecutor(TacticExecutor):
             if raw.get("error") or raw.get("tacticErrors"):
                 error = raw.get("error") or raw.get("tacticErrors")
                 return TacticOutcome(success=False, subgoals=[], error=str(error))
-            if "goals" not in raw:
+            if raw.get("hasSorry") or raw.get("hasUnsafe"):
+                return TacticOutcome(
+                    success=False,
+                    subgoals=[],
+                    error="tactic produced an admitted or unsafe proof",
+                )
+            if not isinstance(raw.get("goals"), list):
                 # Mirror the pinned client's contract: a payload without goals
                 # means the tactic did not go through.
                 messages = raw.get("messages")
@@ -464,6 +518,9 @@ class HybridReasoner:
             print(f"\n=== Loop {loop_count}: expanding node {node.id} (depth {node.depth}) | goal: {node.goal.expression} ===")
             await self._expand(graph, node)
 
+        if not graph.is_solved() and not graph.is_exhausted() and len(graph.nodes) >= self.max_nodes:
+            graph.mark_budget_exhausted(note=f"global node budget ({self.max_nodes}) reached")
+
         return graph
 
     async def _start_state(self, goal: Goal) -> GoalState:
@@ -508,9 +565,14 @@ class HybridReasoner:
             # Nodes discovered before any structured subgoal exists (e.g. the
             # search root) get one extracted from the live server via the raw
             # Pantograph wire protocol.
-            sanitized = await structured_goal_from_text(
-                self.server, sanitized.expression, sanitized.hypotheses
-            )
+            try:
+                sanitized = await structured_goal_from_text(
+                    self.server, sanitized.expression, sanitized.hypotheses
+                )
+            except ServerError as exc:
+                if node.depth == 0 and _is_lean_goal_error(exc):
+                    raise ValueError(f"Lean parsing error: {exc}") from exc
+                raise
         candidates = self.predict_next_tactic(
             sanitized.expression,
             sanitized.hypotheses,
@@ -520,7 +582,15 @@ class HybridReasoner:
             graph.mark_node_exhausted(node.id, note="GNN returned no viable tactic")
             return
 
-        state = await self._start_state(node.goal)
+        try:
+            state = await self._start_state(node.goal)
+        except ServerError as exc:
+            if node.depth == 0 and _is_lean_goal_error(exc):
+                desc = str(exc)
+                if hasattr(exc, "args") and exc.args and isinstance(exc.args[0], dict):
+                    desc = exc.args[0].get("desc", exc.args[0].get("message", desc))
+                raise ValueError(f"Lean parsing error: {desc}") from exc
+            raise
         any_applied = False
 
         for tactic in candidates:
@@ -572,10 +642,8 @@ class HybridReasoner:
                 print(f"  [PLN Fallback] DTS recorded observation: score={stv.score:.3f}")
 
             print(f"  [PLN Fallback] final STV=({stv.strength:.3f}, {stv.confidence:.3f})  score={stv.score:.3f}  is_fallback={pln_result.is_fallback}")
-            if stv.score >= 0.9:
-                print(f"  [PLN Fallback] high confidence — closing node {node.id} as solved!")
-                graph.add_edge(node.id, TacticCandidate(tactic_name="PLN_fallback", arguments=[], probability=1.0), ranked_subgoals=[])
-                return
+            # PLN scores guide search, but they cannot discharge a Lean goal.
+            # Only a tactic accepted by the executor may create a solved edge.
 
         note = None if any_applied else "executor rejected every candidate tactic"
         if note:

@@ -38,7 +38,11 @@ from maths_ai.data_models.proof_components import (
     filter_executable_tactic_candidates,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.joint_bundle import load_joint_source_bundle
-from maths_ai.hybrid_reasoner.pantograph_adapter import structured_goal_from_text
+from maths_ai.hybrid_reasoner.pantograph_adapter import (
+    all_capabilities_verified,
+    probe_live_capabilities,
+    structured_goal_from_text,
+)
 from maths_ai.pln_inference.model import PLNInference, PLNResult
 
 logger = logging.getLogger(__name__)
@@ -47,17 +51,28 @@ _V2_REVISION = "8aba62625dfeb833e4591498700f351f3bc60af9"
 
 
 def _validate_v2_bundle_readiness(bundle_path: Path) -> None:
-    """Reject incomplete or unverified v2 bundles before Lean starts."""
-    bundle = load_joint_source_bundle(
+    """Validate the pinned artifact before starting the deployment's runtime."""
+    load_joint_source_bundle(
         bundle_path,
         expected_revision=_V2_REVISION,
     )
-    if not bundle.live_pantograph_parity_verified:
-        raise RuntimeError(
-            "Mathlib-Sexpr-GNN v2 serving is disabled: the published bundle "
-            "does not verify live Pantograph graph parity for "
-            "lean-model-sexp-v2."
+
+
+async def _verify_v2_runtime(server: Any) -> None:
+    """Gate readiness on the connected runtime, not an immutable artifact flag."""
+    results = await probe_live_capabilities(server)
+    if not all_capabilities_verified(results):
+        failures = "; ".join(
+            f"{name}: {result.detail or 'capability not verified'}"
+            for name, result in results.items() if not result.ok
         )
+        raise RuntimeError(
+            "Mathlib-Sexpr-GNN v2 live runtime verification failed: "
+            + (failures or "no capability results")
+        )
+    logger.info("verified live lean-model-sexp-v2 capabilities: %s", ", ".join(results))
+
+
 @dataclass
 class InferenceService:
     """Owns the loaded inference components plus the API-level locks.
@@ -66,14 +81,14 @@ class InferenceService:
     - ``proof_lock``: held start-to-finish around each ``/prove`` call, including
       all GNN/PLN search iterations and DTS persistence. Protects the shared
       Pantograph Server and DTS sampler state.
-    - ``gnn_lock``: protects GNN model inference; acquired by standalone
-      ``/gnn/predict_tactic`` and by proof search when calling GNN.
+    - ``gnn_lock``: serializes standalone GNN predictions. V2 predictions also
+      hold ``proof_lock`` while extracting their state and running inference.
     - ``pln_lock``: protects PLN inference; acquired by standalone ``/pln/evaluate``
       and by proof search when calling PLN.
     - ``dts_lock``: protects atomic DTS state file writes.
     
-    This allows standalone GNN/PLN calls to proceed during proof searches
-    (subject to their component locks), while proof searches cannot overlap.
+    V2 predictions, proof searches and replays share the same runtime lock.
+    Text-only legacy predictions and standalone PLN calls use component locks.
     """
 
     reasoner: Any  # HybridReasoner; typed loosely so fakes can stand in
@@ -82,6 +97,13 @@ class InferenceService:
     gnn_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     pln_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     dts_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+    @property
+    def petta_available(self) -> Optional[bool]:
+        """Expose PeTTa startup state to the readiness endpoint."""
+        petta = getattr(self.reasoner, "petta_chainer", None)
+        available = getattr(petta, "is_available", None)
+        return available if isinstance(available, bool) else None
 
     async def prove(
         self,
@@ -283,29 +305,27 @@ class InferenceService:
         hypotheses: Optional[List[str]] = None,
     ) -> List[TacticCandidate]:
         """Predict tactics for a goal using the GNN engine."""
-        async with self.gnn_lock:
-            engine = self.reasoner.gnn_engine
-            if getattr(engine, "_is_joint_v2", False):
-                # The v2 bundle rejects text-only states; obtain the required
-                # structured live state from Pantograph before predicting.
-                structured_goal = await self._structured_goal_for_prediction(goal, hypotheses)
-                candidates = await asyncio.to_thread(
-                    engine.inference,
-                    goal,
-                    top_k=top_k,
-                    structured_goal=structured_goal,
-                )
-            elif hypotheses:
-                candidates = await asyncio.to_thread(
-                    self.reasoner.gnn_engine.inference,
-                    goal,
-                    top_k=top_k,
-                    hypotheses=hypotheses,
-                )
-            else:
-                candidates = await asyncio.to_thread(
-                    self.reasoner.gnn_engine.inference, goal, top_k=top_k
-                )
+        engine = self.reasoner.gnn_engine
+        if getattr(engine, "_is_joint_v2", False):
+            # Pantograph has one untagged response stream. Use the same lock
+            # as proof search/replay; component locks alone cannot protect it.
+            async with self.proof_lock:
+                async with self.gnn_lock:
+                    structured_goal = await self._structured_goal_for_prediction(goal, hypotheses)
+                    candidates = await asyncio.to_thread(
+                        engine.inference,
+                        goal,
+                        top_k=top_k,
+                        structured_goal=structured_goal,
+                    )
+        else:
+            async with self.gnn_lock:
+                if hypotheses:
+                    candidates = await asyncio.to_thread(
+                        engine.inference, goal, top_k=top_k, hypotheses=hypotheses,
+                    )
+                else:
+                    candidates = await asyncio.to_thread(engine.inference, goal, top_k=top_k)
         filtered = filter_executable_tactic_candidates(candidates)
         if len(filtered) != len(candidates):
             logger.warning(
@@ -619,10 +639,12 @@ async def build_default_service(
     _validate_v2_bundle_readiness(bundle_path)
 
     server = await Server.create(
+        imports=["Mathlib"],
         project_path=str(settings.lean_project_path),
         options=model_state_options(),
     )
     try:
+        await _verify_v2_runtime(server)
         dts_input = settings.dts_state_file
         dts_sampler = None
         if dts_input.exists() and dts_input.stat().st_size > 0:
@@ -649,6 +671,7 @@ async def build_default_service(
             dts_c=dts_c,
             dts_random_seed=dts_random_seed,
         )
+        reasoner.petta_chainer.initialize()
         logger.info(
             "loaded GNN bundle root=%s release=v2.0.0 revision=%s profile=base",
             bundle_path,

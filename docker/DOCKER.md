@@ -73,9 +73,34 @@ bundle location, set `MATHS_AI_GNN_BUNDLE` to the bundle directory inside the
 container. Legacy `.pt` checkpoint settings remain available for local
 training runs.
 
-The published bundle does not include the FAISS lemma index. Inference can
-still use local-context arguments, but library-lemma retrieval remains empty
-until a compatible index and corpus are supplied separately.
+The bundle includes its matched dual text encoder, tokenizer, FAISS index,
+vectors and lemma corpus. Do not supply a separate legacy index or corpus.
+Startup validates the pinned snapshot, then probes the connected Pantograph
+runtime for normalized model S-expressions, binders, shadowing, local lets and
+instance metadata before loading the model and exposing the service. The
+artifact's historical `live_pantograph_parity_verified: false` field is not
+edited: deployment readiness is established by these live checks. Failed
+probes close the server and leave the API unready with an actionable error.
+
+V2 prediction, proof search and replay serialize access to the shared
+Pantograph response stream. Admitted/unsafe tactic results are rejected even
+when they return an empty goal list.
+
+### V2 verification evidence
+
+The follow-up fixes were checked against the pinned v2 artifact and Pantograph
+`0dd5d2225e2d093f66a4b6231c1aa35004f2c8f3` built on Lean `v4.10.0-rc1`.
+Live capability probes passed; the actual published model returned ranked
+predictions for `True`, found `simp`, and its proof passed independent Lean
+replay/compilation. Malformed input returned 400 and a live `sorry` result was
+rejected. The native harness used a fresh snapshot path backed by read-only
+cached artifact files, not a fresh Hub download.
+
+That native smoke used Init-only goals and isolated PLN initialization because
+PeTTa/SWI-Prolog were absent on the host. Production startup imports Mathlib
+and retains the full PeTTa readiness requirement. A full fresh-volume Docker
+smoke has **not** been run on this host (Docker daemon unavailable); do not
+interpret the native GNN smoke as complete Docker/PLN deployment validation.
 
 ## Architecture
 
@@ -86,11 +111,11 @@ until a compatible index and corpus are supplied separately.
 │                        BASE STAGE                           │
 │  Ubuntu 24.04                                               │
 │  ├── System deps (ca-certificates, curl, git, python3)      │
-│  ├── elan → Lean 4.15.0                                     │
+│  ├── elan → Lean 4.10.0-rc1                                 │
 │  ├── Mathlib4 (cached via lake)                             │
 │  ├── uv (Python package manager)                            │
 │  ├── SWI-Prolog 9.3+ (from PPA)                             │
-│  ├── petta (v1.0.3)                                         │
+│  ├── petta (v1.0.6)                                         │
 │  └── PeTTaChainer (pinned commit)                           │
 │  └── uv venv + Python deps (pyproject.toml)                 │
 └─────────────────────────────────────────────────────────────┘
@@ -117,13 +142,13 @@ until a compatible index and corpus are supplied separately.
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `PETTA_REF` | `v1.0.3` | petta git tag/branch |
-| `PETTACHAINER_REF` | `HEAD` | PeTTaChainer commit/ref |
+| `PETTA_REF` | `v1.0.6` | petta git tag/branch (needs working pip wheel) |
+| `PETTACHAINER_REF` | pinned commit | PeTTaChainer commit/ref (vendored, no runtime git-import) |
 
 ```bash
 docker build --target core \
-  --build-arg PETTA_REF=v1.0.3 \
-  --build-arg PETTACHAINER_REF=abc123 \
+  --build-arg PETTA_REF=v1.0.6 \
+  --build-arg PETTACHAINER_REF=b1678e97c4498b376b91e8cce215f5ab0398ddef \
   -t maths_ai-core -f docker/Dockerfile .
 ```
 
@@ -170,6 +195,33 @@ python -m maths_ai.healthcheck
 The image builds the Lean Pantograph executable from
 [jajos12/Pantograph](https://github.com/jajos12/Pantograph) and installs it
 alongside the Python Pantograph client used by the API.
+
+The image installs PeTTa (v1.0.6+, proper pip package with the `petta`
+console script) into the project virtualenv and vendors PeTTaChainer under
+`/opt/pettachainer`. The API runs a PeTTa startup probe before marking the
+service ready; `/health` includes `petta_available` and reports degraded
+readiness if the probe fails. Query files are generated inside a
+PeTTaChainer workspace (`PETTA_WORKSPACE`, default `/tmp/petta_workspace`)
+that links the vendored chainer modules (`PETTA_CHAINER_DIR`), so their
+relative `import!`s resolve without runtime network access.
+
+### PeTTa integration tests
+
+The PLN unit tests stub the `petta` executable and cannot verify real
+output-format fidelity. The real-runtime integration tests
+(`maths_ai/pln_inference/tests/test_pln_integration.py`) run the actual
+`petta` binary and are skipped outside a configured runtime. Run them inside
+the image:
+
+```bash
+docker compose run --rm api \
+    python -m pytest maths_ai/pln_inference/tests/test_pln_integration.py -v
+```
+
+They cover: the startup probe (query `P` given hypothesis `P` → real,
+non-fallback STV), `P` without evidence and `False` → zero-evidence
+fallback, no reuse of pre-query axiom/hypothesis STVs, and determinism of
+repeated requests.
 
 ## GPU Support (training target)
 

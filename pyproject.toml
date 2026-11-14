@@ -31,9 +31,30 @@ dependencies = [
     "typing-inspection>=0.4.2",
 ]
 
+[project.optional-dependencies]
+# Accelerator forks for PyTorch (see uv's PyTorch integration guide):
+# `uv sync --extra cpu` resolves torch from the dedicated PyTorch CPU wheel
+# index so CPU-only images (and CI) never pull the CUDA 13 / NVIDIA / Triton
+# wheel metadata of the default PyPI build. Plain `uv sync` (no extra) keeps
+# the PyPI GPU build for the GPU-capable training image; both forks live in
+# the same uv.lock. torch is also a base dependency so plain syncs never
+# drop it; the extras only pin the source *within* each fork.
+cpu = ["torch>=2.12.0"]
+gpu = ["torch>=2.12.0"]
+
+[tool.uv]
+conflicts = [
+    [{ extra = "cpu" }, { extra = "gpu" }],
+]
 
 [tool.uv.sources]
 pantograph = { git = "https://github.com/stanford-centaur/PyPantograph", rev = "3322696b72e81ed50f2f7dc0b667f8278a932283" }
+torch = [{ index = "pytorch-cpu", extra = "cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.setuptools.packages.find]
 where=["."]

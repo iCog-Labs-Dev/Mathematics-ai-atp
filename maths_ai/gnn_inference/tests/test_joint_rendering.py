@@ -158,6 +158,7 @@ def test_render_action_is_tactic_family_aware() -> None:
     assert rendered == ["[Nat.add_zero]"]
     assert complete is True
 
+
     # Non-rewriting families keep bare references.
     rendered, complete = GNNModelEngine._render_action(
         dag, list(dag.nodes), bundle, action, tactic_name="exact"
@@ -172,3 +173,25 @@ def test_render_action_is_tactic_family_aware() -> None:
     )
     assert rendered == []
     assert complete is True
+
+
+@pytest.mark.parametrize("family", [
+    "rw", "rewrite", "rwa", "erw", "erewrite", "rw_mod_cast",
+    "simp", "simp_rw", "simp_all", "simpa", "dsimp",
+    "norm_num", "field_simp", "linarith", "nlinarith",
+])
+def test_render_all_trained_rule_list_families(family: str) -> None:
+    from maths_ai.gnn_inference.inference_engine import GNNModelEngine
+
+    dag = goal_to_model_dag(_structured_goal())
+    bundle = SimpleNamespace(lemma_corpus={5: SimpleNamespace(name="Nat.add_zero")})
+    action = DecodedAction(
+        1, (DecodedArgument(CandidateSource.LIBRARY, 5, 0, 0.4),), True
+    )
+
+    arguments, complete = GNNModelEngine._render_action(
+        dag, list(dag.nodes), bundle, action, tactic_name=family
+    )
+
+    assert complete
+    assert arguments == ["[Nat.add_zero]"]

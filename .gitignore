@@ -20,3 +20,6 @@ runs/
 PeTTa/
 PeTTaChainer/
 
+# Lean/Lake generated dependencies and build state
+lean_project/.lake/
+

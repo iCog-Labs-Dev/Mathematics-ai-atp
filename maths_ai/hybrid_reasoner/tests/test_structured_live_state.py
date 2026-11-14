@@ -127,6 +127,40 @@ def test_executor_raw_payload_reports_tactic_failures() -> None:
     assert "nope" in (outcome.error or "")
 
 
+@pytest.mark.parametrize("flag", ["hasSorry", "hasUnsafe"])
+def test_executor_rejects_flagged_proof_even_when_no_goals_remain(flag: str) -> None:
+    server = _FakeServer()
+
+    async def run_async(cmd: str, payload: dict) -> dict:
+        return {"nextStateId": 2, "goals": [], flag: True}
+
+    server.run_async = run_async
+    outcome = asyncio.run(PantographExecutor(server).apply(
+        server, SimpleNamespace(state_id=1),
+        TacticCandidate(tactic_name="exact", arguments=["h"], probability=1.0),
+    ))
+
+    assert not outcome.success
+    assert outcome.subgoals == []
+    assert "admitted or unsafe" in outcome.error
+
+
+def test_executor_accepts_unflagged_closed_proof() -> None:
+    server = _FakeServer()
+
+    async def run_async(cmd: str, payload: dict) -> dict:
+        return {"nextStateId": 2, "goals": [], "hasSorry": False, "hasUnsafe": False}
+
+    server.run_async = run_async
+    outcome = asyncio.run(PantographExecutor(server).apply(
+        server, SimpleNamespace(state_id=1),
+        TacticCandidate(tactic_name="rfl", arguments=[], probability=1.0),
+    ))
+
+    assert outcome.success
+    assert outcome.subgoals == []
+
+
 def test_legacy_goals_from_raw_payload_keeps_search_alive() -> None:
     raw = {
         "goals": [

@@ -191,13 +191,20 @@ async def _raw_goal_payload(server: Any, expression: str, replay: tuple[str, ...
             "server does not expose raw payload access (run_async); "
             "the pinned client parses and strips v2 fields from GoalState."
         )
-    state_id = (await run_async("goal.start", {"expr": expression})).get("stateId")
+    from pantograph.server import ServerError
+
+    started = await run_async("goal.start", {"expr": expression})
+    if started.get("error"):
+        raise ServerError(started)
+    state_id = started.get("stateId")
     if not isinstance(state_id, int):
         raise ValueError("goal.start did not return a numeric stateId.")
     raw: dict[str, Any] = {}
     for tactic in replay:
         raw = dict(await run_async("goal.tactic", {"stateId": state_id, "tactic": tactic}))
-        if raw.get("error") or raw.get("tacticErrors"):
+        if raw.get("error"):
+            raise ServerError(raw)
+        if raw.get("parseError") or raw.get("tacticErrors"):
             raise ValueError(f"replay tactic {tactic!r} failed: {raw}")
         next_state_id = raw.get("nextStateId")
         # Keep advancing from freshly minted states; replay tactic order matters.

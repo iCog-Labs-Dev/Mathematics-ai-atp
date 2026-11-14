@@ -60,18 +60,18 @@ ENV MATHS_AI_DATA_ROOT=/data
 ENV HOME=/home/maths_ai
 
 # Set up workspace and install Python dependencies.
-# This image is CPU-only, so we must resolve PyTorch from the CPU wheel index.
-# The default torch package on PyPI brings in CUDA wheel metadata and tries to
-# fetch the nvidia packages that fail in constrained Docker builds.
+# The shared base installs the CPU PyTorch fork (`--extra cpu` resolves torch
+# from the CPU wheel index, so the CPU-only core/experimental images never
+# download CUDA 13 / NVIDIA / Triton wheels). The GPU-capable training target
+# re-syncs the default PyPI GPU build from the same lockfile.
 WORKDIR /workspace
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 ENV UV_HTTP_TIMEOUT=300
-ENV UV_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
 COPY pyproject.toml uv.lock /workspace/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv --seed /opt/venv && \
-    uv sync --no-dev --inexact --no-install-project --extra-index-url https://download.pytorch.org/whl/cpu && \
-    uv pip install --python /opt/venv/bin/python --extra-index-url https://download.pytorch.org/whl/cpu -e . --no-deps
+    uv sync --no-dev --inexact --no-install-project --extra cpu && \
+    uv pip install --python /opt/venv/bin/python -e . --no-deps
 
 # Build the Lean Pantograph executable from the requested implementation.
 # The Python package supplies the client API used by this project; its bundled
@@ -101,15 +101,26 @@ RUN git init /opt/pantograph && \
     install -m 0755 /opt/pantograph/.lake/build/bin/repl "${pantograph_package}/pantograph-repl.bin" && \
     install -m 0755 /tmp/pantograph-repl-wrapper "${pantograph_package}/pantograph-repl"
 
-# Install petta into the project virtualenv, not the system Python
-ARG PETTA_REF=v1.0.3
+# Install petta into the project virtualenv, not the system Python.
+# PeTTa >= v1.0.4 ships a functional Python package (console-script `petta`,
+# runtime resources bundled into the wheel); v1.0.3's wheel was empty, which
+# left the API without a petta executable -> petta_unavailable fallback scores.
+ARG PETTA_REF=v1.0.6
 RUN git clone --depth 1 --branch ${PETTA_REF} https://github.com/trueagi-io/PeTTa.git /opt/petta \
     && uv pip install --python /opt/venv/bin/python /opt/petta
 
-# Install PeTTaChainer (vendor at pinned commit, replace git-import in MeTTa)
-ARG PETTACHAINER_REF=HEAD
-RUN git clone --depth 1 https://github.com/123nol/petta_chainer.git /opt/pettachainer \
-    && if [ "${PETTACHAINER_REF}" != "HEAD" ]; then git -C /opt/pettachainer checkout "${PETTACHAINER_REF}"; fi
+# Install PeTTaChainer (vendor at pinned commit, replace git-import in MeTTa).
+# PLNInference imports the chainer directly from the vendored layout
+# (`!(import! &self petta_chainer)` from a workspace that links these files);
+# a runtime `git-import!` (network access) and the `(library Name "<abs path>")`
+# form are both unsupported by PeTTa's import resolution.
+ARG PETTACHAINER_REF=b1678e97c4498b376b91e8cce215f5ab0398ddef
+RUN git init /opt/pettachainer && \
+    git -C /opt/pettachainer remote add origin https://github.com/123nol/petta_chainer.git && \
+    git -C /opt/pettachainer fetch --depth 1 origin "${PETTACHAINER_REF}" && \
+    git -C /opt/pettachainer checkout --detach FETCH_HEAD
+
+ENV PETTA_CHAINER_DIR=/opt/pettachainer/pettachainer/metta
 
 ENV PATH="/workspace/docker/commands:/opt/venv/bin:/root/.local/bin:${PATH}"
 ENV PYTHONPATH="/workspace"
@@ -163,6 +174,14 @@ ENTRYPOINT ["/entrypoint.sh"]
 # ---------- training ----------
 # Training service: batch job, GPU-optional, different lifecycle
 FROM base AS training
+
+# Swap the shared base's CPU torch for the GPU build from the same lockfile
+# (plain sync = default PyPI resolution; no `cpu` extra). Runs as root because
+# /opt/venv is root-owned.
+USER root
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-dev --inexact --no-install-project --reinstall-package torch
+USER maths_ai
 
 # Copy application code
 COPY maths_ai/ /workspace/maths_ai/

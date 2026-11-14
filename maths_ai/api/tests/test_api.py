@@ -71,18 +71,25 @@ class FakeGraph:
     trace: Optional[Dict] = None
     num_nodes: int = 3
     num_edges: int = 2
+    budget_exhausted: bool = False
+    termination_reason: Optional[str] = None
 
     def is_solved(self) -> bool:
         return self.solved
 
     def is_exhausted(self) -> bool:
-        return self.exhausted
+        return self.budget_exhausted or self.exhausted
 
     def proof_trace(self) -> Optional[Dict]:
         return self.trace
 
     def summary(self) -> Dict:
-        return {"solved": self.solved, "exhausted": self.exhausted}
+        return {
+            "solved": self.solved,
+            "exhausted": self.is_exhausted(),
+            "budget_exhausted": self.budget_exhausted,
+            "termination_reason": self.termination_reason,
+        }
 
     def __len__(self) -> int:
         return self.num_nodes
@@ -110,8 +117,19 @@ class FakeReasoner:
         self.prove_calls.append((goal, list(hypotheses or []), self.max_depth))
         if goal == "bad syntax":
             raise ValueError("parse error at 'bad syntax'")
+        if goal == "this is not Lean ???":
+            raise ValueError("Lean parsing error: expected '_' or identifier")
+        if goal == "index error":
+            from pantograph.server import ServerError
+            raise ServerError({"error": "index", "desc": "Invalid goal index 0"})
+        if goal == "server failure":
+            from pantograph.server import ServerError
+            raise ServerError("Lean server failed while starting a goal")
         if goal == "internal crash":
             raise RuntimeError("lean backend exploded")
+        if self.max_nodes is not None and getattr(self.graph, "num_nodes", 0) >= self.max_nodes and not self.graph.is_solved():
+            self.graph.budget_exhausted = True
+            self.graph.termination_reason = "budget_exhausted"
         return self.graph
 
 
@@ -179,6 +197,52 @@ def test_health_degraded_when_initialization_failed():
         assert "checkpoint missing" in body["error"]
 
 
+def test_health_reports_degraded_when_petta_not_ready():
+    """PeTTa failing its startup probe must downgrade readiness, not masquerade."""
+    reasoner = SimpleNamespace(
+        gnn_engine=FakeGnnEngine(),
+        petta_chainer=SimpleNamespace(
+            evaluate=lambda expression, hypotheses=None: PLNResult(
+                stv=STV(strength=0.0, confidence=0.0),
+                status="petta_unavailable",
+                is_fallback=True,
+            ),
+            is_available=False,
+            initialization_error="PeTTa startup probe failed: petta_unavailable",
+        ),
+        dts_sampler=None,
+    )
+    service = InferenceService(reasoner=reasoner)
+
+    async def factory():
+        return service
+
+    with TestClient(create_app(service_factory=factory)) as client:
+        response = client.get("/health")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ready"] is False
+        assert body["status"] == "degraded"
+        assert body["petta_available"] is False
+        assert "PeTTa startup probe failed" in body["error"]
+
+
+def test_health_exposes_petta_when_available(api, tmp_path: Path):
+    class AvailablePln(FakePlnChainer):
+        is_available = True
+        initialization_error = None
+
+    api.reasoner.petta_chainer = AvailablePln()
+
+    response = api.client.get("/health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["ready"] is True
+    assert body["petta_available"] is True
+
+
 def test_endpoints_return_503_while_uninitialized():
     async def failing_factory():
         raise RuntimeError("checkpoint missing")
@@ -239,6 +303,20 @@ def test_prove_unsolved_returns_summary_without_trace(api):
         assert body["summary"]["solved"] is False
 
 
+def test_prove_node_budget_exhausted_returns_budget_exhausted_reason(api):
+    unsolved = FakeGraph(solved=False, exhausted=False, num_nodes=1, trace=None)
+    api.reasoner.graph = unsolved
+
+    response = api.client.post("/prove", json={"goal": "True", "max_nodes": 1})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["solved"] is False
+    assert body["exhausted"] is True
+    assert body["termination_reason"] == "budget_exhausted"
+    assert body["proof_trace"] is None
+
+
 def test_prove_persists_dts_state_after_search(api):
     api.reasoner.dts_sampler = FakeDtsSampler()
 
@@ -293,11 +371,67 @@ def test_prove_maps_goal_syntax_error_to_400(api):
     assert "parse error" in response.json()["detail"]
 
 
+def test_prove_maps_malformed_lean_goal_to_400(api):
+    response = api.client.post("/prove", json={"goal": "this is not Lean ???", "max_nodes": 5})
+
+    assert response.status_code == 400
+    assert "lean parsing error" in response.json()["detail"].lower()
+
+
 def test_prove_maps_internal_failure_to_500(api):
     response = api.client.post("/prove", json={"goal": "internal crash"})
 
     assert response.status_code == 500
     assert "proof search failed" in response.json()["detail"]
+
+
+def test_prove_maps_server_failure_to_500(api):
+    response = api.client.post("/prove", json={"goal": "server failure"})
+
+    assert response.status_code == 500
+    assert "proof search failed" in response.json()["detail"]
+
+
+def test_prove_maps_index_protocol_error_to_500(api):
+    response = api.client.post("/prove", json={"goal": "index error"})
+
+    assert response.status_code == 500
+    assert "proof search failed" in response.json()["detail"]
+
+
+def test_prove_with_hybrid_reasoner_maps_real_server_error_payloads(tmp_path: Path):
+    from pantograph.server import ServerError
+    from maths_ai.hybrid_reasoner.joint_inference import HybridReasoner
+
+    class StubbedHybridReasoner(HybridReasoner):
+        def __init__(self):
+            self.max_depth = 10
+            self.max_nodes = 500
+            self.gnn_engine = SimpleNamespace(_is_joint_v2=False)
+            self.predict_next_tactic = lambda goal, *args, **kwargs: [object()]
+
+        async def _start_state(self, goal):
+            if goal.expression == "this is not Lean ???":
+                raise ServerError({"error": "main", "desc": "expected '_' or identifier"})
+            if goal.expression == "index error":
+                raise ServerError({"error": "index", "desc": "Invalid goal index 0"})
+            raise RuntimeError("unexpected goal")
+
+    reasoner = StubbedHybridReasoner()
+    service = InferenceService(reasoner=reasoner, dts_state_path=tmp_path / "dts" / "state.json")
+
+    async def factory():
+        return service
+
+    with TestClient(create_app(service_factory=factory)) as client:
+        res_400 = client.post("/prove", json={"goal": "this is not Lean ???"})
+        assert res_400.status_code == 400
+        assert "lean parsing error" in res_400.json()["detail"].lower()
+        assert "expected '_' or identifier" in res_400.json()["detail"]
+
+        res_500 = client.post("/prove", json={"goal": "index error"})
+        assert res_500.status_code == 500
+        assert "proof search failed" in res_500.json()["detail"]
 
 
 # POST /gnn/predict_tactic ----------------------------------------------------
@@ -537,6 +671,50 @@ def test_formal_search_unsolved_result_is_not_found(tmp_path: Path):
 
         assert status["status"] == "exhausted"
         assert status["result"]["solved"] is False
+
+
+def test_formal_search_node_budget_exhausted_exposes_budget_exhausted(tmp_path: Path):
+    reasoner = FakeReasoner(graph=FakeGraph(solved=False, exhausted=False, num_nodes=1, trace=None))
+    service = InferenceService(reasoner=reasoner)
+
+    async def factory():
+        return service
+
+    with TestClient(create_app(service_factory=factory, formal_runs_dir=tmp_path / "runs")) as client:
+        response = client.post(
+            "/formal-search/start",
+            json={"run_id": "budget-test", "problem": {"goal": "True"}, "budget": {"max_nodes": 1}},
+        )
+        assert response.status_code == 202
+
+        import time
+        for _ in range(20):
+            status = client.get("/formal-search/budget-test").json()
+            if status["status"] == "exhausted":
+                break
+            time.sleep(0.01)
+
+        assert status["status"] == "exhausted"
+        assert status["result"]["solved"] is False
+        assert status["result"]["exhausted"] is True
+        assert status["result"]["termination_reason"] == "budget_exhausted"
+
+
+def test_proof_hypergraph_mark_budget_exhausted():
+    from maths_ai.data_models.proof_components import Goal
+    from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph
+
+    graph = ProofHypergraph(Goal(expression="True"))
+    assert graph.is_exhausted() is False
+    assert graph.budget_exhausted is False
+
+    graph.mark_budget_exhausted(note="node budget (1) reached")
+    assert graph.is_exhausted() is True
+    assert graph.budget_exhausted is True
+    assert graph.termination_reason == "budget_exhausted"
+    assert graph.summary()["exhausted"] is True
+    assert graph.summary()["budget_exhausted"] is True
+    assert graph.summary()["termination_reason"] == "budget_exhausted"
 
 
 def test_formal_replay_cannot_verify_a_different_problem(api):

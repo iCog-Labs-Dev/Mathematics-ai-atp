@@ -119,12 +119,22 @@ def create_app(
 
     @app.get("/health", response_model=HealthResponse)
     async def health(request: Request) -> HealthResponse:
-        ready = getattr(request.app.state, "service", None) is not None
-        return HealthResponse(
+        service = getattr(request.app.state, "service", None)
+        petta_available = getattr(service, "petta_available", None) if service else False
+        ready = service is not None and petta_available is not False
+        petta = getattr(getattr(service, "reasoner", None), "petta_chainer", None)
+        error = getattr(request.app.state, "init_error", None) or getattr(
+            petta, "initialization_error", None
+        )
+        payload = HealthResponse(
             status="ok" if ready else "degraded",
             ready=ready,
-            error=getattr(request.app.state, "init_error", None),
-        )
+            error=error,
+            petta_available=petta_available,
+        ).model_dump(exclude_none=True)
+        if petta_available is None:
+            payload["error"] = error
+        return JSONResponse(content=payload)
 
     @app.post("/prove", response_model=ProveResponse)
     async def prove(payload: ProveRequest, request: Request) -> ProveResponse:
@@ -155,7 +165,7 @@ def create_app(
                 summary={"error": "timeout"},
             )
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=f"invalid goal or hypotheses: {exc}") from exc
+            raise HTTPException(status_code=400, detail=f"Lean parsing error: {exc}") from exc
         except asyncio.CancelledError:
             raise
         except Exception as exc:
