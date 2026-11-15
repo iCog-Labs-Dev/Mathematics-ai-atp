@@ -150,6 +150,7 @@ No force-push or direct push to main is required by this strategy. The final pro
 5. Define a tactic step as one issued Lean tactic command, including unsuccessful commands and proof-combination replay. Admission and independent verification use separately declared bounded allowances and separate cost counters. Node and simulation caps remain distinct backend limits.
 6. Count wall-clock attempt budget from admission, including queue wait. Independent replay has an explicit verification budget. Retries consume a durable cumulative run allowance; network retries do not grant additional execution.
 7. Use exactly one explicit input form: source-backed or text-based. Source-backed requests derive their starting state entirely from the source and target locator; text-based requests require no caller-supplied source artifact. Both converge on the same admitted-task/execution interfaces. Failed source admission never falls back to text execution.
+8. Use `budget.max_steps` as the sole request-level tactic-attempt limit. Remove `search_policy.max_tactic_steps` from the proposed v2 schema and migrate its callers. Policy/profile and deployment ceilings belong in versioned provider configuration, not in a second request field. A v2 request containing the removed field is invalid; do not silently ignore or translate it.
 
 Do not implement these choices as already accepted decisions. Contract and persistent-atp maintainers must confirm them before code changes.
 
@@ -234,11 +235,26 @@ The accepted-GNN backend uses its own declared backend name and best-first profi
 Rules:
 
 - Reject unknown fields and ill-typed/boolean numeric values, unsupported profiles, unavailable environments, and unresolved artifacts explicitly.
-- If `search_policy.max_tactic_steps` and `budget.max_steps` are both supplied, enforce their minimum. Return resolved limits in admission acknowledgement.
+- `budget.max_steps` is the sole requested tactic-attempt allowance. Resolve it against the selected provider profile/deployment ceilings and return the effective allowance in the admission acknowledgement. Reject `search_policy.max_tactic_steps` as an unknown v2 field.
 - If model/corpus artifact references are supplied, require exact agreement with the resolved deployment. An omitted reference selects only the explicitly identified deployment, not an arbitrary latest model.
 - Validate exactly one input variant and search its admitted root. Do not attach redundant request text to source mode or fall back to goal mode when source resolution/elaboration fails.
 - Return an immutable request digest plus actual resolved backend, checkpoint/corpus/representation/environment identities. Echoed inputs alone are not execution attestation.
 - IDs containing `/` must round-trip through route encoding, persistence filenames, and authorization. Test this with `example/fr-1` rather than only flat IDs.
+
+### Single tactic-budget field and provider ceilings
+
+The coordinator requests a maximum amount of execution using `budget.max_steps`. The selected named profile and deployment impose finite server-owned safety ceilings. These ceilings do not create additional allowances and cannot be changed by adding another request-level policy field.
+
+| Design | Benefit | Limitation | Decision |
+|---|---|---|---|
+| Request includes both `budget.max_steps` and `search_policy.max_tactic_steps` | Can express two independently supplied bounds | Duplicates the same unit and complicates validation and retry accounting | Replace in proposed v2 |
+| One requested allowance plus provider-owned ceilings | Clear coordinator authority and one cumulative counter | Provider must advertise and acknowledge resolved ceilings | Choose |
+
+At admission, establish the effective run allowance as the minimum of the requested `budget.max_steps` and the applicable profile/deployment ceilings. The request specifies an upper bound, not a guarantee that the provider will offer that much execution. A response must explicitly acknowledge any reduction and the resolved profile identity. Requests with unsupported fields or invalid values are rejected, not silently repaired. Any optional-field default policy must be finite, advertised, and acknowledged; it must not introduce an unlimited or second policy allowance.
+
+Persist the admitted allowance for the run. Count all issued exploration and combination-replay tactic commands against it. On retry, use the remaining admitted allowance; do not recompute a fresh full allowance from the request or a newly configured profile. Pin the profile configuration identity and report relevant configuration changes rather than silently increasing an existing run's budget.
+
+Example: a request asks for 100 steps and the selected profile caps runs at 60. Admission acknowledges 60. After an attempt consumes 40, an authorized retry has at most 20 remaining, even though the original request still says 100. The separate independent-verification allowance remains separate; node, depth, model-call, and simulation limits also retain their own units.
 
 ## Stage 0 — Revalidate bases and agree on a contract package
 
@@ -256,6 +272,7 @@ Gate: maintainers agree on strict examples and negative cases before implementat
 Primary files: `schemas/formal-search-request.schema.json`, `formal-search-result.schema.json`, new lifecycle/replay/capability schemas, `src/mathproof/formal_atp.py`, `http_atp.py`, `maths_ai_http.py`, `schemas.py`, and their callers/tests.
 
 1. Add version-2 fields, the strict source/goal input union, resolved-setting acknowledgements, admitted-input provenance, structured termination/cost information, and bound replay attestation. Migrate fake/direct/HTTP adapters, task builders, schema examples, result validators, and artifact associations together. Eliminate unconditional source-artifact/goal-text requirements in v2; do not add a legacy-shape fallback.
+   Remove `search_policy.max_tactic_steps` from v2 request schemas and request builders, consolidate any intended caller restriction into `budget.max_steps`, and migrate fixtures/validators together. Preserve old stored requests as historical evidence; do not rewrite them or accept the removed field through a hidden compatibility path.
 2. Audit request producers in coordinator/context-compiler/CLI integrations and configuration. Choose `source` when the authoritative declaration artifact exists, or `goal` when constructing an explicit supported text task. Ensure the entire input variant, backend, deployment, model/corpus assertions, and all budgets reach the provider unchanged. Persist the provider-generated input/source references for text requests and validate their run associations.
 3. Consolidate HTTP request construction and response validation. Eliminate the loss of `max_steps`, the metadata-only environment envelope, and the requirement for the legacy provider summary format.
 4. Preserve transport status/error categories. A 400 invalid input or environment mismatch is not independent proof rejection. Admit a negative replay verdict only from a validated typed response bound to the stored proof and actual environment.
@@ -271,7 +288,7 @@ Primary areas: main `maths_ai/api/{app,schemas,service}.py`; MCTS config/coordin
 1. Preserve main's formal-route functionality while migrating handlers to the agreed version-2 types. Reuse bounded MCTS worker supervision and scheduling behind a backend interface; do not spawn a benchmark CLI per request.
 2. Keep one formal-run registry for admission, identity, lifecycle, and evidence. Dataset evaluation jobs remain separate records that may invoke the same bounded backend operations.
 3. Resolve backend/deployment at admission and retain it through status, cancellation, retry, and replay. Enforce allowlisted settings and refuse unsupported budgets or artifact selections.
-4. Introduce shared reservation/accounting for tactic commands across exploration and combination replay. Settle in-flight operations conservatively after worker loss; an unknown completed cost cannot be treated as zero to replenish allowance.
+4. Introduce shared reservation/accounting for tactic commands across exploration and combination replay. Resolve the sole requested allowance against provider-owned profile/deployment ceilings, persist the admitted cap and profile identity, acknowledge reductions, and enforce remaining budget across retries. Settle in-flight operations conservatively after worker loss; an unknown completed cost cannot be treated as zero to replenish allowance.
 5. Acknowledge cancellation promptly but report terminal cancellation only after owned work and Lean processes have stopped or been retired. Preserve completed evidence and actual consumed costs.
 6. Preserve synchronous `/prove` and component APIs only according to an explicitly agreed external migration requirement. Their handlers must call shared backend services, not maintain separate proof algorithms. Decide any incompatible `/prove` schema migration before release.
 
@@ -340,6 +357,7 @@ Gate: both backend policies load verified artifacts and execute native proofs un
 6. Run fresh CPU/GPU deployment smoke for the profiles intended for release. Readiness must reflect real artifact/runtime availability. PLN-disabled profiles must not require PeTTa; PLN-enabled profiles must verify their provisioned runtime.
 7. Record revisions, artifact hashes, command lines, costs, and tests separately for injected, native, and deployment gates. Recompute PR #84 mergeability after reconciliation rather than retaining the earlier 25-conflict figure.
 8. Exercise both input forms through each advertised backend: source resolution/declaration selection, text admission without a caller artifact, empty and nonempty contexts, universe/let/binder semantics, mixed/unknown input rejection, unsupported starting conventions, and no source-to-text fallback. Prove and independently replay both forms after restart; tampering with generated source or the admitted-input manifest must fail verification.
+9. Verify single-field tactic budgets: requests below/at/above provider ceilings, explicit effective-limit acknowledgement, rejection of `search_policy.max_tactic_steps`, shared exploration/replay reservations, and persistent remaining allowance across restart/retry. Include the 100-requested/60-admitted/40-consumed/20-remaining case and confirm no configuration change replenishes the run implicitly.
 
 ## Delivery order and exit criteria
 
