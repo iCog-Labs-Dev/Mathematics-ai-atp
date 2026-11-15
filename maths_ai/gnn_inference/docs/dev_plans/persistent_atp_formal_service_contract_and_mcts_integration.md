@@ -149,12 +149,15 @@ No force-push or direct push to main is required by this strategy. The final pro
 4. Require explicit backend/profile selection and server-owned deployment identifiers. Preserve optional artifact claims and verify them against the resolved deployment; do not silently ignore them or allow arbitrary executable/checkpoint filesystem paths.
 5. Define a tactic step as one issued Lean tactic command, including unsuccessful commands and proof-combination replay. Admission and independent verification use separately declared bounded allowances and separate cost counters. Node and simulation caps remain distinct backend limits.
 6. Count wall-clock attempt budget from admission, including queue wait. Independent replay has an explicit verification budget. Retries consume a durable cumulative run allowance; network retries do not grant additional execution.
+7. Use exactly one explicit input form: source-backed or text-based. Source-backed requests derive their starting state entirely from the source and target locator; text-based requests require no caller-supplied source artifact. Both converge on the same admitted-task/execution interfaces. Failed source admission never falls back to text execution.
 
 Do not implement these choices as already accepted decisions. Contract and persistent-atp maintainers must confirm them before code changes.
 
 ## Request schema proposal
 
-Retain existing proof, claim, declaration, run, revision, lease, and fencing identities. Extend the strict schema with a protocol version, backend selection, and deployment identifier. `deployment_id` names a provider registry entry containing policy, prepared representation, retriever/index, corpus, environment, and supported limits.
+Retain existing proof, claim, declaration, run, revision, lease, and fencing identities. Extend the strict schema with a protocol version, backend selection, deployment identifier, and a discriminated `input` object. `deployment_id` names a provider registry entry containing policy, prepared representation, retriever/index, corpus, environment, and supported limits.
+
+The revision below replaces the earlier proposal requiring both a source artifact and redundant goal/hypothesis strings. It changes the proposed version-2 contract, not the existing deployed version-1 schema.
 
 Illustrative version-2 request; the digest strings below are placeholders for real content addresses:
 
@@ -168,11 +171,14 @@ Illustrative version-2 request; the digest strings below are placeholders for re
   "base_revision": 12,
   "lease_id": "writer-lease-7",
   "fencing_token": 4,
-  "lean_source_artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "input": {
+    "kind": "source",
+    "artifact_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "declaration": "Demo.target",
+    "starting_state": "binders-introduced"
+  },
   "environment_id": "mathlib-4.10-rc1",
   "environment_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-  "goal_text": "P",
-  "hypotheses": ["P : Prop", "h : P"],
   "backend": {
     "name": "mcts-actor-critic",
     "profile": "puct",
@@ -185,6 +191,44 @@ Illustrative version-2 request; the digest strings below are placeholders for re
 }
 ```
 
+For a text-based request, replace only `input` with:
+
+```json
+{
+  "kind": "goal",
+  "goal_text": "n + 1 = 4",
+  "hypotheses": ["n : Nat", "h : n = 3"],
+  "universe_levels": []
+}
+```
+
+The surrounding identities, environment, backend/deployment, policies, and budgets remain required as specified by the common contract. A text input is not permission to omit environment validation.
+
+### Input validation and admission
+
+Use a strict discriminated union (`oneOf` in JSON Schema) keyed by `input.kind`, with unknown fields forbidden in each variant and at the envelope level:
+
+| Input | Required contents | Forbidden contents | Authoritative state |
+|---|---|---|---|
+| `source` | Artifact hash, unambiguous declaration locator, supported starting-state convention | Goal/hypothesis strings and text-only context fields | Elaborated source declaration under the validated environment |
+| `goal` | Goal text; ordered hypothesis list and universe-level list, which may be empty | Source artifact, declaration locator, source-only state convention | Elaborated supplied context/target under the validated environment |
+
+Remove the old top-level `lean_source_artifact`, `goal_text`, and `hypotheses` requirements from the proposed v2 envelope. Do not infer a variant by field presence, silently ignore mixed fields, or synthesize an unused source reference for text requests.
+
+For `source`, resolve and hash-check immutable source bytes, locate the target, and elaborate its signature with the original imports, namespaces, notation, universes, binder roles, and local definitions. `binders-introduced` means introducing the declaration's outer parameters/hypotheses in order while retaining dependent and let-binding semantics. Initially support this convention only; reject other conventions explicitly until implemented. Do not use the existing target proof or make the target declaration available as a premise. The placeholder body of a source task is not a verified proof. Arbitrary intermediate-state selection requires separate provenance and is outside this initial input form.
+
+For `goal`, elaborate ordered declaration strings and target text using shared validated admission. Define and document supported binder/declaration syntax, universe parameters, and limits; reject ambiguous or unsupported context rather than guessing missing namespace/notation information. Imports and executable paths are selected by the server-owned environment/deployment. Text mode must not expose arbitrary frontend commands or caller-selected runtime paths.
+
+Both loaders produce one validated task representation containing the executable root, exact context, environment binding, and input provenance. They then use the same backend execution, budget, ownership, certification, and replay interfaces. No redundant source-versus-text target comparator is required in source mode.
+
+### Stored provenance for both forms
+
+Persist the original versioned request and a content-addressed admitted-input manifest. Return `input_artifact_hash` as the identity of that manifest; it binds input kind, target selection or supplied text, admitted representation, and the applicable source/environment evidence. This is distinct from the request digest, which also binds budgets and scheduling identities.
+
+For source mode, retain the caller's verified source artifact and target locator. For text mode, persist a provider-generated Lean input artifact and sufficient validated structured context to reproduce the exact admitted task. Record `source_origin: "caller-artifact"` or `source_origin: "generated-from-text"` respectively. Never describe generated input as an original caller file.
+
+`source_artifact_hash` in replay evidence identifies the verified source input used to reproduce the task: the caller source for source mode, or the stored generated source for text mode. Keep the input manifest association so the same source file selecting different declarations/conventions cannot be confused. Both forms require artifact persistence even though only source mode requires an artifact from the caller.
+
 The accepted-GNN backend uses its own declared backend name and best-first profile. Do not assume switching `selection_policy` converts one model implementation into the other.
 
 Rules:
@@ -192,7 +236,7 @@ Rules:
 - Reject unknown fields and ill-typed/boolean numeric values, unsupported profiles, unavailable environments, and unresolved artifacts explicitly.
 - If `search_policy.max_tactic_steps` and `budget.max_steps` are both supplied, enforce their minimum. Return resolved limits in admission acknowledgement.
 - If model/corpus artifact references are supplied, require exact agreement with the resolved deployment. An omitted reference selects only the explicitly identified deployment, not an arbitrary latest model.
-- Bind the authoritative target declaration and source context to the content-addressed source artifact. Match `goal_text`/hypotheses to that input through native elaboration or the verified structured seed path; do not execute an unrelated text goal while recording the source hash.
+- Validate exactly one input variant and search its admitted root. Do not attach redundant request text to source mode or fall back to goal mode when source resolution/elaboration fails.
 - Return an immutable request digest plus actual resolved backend, checkpoint/corpus/representation/environment identities. Echoed inputs alone are not execution attestation.
 - IDs containing `/` must round-trip through route encoding, persistence filenames, and authorization. Test this with `example/fr-1` rather than only flat IDs.
 
@@ -211,8 +255,8 @@ Gate: maintainers agree on strict examples and negative cases before implementat
 
 Primary files: `schemas/formal-search-request.schema.json`, `formal-search-result.schema.json`, new lifecycle/replay/capability schemas, `src/mathproof/formal_atp.py`, `http_atp.py`, `maths_ai_http.py`, `schemas.py`, and their callers/tests.
 
-1. Add version-2 fields, resolved-setting acknowledgements, structured termination/cost information, and bound replay attestation. Migrate fake/direct/HTTP adapters and schema examples together.
-2. Audit request producers in coordinator/context-compiler/CLI integrations and configuration. Ensure backend, source, deployment, model/corpus assertions, and all budgets reach the provider unchanged.
+1. Add version-2 fields, the strict source/goal input union, resolved-setting acknowledgements, admitted-input provenance, structured termination/cost information, and bound replay attestation. Migrate fake/direct/HTTP adapters, task builders, schema examples, result validators, and artifact associations together. Eliminate unconditional source-artifact/goal-text requirements in v2; do not add a legacy-shape fallback.
+2. Audit request producers in coordinator/context-compiler/CLI integrations and configuration. Choose `source` when the authoritative declaration artifact exists, or `goal` when constructing an explicit supported text task. Ensure the entire input variant, backend, deployment, model/corpus assertions, and all budgets reach the provider unchanged. Persist the provider-generated input/source references for text requests and validate their run associations.
 3. Consolidate HTTP request construction and response validation. Eliminate the loss of `max_steps`, the metadata-only environment envelope, and the requirement for the legacy provider summary format.
 4. Preserve transport status/error categories. A 400 invalid input or environment mismatch is not independent proof rejection. Admit a negative replay verdict only from a validated typed response bound to the stored proof and actual environment.
 5. Add short transport deadlines for admission/status/cancel calls; do not confuse HTTP timeout with the longer bounded worker deadline. Reconcile lost admission responses by run/request identity before attempting another POST.
@@ -254,12 +298,12 @@ Gate: multi-goal tests, shared-assignment conflicts, open-root budget exhaustion
 Owners: provider runtime and artifact maintainers, persistent-atp artifact-store/commit-gate maintainers.
 
 1. Agree on the artifact transport: authenticated access to immutable source/evidence objects or explicit upload to a provider-owned content-addressed store. A digest must resolve to verified bytes; clients must not send arbitrary server filesystem paths or imports/executables to run.
-2. Define a source manifest locating the original target declaration and preserving imports, namespace/scoped notation, universes, ordered local declarations, local definitions, and binder roles. Unsupported faithful reconstruction is an input limitation, not permission to guess the statement.
+2. Implement the two input-admission paths above. Source mode derives its root from the source manifest/target locator; goal mode derives it from supplied supported text and persists generated source plus validated context. Preserve universe/binder/local-definition semantics in both. Both converge on shared validated tasks; neither silently substitutes for the other.
 3. Define a canonical environment manifest and hashing procedure. Map the persistent environment hash to verified runtime/toolchain/compiled-library/declaration identities. Do not compare a REPL's short environment identifier with an independently defined SHA-256 string as though they were the same hash namespace.
 4. Reuse MCTS's verified replay artifacts/receipts and the accepted backend's native verification path. A new replay session resolves the same source and compatible environment; `import Init` alone cannot replace an original Mathlib prefix.
 5. Define certificate bytes and canonical hash input jointly. Reuse an agreed canonical serializer; the current adapter-local hash of run ID and proof trace must not compete with a provider's differently defined certificate hash. Store the actual content, not a digest of an unavailable synthetic object.
-6. Send replay requests identifying protocol version, producer run, stored certificate artifact hash, source artifact, expected environment hash, and bounded verification allowance. Provider loads authoritative stored evidence, verifies it, and returns actual identities plus typed verification status.
-7. Successful attestation includes `run_id`, `certificate_hash`, `source_artifact_hash`, and `environment_hash` derived from verified evidence/runtime. Add these checks to both HTTP paths. Never weaken the current MathsAI adapter's positive-attestation requirement to match main's minimal response.
+6. Send replay requests identifying protocol version, producer run, stored certificate artifact hash, admitted-input artifact hash, applicable stored source artifact, expected environment hash, and bounded verification allowance. Goal-mode replay uses the stored generated input, not a newly supplied goal string. Provider loads authoritative stored evidence, verifies it, and returns actual identities plus typed verification status.
+7. Successful attestation includes `run_id`, `certificate_hash`, `input_artifact_hash`, `source_artifact_hash`, `source_origin`, and `environment_hash` derived from verified evidence/runtime. Bind these fields through certificate storage and both HTTP validation paths; do not echo unverified caller claims. Never weaken the current MathsAI adapter's positive-attestation requirement to match main's minimal response.
 8. Distinguish `verified`, a genuine proof `rejected`, and operational `inconclusive` replay. Resource/time/runtime failures cannot become either proof acceptance or a definitive invalid-proof verdict.
 
 Gate: changed target, omitted sibling, altered proof, `sorry`, wrong certificate, wrong source, and mismatched environment are rejected or explicitly inconclusive as appropriate. A valid proof passes from a fresh compatible session.
@@ -295,6 +339,7 @@ Gate: both backend policies load verified artifacts and execute native proofs un
 5. Run native HTTP tests with trained artifacts for both backends: source admission, bounded search, proof artifact persistence, fresh-session replay attestation, and negative source/environment/certificate cases.
 6. Run fresh CPU/GPU deployment smoke for the profiles intended for release. Readiness must reflect real artifact/runtime availability. PLN-disabled profiles must not require PeTTa; PLN-enabled profiles must verify their provisioned runtime.
 7. Record revisions, artifact hashes, command lines, costs, and tests separately for injected, native, and deployment gates. Recompute PR #84 mergeability after reconciliation rather than retaining the earlier 25-conflict figure.
+8. Exercise both input forms through each advertised backend: source resolution/declaration selection, text admission without a caller artifact, empty and nonempty contexts, universe/let/binder semantics, mixed/unknown input rejection, unsupported starting conventions, and no source-to-text fallback. Prove and independently replay both forms after restart; tampering with generated source or the admitted-input manifest must fail verification.
 
 ## Delivery order and exit criteria
 
