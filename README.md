@@ -108,6 +108,12 @@ registry (see `docker/config/formal_deployments.json`); runs and artifacts
 persist under `MATHS_AI_FORMAL_STATE_DIR`. See
 [the version-2 provider documentation](maths_ai/gnn_inference/docs/formal_protocol_v2.md).
 
+For complete, independently checkable mathematical examples and a live
+two-backend demo on port **39743**, see
+[Formal v2 proof examples](examples/formal_v2/README.md). The guide includes
+Lagrange's identity, Cauchy–Schwarz, a bounded Chinese remainder problem, observed
+model evidence, and the distinction between a reference proof and neural search.
+
 Use a different local port either with an environment variable or a
 command-line option:
 

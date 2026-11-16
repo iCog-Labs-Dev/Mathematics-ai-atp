@@ -151,7 +151,7 @@ receipt/configuration is retained unchanged. The relocated inventory/environment
 binding was verified. Starting from the provider branch with dependencies installed:
 
 ```bash
-CFG=/home/jajos/code/work/icog/Mathematics-ai-atp/maths_ai/_support_files/formal_v2_native/service
+CFG=/absolute/path/to/provisioned/service
 MATHS_AI_SERVICE_CONFIG="$CFG/mcts-service.json" \
 MATHS_AI_FROZEN_CONFIG="$CFG/frozen-service.json" \
 MATHS_AI_FORMAL_DEPLOYMENTS="$CFG/formal-deployments.json" \
@@ -167,6 +167,10 @@ another host and keep the two native contracts in separate directories.
 The local service venv installs both built wheels, the pinned client, Transformers
 `4.57.6`, Hugging Face Hub `0.36.2` and Datasets `5.0.1`, reusing the host's Torch
 installation. `pip check` passes. It is separate from the research environment.
+
+For the portable launcher, complete mathematical reference proofs and a live
+two-backend demonstration on port 39743, see
+[the formal v2 examples](../../../examples/formal_v2/README.md).
 
 For repeatable live acceptance, set `MATHS_AI_MCTS_RL_CONFIG` to the migrated or
 relocated RL config, `MATHS_AI_GNN_BUNDLE` to the frozen bundle and
