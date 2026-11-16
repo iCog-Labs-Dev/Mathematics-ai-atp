@@ -120,9 +120,8 @@ class MctsFormalBackend:
         return bool(self.service.readiness()["ready"])
 
     async def quiesce(self) -> None:
-        """Wait until the runtime's current operation (a cancelled attempt) has stopped."""
-        while self.service._step is not None and not self.service._step.done():
-            await asyncio.sleep(0.1)
+        """Wait for native cleanup, not an unrelated operation's dispatcher slot."""
+        await self.service.supervisor.settled()
 
     async def _run(self, operation: str, payload: dict[str, Any], timeout_s: float) -> dict[str, Any]:
         from maths_ai.api.service import DeadlineExceeded, InputRejected, ServiceError

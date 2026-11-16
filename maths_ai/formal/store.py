@@ -247,6 +247,7 @@ class FormalRunStore:
                 )
                 self._db.execute(
                     "UPDATE runs SET attempts = ?, status = 'queued', disposition = NULL, termination = NULL, "
+                    "result_json = NULL, certificate_hash = NULL, "
                     "updated_at = ? WHERE run_id = ?",
                     (attempt, time.time(), run_id),
                 )
