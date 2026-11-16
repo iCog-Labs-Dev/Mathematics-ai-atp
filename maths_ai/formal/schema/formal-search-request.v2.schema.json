@@ -273,7 +273,11 @@
   "additionalProperties": false,
   "properties": {
     "backend": {
-      "$ref": "#/$defs/BackendSelection"
+      "anyOf": [
+        {"$ref": "#/$defs/BackendSelection"},
+        {"type": "null"}
+      ],
+      "default": null
     },
     "base_revision": {
       "minimum": 0,
@@ -300,10 +304,12 @@
       "default": null
     },
     "deployment_id": {
-      "maxLength": 256,
-      "minLength": 1,
-      "title": "Deployment Id",
-      "type": "string"
+      "anyOf": [
+        {"maxLength": 256, "minLength": 1, "type": "string"},
+        {"type": "null"}
+      ],
+      "default": null,
+      "title": "Deployment Id"
     },
     "environment_hash": {
       "pattern": "^sha256:[0-9a-f]{64}$",
@@ -389,8 +395,6 @@
     "input",
     "environment_id",
     "environment_hash",
-    "backend",
-    "deployment_id",
     "search_policy",
     "budget"
   ],

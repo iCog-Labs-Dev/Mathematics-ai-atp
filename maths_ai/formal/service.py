@@ -48,6 +48,7 @@ from .contract import (
     Admission,
     FormalReplayRequest,
     FormalSearchRequest,
+    BackendSelection,
     ReplayAttestation,
 )
 from .deployments import Deployment, DeploymentRegistry, Profile
@@ -136,6 +137,7 @@ class FormalService:
             }
         return {
             "protocol_versions": [PROTOCOL_VERSION],
+            "default": dict(self.registry.default) if self.registry.default is not None else None,
             "registry_hash": self.registry.registry_hash,
             "deployments": deployments,
             "tactic_step": "one tactic command sent to Lean, including rejected commands "
@@ -171,6 +173,8 @@ class FormalService:
                 "environment_id": record.environment_id,
                 "environment_hash": record.environment_hash,
                 "model": record.model,
+                "proposal_mode": (record.backend_selection or record.request.get("backend") or {}).get("proposal_mode"),
+                "seed": (record.backend_selection or record.request.get("backend") or {}).get("seed"),
             },
             "budget": {
                 "requested_max_steps": record.requested_max_steps,
@@ -192,20 +196,41 @@ class FormalService:
         }
         return Admission.model_validate(ack).model_dump(mode="json")
 
-    def _resolve(self, request: FormalSearchRequest) -> tuple[Deployment, Profile, Any, str]:
-        deployment = self.registry.deployments.get(request.deployment_id)
+    def _selection(self, request: FormalSearchRequest):
+        default = self.registry.default or {}
+        deployment_id = request.deployment_id or default.get("deployment_id")
+        deployment = self.registry.deployments.get(deployment_id)
         if deployment is None:
-            raise FormalError(422, "unknown-deployment", f"No deployment {request.deployment_id!r}.")
-        if request.backend.name != deployment.backend:
+            raise FormalError(422, "unknown-deployment", f"No deployment {deployment_id!r}; configure a default or select one.")
+        selection = request.backend
+        if selection is None:
+            if default.get("deployment_id") == deployment_id:
+                selected = {key: value for key, value in default.items() if key != "deployment_id"}
+            elif len(deployment.profiles) == 1:
+                selected = {"profile": next(iter(deployment.profiles))}
+            else:
+                raise FormalError(422, "profile-required", "Select a profile for this non-default deployment.")
+            selection = BackendSelection(name=deployment.backend, **selected)
+        if selection.name != deployment.backend:
             raise FormalError(
                 422, "backend-mismatch",
-                f"Deployment {deployment.deployment_id} serves {deployment.backend}, not {request.backend.name}.",
+                f"Deployment {deployment.deployment_id} serves {deployment.backend}, not {selection.name}.",
             )
-        profile = deployment.profiles.get(request.backend.profile)
+        if deployment.backend == "accepted-gnn":
+            if selection.proposal_mode not in (None, "greedy") or selection.seed is not None:
+                raise FormalError(422, "unsupported-proposal", "The accepted backend is greedy and does not use a seed.")
+            selection = selection.model_copy(update={"proposal_mode": "greedy"})
+        else:
+            selection = selection.model_copy(update={"proposal_mode": selection.proposal_mode or "sample", "seed": selection.seed if selection.seed is not None else 0})
+        return deployment, selection
+
+    def _resolve(self, request: FormalSearchRequest):
+        deployment, selection = self._selection(request)
+        profile = deployment.profiles.get(selection.profile)
         if profile is None:
             raise FormalError(
                 422, "unknown-profile",
-                f"Deployment {deployment.deployment_id} has no profile {request.backend.profile!r}.",
+                f"Deployment {deployment.deployment_id} has no profile {selection.profile!r}.",
             )
         if request.input.kind not in deployment.inputs:
             raise FormalError(
@@ -241,7 +266,7 @@ class FormalService:
                     409, "model-mismatch",
                     f"Deployment {deployment.deployment_id} does not use {key} {value}.",
                 )
-        return deployment, profile, backend, actual
+        return deployment, profile, backend, actual, selection
 
     async def start(self, request: FormalSearchRequest) -> tuple[dict[str, Any], bool]:
         payload = request.model_dump(mode="json")
@@ -249,7 +274,7 @@ class FormalService:
         existing = self.runs.get(request.run_id)
         if existing is not None:
             return self._reconcile(existing, digest), False
-        deployment, profile, backend, env_hash = self._resolve(request)
+        deployment, profile, backend, env_hash, selection = self._resolve(request)
         requested_wall = request.budget.wall_clock_ms
         record = RunRecord(
             run_id=request.run_id, request_digest=digest, request=payload,
@@ -266,6 +291,7 @@ class FormalService:
             status="admitting", disposition=None, termination=None, result=None,
             certificate_hash=None, attempts=0, cancel_requested=False,
             created_at=time.time(), updated_at=time.time(),
+            backend_selection=selection.model_dump(mode="json"),
         )
         if not self.runs.insert(record):
             return self._reconcile(self.runs.get(request.run_id), digest), False
@@ -379,7 +405,7 @@ class FormalService:
             outcome = AttemptOutcome("step-budget", steps_used=0, error="No tactic steps remain.")
         else:
             self.runs.mark_started(run_id, attempt)
-            selection = FormalSearchRequest.model_validate(record.request).backend
+            selection = BackendSelection.model_validate(record.backend_selection or record.request["backend"])
             timeout_s = record.admitted_wall_clock_ms / 1000.0
             try:
                 outcome = await backend.run(

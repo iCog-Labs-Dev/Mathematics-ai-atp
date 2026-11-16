@@ -141,8 +141,8 @@ class FormalSearchRequest(_Strict):
     input: FormalInput
     environment_id: StrictStr = Field(min_length=1)
     environment_hash: Sha256
-    backend: BackendSelection
-    deployment_id: StrictStr = Field(min_length=1, max_length=256)
+    backend: Optional[BackendSelection] = None
+    deployment_id: Optional[StrictStr] = Field(default=None, min_length=1, max_length=256)
     search_policy: SearchPolicy
     budget: Budget
     corpus_manifest: Optional[CorpusManifest] = None
@@ -172,6 +172,8 @@ class ResolvedDeployment(_Strict):
     environment_id: str
     environment_hash: Sha256
     model: dict[str, Any]
+    proposal_mode: Optional[Literal["sample", "greedy"]] = None
+    seed: Optional[StrictInt] = None
 
 
 class AdmittedBudget(_Strict):

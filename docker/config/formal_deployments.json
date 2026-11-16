@@ -1,5 +1,6 @@
 {
   "format": "maths-ai-formal-deployments-v1",
+  "default": {"deployment_id": "mcts-source-aware", "profile": "puct", "proposal_mode": "sample", "seed": 42},
   "deployments": {
     "mcts-source-aware": {
       "backend": "mcts-actor-critic",

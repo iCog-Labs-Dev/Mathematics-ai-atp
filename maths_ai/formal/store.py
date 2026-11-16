@@ -111,6 +111,7 @@ class RunRecord:
     cancel_requested: bool
     created_at: float
     updated_at: float
+    backend_selection: Optional[dict[str, Any]] = None
 
     @property
     def remaining_steps(self) -> int:
@@ -149,6 +150,7 @@ def _record(row: sqlite3.Row) -> RunRecord:
         cancel_requested=bool(values["cancel_requested"]),
         created_at=values["created_at"],
         updated_at=values["updated_at"],
+        backend_selection=json.loads(values["selection_json"]) if values.get("selection_json") else None,
     )
 
 
@@ -162,6 +164,8 @@ class FormalRunStore:
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA synchronous=FULL")
         self._db.executescript(SCHEMA)
+        if "selection_json" not in {row[1] for row in self._db.execute("PRAGMA table_info(runs)")}:
+            self._db.execute("ALTER TABLE runs ADD COLUMN selection_json TEXT")
 
     def close(self) -> None:
         with self._lock:
@@ -192,8 +196,8 @@ class FormalRunStore:
                 "profile_config_hash, environment_id, environment_hash, model_json, input_kind, "
                 "input_artifact_hash, source_artifact_hash, source_origin, requested_max_steps, "
                 "admitted_max_steps, consumed_steps, consumed_exact, requested_wall_clock_ms, "
-                "admitted_wall_clock_ms, status, attempts, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?, ?, 0, ?, ?)",
+                "admitted_wall_clock_ms, status, attempts, created_at, updated_at, selection_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?, ?, 0, ?, ?, ?)",
                 (
                     record.run_id, record.request_digest, json.dumps(record.request, sort_keys=True),
                     record.deployment_id, record.backend, record.profile, record.profile_config_hash,
@@ -201,6 +205,7 @@ class FormalRunStore:
                     record.input_kind, record.input_artifact_hash, record.source_artifact_hash,
                     record.source_origin, record.requested_max_steps, record.admitted_max_steps,
                     record.requested_wall_clock_ms, record.admitted_wall_clock_ms, record.status, now, now,
+                    json.dumps(record.backend_selection) if record.backend_selection is not None else None,
                 ),
             )])
         except sqlite3.IntegrityError:

@@ -242,6 +242,30 @@ def test_starts_are_idempotent_and_conflicting_requests_are_refused(api):
     assert _wait(client, "example/fr-1")["attempts"] == 1
 
 
+def test_optional_selection_is_resolved_once_and_survives_default_change(tmp_path):
+    registry = copy.deepcopy(REGISTRY)
+    registry["default"] = {"deployment_id": DEPLOYMENT, "profile": "puct", "proposal_mode": "greedy", "seed": 17}
+    with _app(tmp_path, registry) as client:
+        env = _ready(client)
+        request = _request(env, goal="uses:1")
+        request.pop("backend")
+        request.pop("deployment_id")
+        ack = client.post("/formal-search/start", json=request)
+        assert ack.status_code == 202, ack.text
+        first = _wait(client, request["run_id"])
+        assert first["resolved"]["backend"] == "mcts-actor-critic"
+        assert first["resolved"]["proposal_mode"] == "greedy" and first["resolved"]["seed"] == 17
+        resolved = first["resolved"]
+    registry["default"] = {"deployment_id": "accepted-review", "profile": "best_first"}
+    with _app(tmp_path, registry) as client:
+        _ready(client)
+        assert client.post("/formal-search/start", json=request).json()["resolved"] == resolved
+        assert client.post(f"/formal-search/{request['run_id']}/retry").status_code == 202
+        second = _wait(client, request["run_id"])
+        assert second["resolved"] == resolved and second["attempts"] == 2
+        assert second["budget"]["consumed_steps"] == 2
+
+
 def test_slash_run_ids_round_trip_and_missing_runs_are_404(api):
     client, env_hash, _ = api
     client.post("/formal-search/start", json=_request(env_hash, run=7))

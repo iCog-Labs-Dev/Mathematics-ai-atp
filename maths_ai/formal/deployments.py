@@ -158,21 +158,29 @@ def _deployment(deployment_id: str, payload: Any) -> Deployment:
 class DeploymentRegistry:
     deployments: Mapping[str, Deployment]
     registry_hash: str
+    default: Mapping[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, payload: Any) -> "DeploymentRegistry":
         if not isinstance(payload, dict) or payload.get("format") != REGISTRY_FORMAT:
             raise DeploymentConfigError(f"The deployment registry must declare format {REGISTRY_FORMAT!r}.")
-        unknown = set(payload) - {"format", "deployments"}
+        unknown = set(payload) - {"format", "deployments", "default"}
         if unknown:
             raise DeploymentConfigError(f"The deployment registry has unknown keys {sorted(unknown)}.")
         entries = payload.get("deployments")
         if not isinstance(entries, dict) or not entries:
             raise DeploymentConfigError("The deployment registry needs at least one deployment.")
-        return cls(
-            {key: _deployment(key, value) for key, value in entries.items()},
-            object_ref(payload),
-        )
+        deployments = {key: _deployment(key, value) for key, value in entries.items()}
+        default = payload.get("default")
+        if default is not None:
+            if not isinstance(default, dict) or set(default) - {"deployment_id", "profile", "proposal_mode", "seed"}:
+                raise DeploymentConfigError("default must contain a deployment/profile selection")
+            deployment = deployments.get(default.get("deployment_id"))
+            if deployment is None or default.get("profile") not in deployment.profiles:
+                raise DeploymentConfigError("default selects an unknown deployment/profile")
+            from .contract import BackendSelection
+            BackendSelection.model_validate({"name": deployment.backend, **{key: value for key, value in default.items() if key != "deployment_id"}})
+        return cls(deployments, object_ref(payload), None if default is None else dict(default))
 
     @classmethod
     def from_json(cls, path: Path) -> "DeploymentRegistry":
