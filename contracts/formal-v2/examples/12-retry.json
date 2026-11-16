@@ -10,7 +10,7 @@
     "body": {
       "protocol_version": 2,
       "run_id": "example/fr-3",
-      "status": "running",
+      "status": "admitting",
       "request_digest": "sha256:5a1f0cc53d527444c043b6d74367042fec3d797d14bcd8a3d7981946cb55a727",
       "input_kind": "goal",
       "input_artifact_hash": "sha256:0d64c5225dc658bf9ac199ea85573a07d2972c997f6c1cc974cf5a30a9b041b6",
@@ -44,78 +44,7 @@
       "disposition": null,
       "termination": null,
       "cancel_requested": false,
-      "result": {
-        "artifacts": [
-          {
-            "role": "admitted-input",
-            "sha256": "sha256:0d64c5225dc658bf9ac199ea85573a07d2972c997f6c1cc974cf5a30a9b041b6"
-          },
-          {
-            "role": "generated-source",
-            "sha256": "sha256:317d17ec20d41121abc1805da99d4b2f5c191789f8d4dba7647a7c787502f878"
-          },
-          {
-            "role": "search-summary",
-            "sha256": "sha256:7eb1df4239777996966f7c54a0c50320045433c733c94f2c08996b98520dc802"
-          }
-        ],
-        "attempts": 1,
-        "backend": {
-          "deployment_id": "mcts-example",
-          "name": "mcts-actor-critic",
-          "profile": "puct",
-          "profile_config_hash": "sha256:8029fb7d43ab9da5f3e6204cf7aee4243db5add12f0ce5d4cc9633d24de00819"
-        },
-        "budget": {
-          "admitted_max_steps": 60,
-          "admitted_wall_clock_ms": 45000,
-          "remaining_steps": 20
-        },
-        "budget_used": {
-          "attempt": {
-            "attempt": 1,
-            "reserved_steps": 60,
-            "tactic_steps": 40,
-            "tactic_steps_exact": true,
-            "wall_clock_ms": 3
-          },
-          "tactic_steps": 40,
-          "tactic_steps_exact": true
-        },
-        "coordinator_binding": {
-          "base_revision": 12,
-          "claim_id": "example/c-1",
-          "fencing_token": 4,
-          "lease_id": "writer-lease-7"
-        },
-        "declaration_id": "example/fd-1",
-        "disposition": "stagnated",
-        "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
-        "input_artifact_hash": "sha256:0d64c5225dc658bf9ac199ea85573a07d2972c997f6c1cc974cf5a30a9b041b6",
-        "input_kind": "goal",
-        "obstructions": [],
-        "proof_id": "example",
-        "protocol_version": 2,
-        "request_digest": "sha256:5a1f0cc53d527444c043b6d74367042fec3d797d14bcd8a3d7981946cb55a727",
-        "root_state_id": "example/fs-1",
-        "run_id": "example/fr-3",
-        "source_artifact_hash": "sha256:317d17ec20d41121abc1805da99d4b2f5c191789f8d4dba7647a7c787502f878",
-        "source_origin": "generated-from-text",
-        "states": [
-          {
-            "exact_state_hash": "sha256:3c54b0d3306057b3c837edd1dcafdd5a2ddd0bdf6e5f7e328adf7efe16059023",
-            "goal_text": "uses:40",
-            "kind": "goal",
-            "semantic_signature": "sha256:8dc4204e221dacb2c91897c61bd85b38e7f0da2499ba933d37f2ea0a1448a58a",
-            "state_id": "example/fs-1",
-            "status": "open"
-          }
-        ],
-        "tactic_edges": [],
-        "termination": {
-          "reason": "frontier-exhausted"
-        }
-      },
+      "result": null,
       "replays": []
     },
     "schema": "formal-run.v2"

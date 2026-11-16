@@ -56,7 +56,7 @@
           },
           {
             "role": "search-summary",
-            "sha256": "sha256:24bcc15e2b988463ea868e6ea9a94c93d095d53b2a21ed425588593d2a3c5de6"
+            "sha256": "sha256:9deef0f73dca3ac4aff4939240a3aa795e2f38a410c07cc684f37221d0fc435a"
           }
         ],
         "attempts": 2,
@@ -77,7 +77,7 @@
             "reserved_steps": 20,
             "tactic_steps": 20,
             "tactic_steps_exact": true,
-            "wall_clock_ms": 3
+            "wall_clock_ms": 4
           },
           "tactic_steps": 60,
           "tactic_steps_exact": true
@@ -97,17 +97,17 @@
         "proof_id": "example",
         "protocol_version": 2,
         "request_digest": "sha256:5a1f0cc53d527444c043b6d74367042fec3d797d14bcd8a3d7981946cb55a727",
-        "root_state_id": "example/fs-1",
+        "root_state_id": "example/fr-3/attempt-2/fs-1",
         "run_id": "example/fr-3",
         "source_artifact_hash": "sha256:317d17ec20d41121abc1805da99d4b2f5c191789f8d4dba7647a7c787502f878",
         "source_origin": "generated-from-text",
         "states": [
           {
-            "exact_state_hash": "sha256:3c54b0d3306057b3c837edd1dcafdd5a2ddd0bdf6e5f7e328adf7efe16059023",
+            "exact_state_hash": "sha256:4f2931aceef5774da86aaf5a501d9e9e2776d4bfd3f7afe416c4f75792474741",
             "goal_text": "uses:40",
             "kind": "goal",
             "semantic_signature": "sha256:8dc4204e221dacb2c91897c61bd85b38e7f0da2499ba933d37f2ea0a1448a58a",
-            "state_id": "example/fs-1",
+            "state_id": "example/fr-3/attempt-2/fs-1",
             "status": "open"
           }
         ],

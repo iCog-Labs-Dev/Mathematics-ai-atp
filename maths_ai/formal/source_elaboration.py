@@ -1,18 +1,7 @@
-"""Elaborate a source declaration's signature in a dedicated Lean REPL session.
+"""Isolate a declaration with Lean syntax before elaborating its signature.
 
-The owned Pantograph client deliberately does not expose ``frontend.process``
-(it can leave a session unusable), so admission runs its own short-lived REPL
-process from the same executable, Lake project and imports as the search
-workers, and retires it afterwards. The steps are:
-
-1. ``frontend.process`` the file body (its import header removed; the REPL
-   already has the deployment's imports) to get the compilation-unit
-   boundaries, and locate the target declaration's unit.
-2. Process the body up to that unit with the target's proof replaced by
-   ``by sorry``; later declarations are dropped. The goal Lean reports at that
-   ``sorry`` is the signature with its outer binders introduced.
-3. Check that the rendered closed statement elaborates with ``goal.start`` in
-   the REPL's own environment, which is the one search runs in.
+The helper executes only required prefix commands. The target proof and all
+later commands are excluded before frontend elaboration.
 """
 
 from __future__ import annotations
@@ -21,10 +10,12 @@ import asyncio
 import json
 import os
 import shutil
+import tempfile
+import time
 from pathlib import Path
 from typing import Any, Optional
 
-from .admission import AdmissionRejected, target_unit_signature
+from .admission import AdmissionRejected
 
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 _SORRY_WARNING = "declaration uses 'sorry'"
@@ -47,32 +38,13 @@ def _local_record(variable: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _errors(messages: list[str]) -> list[str]:
-    return [
-        message for message in messages
-        if ": error:" in message or (": warning:" not in message and "error" in message.lower())
-    ]
-
-
-async def elaborate_declaration(send, body: str, declaration: str) -> dict[str, Any]:
-    """Run the three steps over ``send(cmd, payload) -> dict`` (one REPL session)."""
-    first = await send("frontend.process", {"file": body, "sorrys": False, "invocations": False})
-    if "units" not in first:
-        raise AdmissionRejected("input:malformed-source", f"Lean could not process the source: {first}")
-    errors = [m for unit in first["units"] for m in _errors(unit.get("messages", []))]
-    if errors:
-        raise AdmissionRejected("input:lean-rejected", f"The source does not elaborate: {errors[:3]}")
-    body_bytes = body.encode("utf-8")
-    start, assign = target_unit_signature(
-        [tuple(unit["boundary"]) for unit in first["units"]], body_bytes, declaration
-    )
-    rewritten = (body_bytes[:assign] + b":= by sorry\n").decode("utf-8")
+async def elaborate_declaration(send, prepared: dict[str, Any]) -> dict[str, Any]:
+    start, rewritten = prepared["start"], prepared["rewritten"]
     second = await send("frontend.process", {"file": rewritten, "sorrys": True, "invocations": False})
     units = second.get("units")
     if not units and second.get("recovery") == "session-unusable":
-        # The file itself elaborated (step 1), so this is the goal's
-        # serialization: the REPL cannot export a goal that mentions constants
-        # outside its own environment, i.e. declarations of the source file.
+        # Prefix declarations may be available to the helper but unavailable
+        # to the deployment's goal serializer and search environment.
         raise AdmissionRejected(
             "input:unsupported-context",
             "The declaration's signature could not be exported in the deployment environment; "
@@ -117,26 +89,51 @@ class ReplSession:
 
     def __init__(self, repl: Path, source_root: Path, imports: list[str], *, timeout_s: float) -> None:
         self.repl, self.source_root, self.imports = Path(repl), Path(source_root), list(imports)
-        self.timeout_s = timeout_s
+        self.deadline = time.monotonic() + timeout_s
+        self.children: set[asyncio.subprocess.Process] = set()
         self.process: Optional[asyncio.subprocess.Process] = None
+
+    def remaining(self) -> float:
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Source admission deadline expired")
+        return remaining
+
+    async def _process(self, *args, **kwargs):
+        creation = asyncio.create_task(asyncio.create_subprocess_exec(*args, **kwargs))
+        try:
+            process = await asyncio.shield(creation)
+        except asyncio.CancelledError:
+            process = await creation
+            self.children.add(process)
+            raise
+        self.children.add(process)
+        return process
 
     async def __aenter__(self) -> "ReplSession":
         lake, stdbuf = shutil.which("lake"), shutil.which("stdbuf")
         if lake is None or stdbuf is None:
             raise RuntimeError("Source admission needs Lake and GNU stdbuf on PATH.")
-        probe = await asyncio.create_subprocess_exec(
+        try:
+            return await self._start(lake, stdbuf)
+        except BaseException:
+            await self.__aexit__()
+            raise
+
+    async def _start(self, lake, stdbuf):
+        probe = await self._process(
             lake, "env", "printenv", "LEAN_PATH", cwd=self.source_root,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, start_new_session=True,
         )
-        out, _ = await asyncio.wait_for(probe.communicate(), self.timeout_s)
+        out, _ = await asyncio.wait_for(probe.communicate(), self.remaining())
         env = dict(os.environ, LEAN_PATH=out.decode().strip())
-        self.process = await asyncio.create_subprocess_exec(
+        self.process = await self._process(
             stdbuf, "-oL", str(self.repl), *self.imports,
             cwd=self.source_root, env=env, start_new_session=True,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL, limit=MAX_RESPONSE_BYTES,
         )
-        ready = await asyncio.wait_for(self.process.stdout.readline(), self.timeout_s)
+        ready = await asyncio.wait_for(self.process.stdout.readline(), self.remaining())
         if ready.strip() != b"ready.":
             raise RuntimeError(f"The admission REPL did not start: {ready[:200]!r}")
         await self.send(
@@ -148,19 +145,40 @@ class ReplSession:
         assert self.process is not None and self.process.stdin is not None
         self.process.stdin.write((json.dumps({"cmd": cmd, "payload": payload}) + "\n").encode())
         await self.process.stdin.drain()
-        line = await asyncio.wait_for(self.process.stdout.readline(), self.timeout_s)
+        line = await asyncio.wait_for(self.process.stdout.readline(), self.remaining())
         if not line:
             raise RuntimeError("The admission REPL exited.")
         return json.loads(line)
 
+    async def prepare(self, body, declaration):
+        with tempfile.TemporaryDirectory(prefix="formal-source-") as tmp:
+            request = Path(tmp) / "request.json"
+            request.write_text(json.dumps({"body": body, "declaration": declaration, "imports": self.imports}))
+            process = await self._process(
+                "lake", "env", "lean", "--run", str(Path(__file__).with_name("prepare_source.lean")),
+                str(request), cwd=self.source_root, start_new_session=True,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            async def collect():
+                async def bounded_read(stream):
+                    chunks, total = [], 0
+                    while chunk := await stream.read(65536):
+                        total += len(chunk)
+                        if total > MAX_RESPONSE_BYTES:
+                            raise AdmissionRejected("input:malformed-source", "Source helper output exceeds limit")
+                        chunks.append(chunk)
+                    return b"".join(chunks)
+                out, err = await asyncio.gather(bounded_read(process.stdout), bounded_read(process.stderr))
+                await process.wait()
+                return out, err
+            out, err = await asyncio.wait_for(collect(), self.remaining())
+            if process.returncode:
+                raise AdmissionRejected("input:malformed-source", err.decode(errors="replace")[-4000:])
+            return json.loads(out)
+
     async def __aexit__(self, *_exc) -> None:
-        process = self.process
-        if process is None or process.returncode is not None:
-            return
-        try:
-            process.stdin.close()
-            await asyncio.wait_for(process.wait(), 5)
-        except (asyncio.TimeoutError, BrokenPipeError, ConnectionResetError):
+        for process in self.children:
+            # Kill the owned group even if its launcher already exited.
             try:
                 os.killpg(process.pid, 9)
             except ProcessLookupError:
@@ -171,7 +189,8 @@ class ReplSession:
 async def elaborate_source(session_factory, body: str, declaration: str, statement_of) -> dict[str, Any]:
     """Elaborate in one session and check the rendered statement in the same one."""
     async with session_factory() as session:
-        goal = await elaborate_declaration(session.send, body, declaration)
+        prepared = await session.prepare(body, declaration)
+        goal = await elaborate_declaration(session.send, prepared)
         statement = statement_of(goal)
         goal["check"] = await check_statement(session.send, statement)
         return goal

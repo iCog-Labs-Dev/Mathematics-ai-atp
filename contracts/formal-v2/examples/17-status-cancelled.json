@@ -73,7 +73,7 @@
             "reserved_steps": 60,
             "tactic_steps": 60,
             "tactic_steps_exact": false,
-            "wall_clock_ms": 512
+            "wall_clock_ms": 516
           },
           "tactic_steps": 60,
           "tactic_steps_exact": false
@@ -93,17 +93,17 @@
         "proof_id": "example",
         "protocol_version": 2,
         "request_digest": "sha256:4e44bd66763562be5bd7f891ed5fcb55f3fab4405ef9fd697f994481baff2163",
-        "root_state_id": "example/fs-1",
+        "root_state_id": "example/fr-5/attempt-1/fs-1",
         "run_id": "example/fr-5",
         "source_artifact_hash": "sha256:ba3d44c477d51270d4082708123e254ab4d36db8b09f267c36b488131f1e6665",
         "source_origin": "generated-from-text",
         "states": [
           {
-            "exact_state_hash": "sha256:b8471643246284cad115baac929cc68fdffa134416ced70040d7bedbd4ff2794",
+            "exact_state_hash": "sha256:1331b1277445b6d65b0d2008ad4ad7b76c0b58a874bb17360964a7c1d7f20d58",
             "goal_text": "sleep:5",
             "kind": "goal",
             "semantic_signature": "sha256:c28a07c53f97ae92ad4c22cd2b78c7d9c4e17d6213eaebf9760b45096ff644c5",
-            "state_id": "example/fs-1",
+            "state_id": "example/fr-5/attempt-1/fs-1",
             "status": "open"
           }
         ],

@@ -40,8 +40,13 @@ DISPOSITIONS = {
 }
 
 
-def _namespace(run_id: str) -> str:
-    return run_id.split("/", 1)[0]
+def occurrence_id(run_id: str, attempt: int, kind: str, index: int) -> str:
+    from .contract import RunId
+    from pydantic import TypeAdapter
+    TypeAdapter(RunId).validate_python(run_id)
+    if type(attempt) is not int or attempt < 1 or type(index) is not int or index < 1 or kind not in ("fs", "ta"):
+        raise ValueError("Invalid occurrence coordinates")
+    return f"{run_id}/attempt-{attempt}/{kind}-{index}"
 
 
 def _goal_text(node: dict[str, Any]) -> str:
@@ -55,21 +60,20 @@ def _command(node: dict[str, Any]) -> tuple[str, list[str]]:
 
 
 def proof_graph(
-    run_id: str, trace: dict[str, Any], *, input_artifact_hash: str, environment_hash: str
+    run_id: str, attempt: int, trace: dict[str, Any], *, input_artifact_hash: str, environment_hash: str
 ) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
-    namespace = _namespace(run_id)
     states: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
 
     def visit(node: dict[str, Any], path: tuple[int, ...]) -> str:
-        state_id = f"{namespace}/fs-{len(states) + 1}"
+        state_id = occurrence_id(run_id, attempt, "fs", len(states) + 1)
         goal = _goal_text(node)
         state = {
             "state_id": state_id,
             "kind": "goal",
             "goal_text": goal,
             "exact_state_hash": object_ref({
-                "run_id": run_id,
+                "run_id": run_id, "attempt": attempt,
                 "input_artifact_hash": input_artifact_hash,
                 "environment_hash": environment_hash,
                 "occurrence": list(path),
@@ -82,7 +86,7 @@ def proof_graph(
         children = [visit(child, (*path, index)) for index, child in enumerate(node.get("subgoals", []))]
         label, arguments = _command(node)
         edge = {
-            "tactic_id": f"{namespace}/ta-{len(edges) + 1}",
+            "tactic_id": occurrence_id(run_id, attempt, "ta", len(edges) + 1),
             "source_state_id": state_id,
             "tactic_label": label,
             "executor_result": "lean-accepted",
@@ -99,14 +103,14 @@ def proof_graph(
     return root, states, edges
 
 
-def open_root(run_id: str, goal: str, *, input_artifact_hash: str, environment_hash: str):
-    state_id = f"{_namespace(run_id)}/fs-1"
+def open_root(run_id: str, attempt: int, goal: str, *, input_artifact_hash: str, environment_hash: str):
+    state_id = occurrence_id(run_id, attempt, "fs", 1)
     return state_id, [{
         "state_id": state_id,
         "kind": "goal",
         "goal_text": goal,
         "exact_state_hash": object_ref({
-            "run_id": run_id, "input_artifact_hash": input_artifact_hash,
+            "run_id": run_id, "attempt": attempt, "input_artifact_hash": input_artifact_hash,
             "environment_hash": environment_hash, "occurrence": [], "goal": goal,
         }),
         "semantic_signature": object_ref({"goal": " ".join(goal.split())}),
@@ -131,11 +135,11 @@ def build_result(
     input_hash = record.input_artifact_hash or object_ref({"run_id": record.run_id, "input": None})
     if termination in ("certified", "search-closed") and trace is not None:
         root, states, edges = proof_graph(
-            record.run_id, trace, input_artifact_hash=input_hash, environment_hash=record.environment_hash
+            record.run_id, record.attempts, trace, input_artifact_hash=input_hash, environment_hash=record.environment_hash
         )
     else:
         root, states = open_root(
-            record.run_id, display_goal, input_artifact_hash=input_hash,
+            record.run_id, record.attempts, display_goal, input_artifact_hash=input_hash,
             environment_hash=record.environment_hash,
         )
         edges = []

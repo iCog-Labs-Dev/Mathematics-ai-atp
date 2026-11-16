@@ -46,12 +46,12 @@
     "body": {
       "protocol_version": 2,
       "run_id": "example/fr-2",
-      "status": "queued",
+      "status": "admitting",
       "request_digest": "sha256:d8afe8b2b67facf080bcb2b36d28f3db4fdb6c2cb048716c6dbcbd04c40256c9",
       "input_kind": "goal",
-      "input_artifact_hash": "sha256:f08e0b45be4332e8fb1d4033f0dd4eabfb2ad6607819980eac76d3d53713bffa",
-      "source_artifact_hash": "sha256:81b585559278b9dcbaecd365200b8a7f931669ded4012ce2aaf69791384cc8d8",
-      "source_origin": "generated-from-text",
+      "input_artifact_hash": null,
+      "source_artifact_hash": null,
+      "source_origin": null,
       "resolved": {
         "deployment_id": "mcts-example",
         "backend": "mcts-actor-critic",
@@ -75,7 +75,7 @@
         "remaining_steps": 60,
         "verification_max_steps": 100
       },
-      "attempts": 0,
+      "attempts": 1,
       "retry_from": "bound-initial-input"
     },
     "schema": "formal-admission.v2"

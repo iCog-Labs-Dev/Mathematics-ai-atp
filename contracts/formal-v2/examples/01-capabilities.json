@@ -90,7 +90,7 @@
         "budget.max_steps",
         "budget.wall_clock_ms"
       ],
-      "wall_clock": "per attempt, from that attempt's admission, including queueing",
+      "wall_clock": "cumulative across attempts; each starts at admission, including queueing",
       "cancellation": "asynchronous; terminal after the backend's work has stopped",
       "retry": "bound-initial-input with the remaining admitted allowance",
       "frontier_resume": false,

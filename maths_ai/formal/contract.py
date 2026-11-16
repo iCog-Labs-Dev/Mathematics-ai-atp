@@ -226,7 +226,7 @@ class Termination(_Strict):
     detail: Optional[str] = None
 
 
-StateRef = Annotated[str, Field(pattern=r"^[^/]+/fs-[1-9][0-9]*$")]
+StateRef = Annotated[str, Field(pattern=r"^[^/]+/fr-[1-9][0-9]*/attempt-[1-9][0-9]*/fs-[1-9][0-9]*$")]
 
 
 class FormalState(_Strict):
@@ -239,7 +239,7 @@ class FormalState(_Strict):
 
 
 class TacticEdge(_Strict):
-    tactic_id: Annotated[str, Field(pattern=r"^[^/]+/ta-[1-9][0-9]*$")]
+    tactic_id: Annotated[str, Field(pattern=r"^[^/]+/fr-[1-9][0-9]*/attempt-[1-9][0-9]*/ta-[1-9][0-9]*$")]
     source_state_id: StateRef
     tactic_label: str
     tactic_args: Optional[list[str]] = None

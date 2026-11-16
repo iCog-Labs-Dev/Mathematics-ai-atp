@@ -61,4 +61,7 @@ exclude=["data", "experiments", "tests", "tests.*"]
 
 
 [dependency-groups]
-dev = ["httpx>=0.27.0", "pytest>=9.0.3"]
+dev = ["httpx>=0.27.0", "pytest>=9.0.3", "jsonschema>=4.26.0"]
+
+[tool.setuptools.package-data]
+"maths_ai.formal" = ["*.lean"]

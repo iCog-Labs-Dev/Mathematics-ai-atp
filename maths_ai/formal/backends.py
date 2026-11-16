@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from maths_ai.async_ownership import owned_thread
+
 from maths_ai.hybrid_reasoner.tactic_budget import TacticAllowance
 
 from .admission import AdmissionRejected, AdmittedTask
@@ -120,9 +122,13 @@ class MctsFormalBackend:
         return bool(self.service.readiness()["ready"])
 
     async def quiesce(self) -> None:
-        """Wait until the runtime's current operation (a cancelled attempt) has stopped."""
-        while self.service._step is not None and not self.service._step.done():
-            await asyncio.sleep(0.1)
+        # run_formal now awaits cleanup of its exact queued/active operation
+        # before returning cancellation. Never wait on another run's _step.
+        return
+
+    async def retire(self) -> None:
+        # Retire this backend if its operation cannot establish termination.
+        await self.service.supervisor.stop()
 
     async def _run(self, operation: str, payload: dict[str, Any], timeout_s: float) -> dict[str, Any]:
         from maths_ai.api.service import DeadlineExceeded, InputRejected, ServiceError
@@ -140,7 +146,7 @@ class MctsFormalBackend:
         try:
             result = await self._run("admit_source", payload, timeout_s)
         except TimeoutError as exc:
-            raise AdmissionRejected("input:admission-timeout", str(exc)) from exc
+            raise TimeoutError(str(exc)) from exc
         if "rejected" in result:
             raise AdmissionRejected(result["rejected"]["category"], result["rejected"]["detail"])
         return result
@@ -256,6 +262,14 @@ class AcceptedFormalBackend:
     def ready(self) -> bool:
         return self.service is not None and getattr(self.service, "petta_available", True) is not False
 
+    async def quiesce(self) -> None:
+        # Accepted searches own the shared server until their proof lock exits.
+        async with self.service.proof_lock:
+            pass
+
+    async def retire(self) -> None:
+        await self.service.shutdown()
+
     async def elaborate_source(self, payload, *, timeout_s):
         raise AdmissionRejected("input:unsupported-input", "The accepted-GNN backend admits goal inputs only.")
 
@@ -320,7 +334,7 @@ class AcceptedFormalBackend:
             return VerifyOutcome("inconclusive", f"The proof needs {steps} steps; the allowance is {max_steps}.", 0, None)
         source = certificate_source(statement, trace, self._imports)
         started = time.monotonic()
-        status, reason = await asyncio.to_thread(self._compile, source, timeout_s)
+        status, reason = await owned_thread(self._compile, source, timeout_s)
         return VerifyOutcome(
             status, reason, steps, self.environment_manifest(),
             {"session": "fresh-lean-process", "elapsed_s": time.monotonic() - started},

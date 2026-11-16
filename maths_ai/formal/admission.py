@@ -23,7 +23,6 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 from maths_ai.lean_replay import ReplayInputError, render_replay, seed_from_text
-from maths_ai.lean_replay.lexer import LexError, tokenize
 from maths_ai.lean_replay.seed import StructuredLocal, seed_from_records
 
 from .artifacts import ArtifactError, ArtifactStore
@@ -41,7 +40,6 @@ __all__ = [
     "seed_from_spec",
     "source_seed",
     "split_header",
-    "target_unit_signature",
 ]
 
 
@@ -172,13 +170,6 @@ def admit_goal(
 # Source inputs ------------------------------------------------------------------
 
 _IMPORT = re.compile(r"^import\s+([^\s]+)\s*$")
-_DECL_HEAD = re.compile(
-    r"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:private|protected|noncomputable|nonrec|unsafe|partial)\s+)*"
-    r"(theorem|lemma)\s+(«[^»]+»|[^\s:({\[⦃]+)"
-)
-_NAMESPACE = re.compile(r"^\s*namespace\s+([^\s]+)\s*$")
-_END = re.compile(r"^\s*end(?:\s+([^\s]+))?\s*$")
-_SECTION = re.compile(r"^\s*(?:noncomputable\s+)?section(?:\s+([^\s]+))?\s*$")
 
 
 def split_header(text: str) -> tuple[list[str], str]:
@@ -207,77 +198,7 @@ def split_header(text: str) -> tuple[list[str], str]:
         imports.append(match.group(1))
         index += 1
     body = "\n".join(lines[index:])
-    if any(_IMPORT.match(line.strip()) for line in lines[index:]):
-        raise AdmissionRejected("input:malformed-source", "An import appears after the file header.")
     return imports, body
-
-
-def _unquote(name: str) -> str:
-    return name[1:-1] if name.startswith("«") and name.endswith("»") else name
-
-
-def target_unit_signature(units: list[tuple[int, int]], body: bytes, declaration: str) -> tuple[int, int]:
-    """The byte span of the target unit and the offset of its top-level ``:=``.
-
-    ``units`` are the compilation-unit byte boundaries Lean reported for the
-    body. Namespaces are tracked so ``declaration`` is matched as a full name.
-    Only ``theorem``/``lemma`` declarations with a ``:=`` body are supported.
-    """
-    scopes: list[tuple[str, str]] = []  # ("namespace" | "section", name)
-    found: list[tuple[int, int, int]] = []
-    for start, end in units:
-        text = body[start:end].decode("utf-8", errors="strict")
-        if (match := _NAMESPACE.match(text)) is not None:
-            scopes.append(("namespace", match.group(1)))
-            continue
-        if (match := _SECTION.match(text)) is not None:
-            scopes.append(("section", match.group(1) or ""))
-            continue
-        if (match := _END.match(text)) is not None:
-            if scopes:
-                scopes.pop()
-            continue
-        head = _DECL_HEAD.match(text)
-        if head is None:
-            continue
-        local = _unquote(head.group(2))
-        prefix = ".".join(name for kind, name in scopes if kind == "namespace")
-        full = local[1:] if local.startswith("_root_.") else (f"{prefix}.{local}" if prefix else local)
-        if full.startswith("_root_."):
-            full = full[len("_root_."):]
-        if full != declaration:
-            continue
-        try:
-            tokens = tokenize(text)
-        except LexError as exc:
-            raise AdmissionRejected("input:malformed-source", str(exc)) from exc
-        depth = 0
-        assign = None
-        name_end = head.end()
-        for token in tokens:
-            if token.start < name_end:
-                continue
-            if token.text in ("(", "[", "{", "⦃", "⟨"):
-                depth += 1
-            elif token.text in (")", "]", "}", "⦄", "⟩"):
-                depth -= 1
-            elif depth == 0 and token.text == ":=":
-                assign = token.start
-                break
-            elif depth == 0 and token.text in ("|", "where"):
-                break
-        if assign is None:
-            raise AdmissionRejected(
-                "input:unsupported-declaration",
-                f"{declaration} has no top-level ':=' body (equations and 'where' are not supported).",
-            )
-        found.append((start, end, start + len(text[:assign].encode("utf-8"))))
-    if not found:
-        raise AdmissionRejected("input:declaration-not-found", f"No theorem {declaration} in the source.")
-    if len(found) > 1:
-        raise AdmissionRejected("input:declaration-ambiguous", f"{declaration} is declared more than once.")
-    start, _end, assign = found[0]
-    return start, assign
 
 
 SourceElaborator = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]

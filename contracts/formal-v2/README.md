@@ -92,3 +92,37 @@ python -m maths_ai.formal.contract_package --out contracts/formal-v2
 `maths_ai/formal/tests/test_schema_files.py` checks that the schemas match the
 provider's types, that every file matches `manifest.json`, and that every
 example validates against its schema.
+
+Occurrence IDs are run- and attempt-qualified, for example
+`example/fr-1/attempt-1/fs-1` and `example/fr-1/attempt-1/ta-1`.
+This is a breaking draft-contract correction: migrate persistent-atp's schema,
+validators, graph builders, and fixtures together before deploying this package.
+Stored results and certificates from the earlier draft must not be relabeled.
+
+### Handoff to the independently implemented persistent-atp v2 adapter
+
+Use the schemas and examples in this package as one coordinated contract update:
+
+- A state ID such as `example/fr-2/attempt-3/fs-1` belongs to run
+  `example/fr-2`, physical attempt 3. A tactic ID uses the same prefix and
+  `ta-<positive integer>`. Keep the whole string in graph keys and references;
+  do not strip the run/attempt prefix or renumber it during ingestion.
+- Validate root, source-state and produced-goal references against that same
+  run and attempt. Equal goal text does not authorize occurrence deduplication.
+- Both source and goal starts can return `admitting` with null artifact fields.
+  Poll status for the bound input and result. Admission rejection now belongs
+  to a physical attempt and therefore increments `attempts`.
+- The acknowledged wall-clock budget is cumulative across retries. Admission,
+  queueing and startup consume it. Duplicate starts remain idempotent; they do
+  not grant a new time or tactic allowance. A retry with no time remaining is
+  refused with `allowance-exhausted`.
+- Keep polling while cancellation is `cancelling`. Retry remains unavailable
+  until owned execution has stopped. Failure to establish termination is not
+  reported as successful cancellation.
+- Certificate/run/input/source/environment bindings and independent replay
+  requirements are unchanged. Do not migrate old content-addressed evidence by
+  replacing IDs inside it.
+
+The persistent-atp adapter is being implemented separately. Its real ingestion,
+retry, cancellation and replay acceptance tests remain a coordinated rollout gate;
+provider fixture tests do not substitute for those consumer tests.

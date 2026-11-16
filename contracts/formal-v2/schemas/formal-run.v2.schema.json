@@ -376,7 +376,7 @@
           "type": "string"
         },
         "root_state_id": {
-          "pattern": "^[^/]+/fs-[1-9][0-9]*$",
+          "pattern": "^[^/]+/fr-[1-9][0-9]*/attempt-[1-9][0-9]*/fs-[1-9][0-9]*$",
           "title": "Root State Id",
           "type": "string"
         },
@@ -479,7 +479,7 @@
           "type": "string"
         },
         "state_id": {
-          "pattern": "^[^/]+/fs-[1-9][0-9]*$",
+          "pattern": "^[^/]+/fr-[1-9][0-9]*/attempt-[1-9][0-9]*/fs-[1-9][0-9]*$",
           "title": "State Id",
           "type": "string"
         },
@@ -646,14 +646,14 @@
         },
         "produced_goal_ids": {
           "items": {
-            "pattern": "^[^/]+/fs-[1-9][0-9]*$",
+            "pattern": "^[^/]+/fr-[1-9][0-9]*/attempt-[1-9][0-9]*/fs-[1-9][0-9]*$",
             "type": "string"
           },
           "title": "Produced Goal Ids",
           "type": "array"
         },
         "source_state_id": {
-          "pattern": "^[^/]+/fs-[1-9][0-9]*$",
+          "pattern": "^[^/]+/fr-[1-9][0-9]*/attempt-[1-9][0-9]*/fs-[1-9][0-9]*$",
           "title": "Source State Id",
           "type": "string"
         },
@@ -683,7 +683,7 @@
           "title": "Tactic Args"
         },
         "tactic_id": {
-          "pattern": "^[^/]+/ta-[1-9][0-9]*$",
+          "pattern": "^[^/]+/fr-[1-9][0-9]*/attempt-[1-9][0-9]*/ta-[1-9][0-9]*$",
           "title": "Tactic Id",
           "type": "string"
         },

@@ -222,3 +222,29 @@ verification cost. Persistent-atp keeps final admission authority.
   - PLN is a declared setting (`MATHS_AI_ACCEPTED_USE_PLN`, default on). With
     it off, subgoals rank as `pln-disabled` and readiness does not require
     PeTTa.
+
+## Attempt ownership and occurrence identity
+
+Formal graph occurrences use `<proof>/fr-<run>/attempt-<attempt>/fs-<state>`
+and `<proof>/fr-<run>/attempt-<attempt>/ta-<tactic>`, with positive integer
+components. They identify execution occurrences, not semantic equivalence.
+Retries allocate a new durable attempt; repeated reads retain the stored IDs.
+Consumers must migrate the strict occurrence schemas before rollout. Older
+formal-service databases require a fresh state directory; retain old evidence
+read-only rather than rewriting content-addressed certificates.
+
+The wall-clock allowance is cumulative across physical attempts. Each attempt
+starts before input admission, and its remaining time covers admission, queueing,
+startup and search. Duplicate delivery grants no new allowance. Cleanup can
+outlast execution expiry, but no further tactic is issued during cleanup.
+Attempt costs include that cleanup time. Independent replay has a separate budget.
+
+A cancellation remains `cancelling` until owned work stops. Cleanup failure leaves
+the run nonterminal and disables the affected backend for new formal requests.
+An asyncio task's cancellation alone is not evidence that native work stopped.
+
+Source admission uses `maths_ai/formal/prepare_source.lean` under the deployed
+Lean toolchain. It parses the target, elaborates required prefix commands, and
+replaces the target proof before frontend elaboration. It stops at the target;
+the original proof and suffix are not executed. Arbitrarily malformed target
+proof syntax and contexts unavailable to search remain explicit rejections.

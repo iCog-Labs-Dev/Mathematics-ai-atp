@@ -72,7 +72,7 @@
         "remaining_steps": 60,
         "verification_max_steps": 100
       },
-      "attempts": 0,
+      "attempts": 1,
       "retry_from": "bound-initial-input"
     },
     "schema": "formal-admission.v2"
