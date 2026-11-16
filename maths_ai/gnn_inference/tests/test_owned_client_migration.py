@@ -448,5 +448,12 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
             assert not (root / entry["path"]).exists(), entry["path"]
         else:
             expected[entry["path"]] = entry["sha256"]
+    formal = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "formal_v2_release/source_manifest.json").read_text()
+    )
+    assert formal["upstream_protocol_commit"] == "516b8a184fec056d26d29cc73ef513e21202c4dc"
+    for entry in formal["sources"]:
+        assert entry["target_base_sha256"] == expected.get(entry["path"]), entry["path"]
+        expected[entry["path"]] = entry["sha256"]
     for path, digest in expected.items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path
