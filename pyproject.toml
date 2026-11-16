@@ -59,6 +59,9 @@ where=["."]
 include=["maths_ai", "maths_ai.*"]
 exclude=["data", "experiments", "tests", "tests.*"]
 
+[tool.setuptools.package-data]
+"maths_ai.formal" = ["schema/*.json"]
+
 
 [dependency-groups]
 dev = ["httpx>=0.27.0", "pytest>=9.0.3"]
