@@ -294,7 +294,8 @@ class AcceptedFormalBackend:
                 "statement": task.statement,
                 "proof_trace": trace,
             }
-            return AttemptOutcome("certified", True, allowance.issued, trace, certificate, details)
+            # Search closed every goal; only replay certifies it.
+            return AttemptOutcome("search-closed", True, allowance.issued, trace, certificate, details)
         reason = getattr(graph, "termination_reason", None)
         if reason == "step_budget":
             termination = "step-budget"

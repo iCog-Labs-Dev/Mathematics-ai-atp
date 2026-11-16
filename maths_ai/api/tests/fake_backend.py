@@ -75,7 +75,11 @@ class FakeBackend:
         }
 
     async def _formal_prove(self, payload):
-        """Formal attempts, scripted by the admitted goal text (``source`` seeds prove)."""
+        """Formal attempts, scripted by the admitted goal text (``source`` seeds prove).
+
+        Script words select an outcome; any other goal text proves, so worked
+        examples can use ordinary statements.
+        """
         from maths_ai.formal.admission import seed_from_spec
         from maths_ai.lean_replay import render_replay
 
@@ -89,9 +93,13 @@ class FakeBackend:
             return {"outcome": "inadmissible", "exception_category": "lean-rejected"}
         if script == "crash":
             raise BackendError("internal", "scripted runtime failure")
-        if script in ("proved", "proved-bad"):
+        scripts = ("sleep:", "inadmissible", "crash", "proved-bad", "proved-unclear", "ready", "nodes",
+                   "uses:", "dead")
+        if not script.startswith(scripts):
+            script = "proved"
+        if script in ("proved", "proved-bad", "proved-unclear"):
             used = min(3, limit)
-            proof = "fake-ok" if script == "proved" else "fake-bad"
+            proof = {"proved": "fake-ok", "proved-bad": "fake-bad"}.get(script, "fake-unclear")
             return {
                 "outcome": "solved", "certified": True, "candidate": True, "end_reason": "root_certified",
                 "proof_trace": {"goal": statement.expression, "command": "constructor", "subgoals": [

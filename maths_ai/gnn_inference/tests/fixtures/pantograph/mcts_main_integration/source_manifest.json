@@ -38,6 +38,226 @@
       "sha256": "62aee4b331276a81bb313fed3928a6616f2706f90d6209594beadb6c1fb1947d"
     },
     {
+      "path": "contracts/formal-v2/README.md",
+      "target_base_sha256": null,
+      "sha256": "ccc35536ccc34f7ea31e15e6136226a78009b13f9660939bf59041dd71f267fe"
+    },
+    {
+      "path": "contracts/formal-v2/capabilities.md",
+      "target_base_sha256": null,
+      "sha256": "d63477edcba173b016b2fb9590a5afb24e4546a61a63689f19f3a7e04cf15d2a"
+    },
+    {
+      "path": "contracts/formal-v2/examples/01-capabilities.json",
+      "target_base_sha256": null,
+      "sha256": "1168c9da863d6a17f8360c06af107fce5d0e59720effbe5bd23ab38cba027d93"
+    },
+    {
+      "path": "contracts/formal-v2/examples/02-upload-source-artifact.json",
+      "target_base_sha256": null,
+      "sha256": "a80d7c69ab49c4d3bdcf2426557985a764fe72761744c9ec05746771b1ebb4b4"
+    },
+    {
+      "path": "contracts/formal-v2/examples/03-start-source.json",
+      "target_base_sha256": null,
+      "sha256": "265860a42bb2ac79d2cdc56991f56574a901fd8f829553f0f8652d69c051f69c"
+    },
+    {
+      "path": "contracts/formal-v2/examples/04-status-source-proved.json",
+      "target_base_sha256": null,
+      "sha256": "f642e9e0cd974ef96b965d18c9260c48d6cbac081f0b51a1a10f595c01a9993d"
+    },
+    {
+      "path": "contracts/formal-v2/examples/05-replay-verified.json",
+      "target_base_sha256": null,
+      "sha256": "d30879941f27b6a0a84cb1e6bc28577d653cffb26afb81250576f518022ba022"
+    },
+    {
+      "path": "contracts/formal-v2/examples/06-start-goal.json",
+      "target_base_sha256": null,
+      "sha256": "0d0efcb53279889a4ac40e25b75c652ed110021a698efa801d07a6fcd271c7be"
+    },
+    {
+      "path": "contracts/formal-v2/examples/07-start-repeat.json",
+      "target_base_sha256": null,
+      "sha256": "30951371c6385fb00a13f9f333b3b8ec7a6578ad1971fd51b0f617e34595d915"
+    },
+    {
+      "path": "contracts/formal-v2/examples/08-status-goal-proved.json",
+      "target_base_sha256": null,
+      "sha256": "21ed740b1b1d7f20a370003e65514a4ab925391d9e0475624b84e68fd3538c9b"
+    },
+    {
+      "path": "contracts/formal-v2/examples/09-read-generated-source.json",
+      "target_base_sha256": null,
+      "sha256": "248e0328c4199fb122d3f7c9a90f0811b07256168a6ac82b3c6e5c21a9e6b92f"
+    },
+    {
+      "path": "contracts/formal-v2/examples/10-read-input-manifest.json",
+      "target_base_sha256": null,
+      "sha256": "12313c88eca47596b9e814f8f02b247eae3df60a37589fa57c3f469d5bc60297"
+    },
+    {
+      "path": "contracts/formal-v2/examples/11-status-stagnated.json",
+      "target_base_sha256": null,
+      "sha256": "51512bac2b6328d2b16dcf85aa86747364c1c87a50aed248d3c0bdf556f50535"
+    },
+    {
+      "path": "contracts/formal-v2/examples/12-retry.json",
+      "target_base_sha256": null,
+      "sha256": "4097b93dbf58e06f13167f03165616004d935d687a0f351de490a7393c87dcbb"
+    },
+    {
+      "path": "contracts/formal-v2/examples/13-status-budget-exhausted.json",
+      "target_base_sha256": null,
+      "sha256": "cf823801df728af83d13f52db9d890ac83f16bddc3e2cfa7c5456c5c9f4bd017"
+    },
+    {
+      "path": "contracts/formal-v2/examples/14-retry-allowance-exhausted.json",
+      "target_base_sha256": null,
+      "sha256": "37a77fb11ad054f1ba3f0bb63fa206977da42e6edd0565bf9eabc8d693b2fe0d"
+    },
+    {
+      "path": "contracts/formal-v2/examples/15-status-candidate-not-proof.json",
+      "target_base_sha256": null,
+      "sha256": "2ebae369cd6c1e9c658b86fcd590670307289af0547bf25e3d764313ada5af19"
+    },
+    {
+      "path": "contracts/formal-v2/examples/16-cancel.json",
+      "target_base_sha256": null,
+      "sha256": "8672a8b2459263257840c4ef976930c8959e2e147ba3891ca1b185d954b395b5"
+    },
+    {
+      "path": "contracts/formal-v2/examples/17-status-cancelled.json",
+      "target_base_sha256": null,
+      "sha256": "44b6c883134e7bce1037269250fc42a4fd055162da11eec1649e55d9c263e941"
+    },
+    {
+      "path": "contracts/formal-v2/examples/18-replay-rejected.json",
+      "target_base_sha256": null,
+      "sha256": "acd7db496fe70adb987506543c674a3cf770495618a585c2d65566d90afa2640"
+    },
+    {
+      "path": "contracts/formal-v2/examples/19-replay-inconclusive.json",
+      "target_base_sha256": null,
+      "sha256": "9359598774a58b0b3136aeead7209063ffd460b88f729ee5f0bfc45a3647fc6e"
+    },
+    {
+      "path": "contracts/formal-v2/examples/20-replay-binding-mismatch.json",
+      "target_base_sha256": null,
+      "sha256": "14a304c3b5aa8e65a975bd0e17d222b62d19ecac6631a035a39268d456ddce51"
+    },
+    {
+      "path": "contracts/formal-v2/examples/21-error-protocol-version.json",
+      "target_base_sha256": null,
+      "sha256": "539e22b984e40438df86616c65508ecb0b972d294eb176e3af7370dc365b2fc2"
+    },
+    {
+      "path": "contracts/formal-v2/examples/22-error-removed-field.json",
+      "target_base_sha256": null,
+      "sha256": "f3b1b0476027cd8dfb9883c22f33255b4c580dd64a2b198944e3179c2827da9a"
+    },
+    {
+      "path": "contracts/formal-v2/examples/23-error-mixed-input.json",
+      "target_base_sha256": null,
+      "sha256": "20986bfd142c28f8108f5b6e2b2ff54ea6169503a6b106c9832e3d7547bde2fb"
+    },
+    {
+      "path": "contracts/formal-v2/examples/24-error-run-conflict.json",
+      "target_base_sha256": null,
+      "sha256": "234bb9dffa2648496f9bae92e77317a95ded18adb4eacc559d4395bcd0231370"
+    },
+    {
+      "path": "contracts/formal-v2/examples/25-error-environment-mismatch.json",
+      "target_base_sha256": null,
+      "sha256": "013ccb4ce4d20ffd4128264495e70457d36473a905ad36a0d49fb4c2b5fba03a"
+    },
+    {
+      "path": "contracts/formal-v2/examples/26-error-unknown-deployment.json",
+      "target_base_sha256": null,
+      "sha256": "c81dc65f797528c356f45faa5523acc60d298977fb7e7a8803cd88ca2ab3a291"
+    },
+    {
+      "path": "contracts/formal-v2/examples/27-error-unsupported-input.json",
+      "target_base_sha256": null,
+      "sha256": "eae992e5ab868f1d3e4d2aaeecdeda7d0e6bcb356acb9ac0b31ef9d9396524fa"
+    },
+    {
+      "path": "contracts/formal-v2/examples/28-error-run-not-found.json",
+      "target_base_sha256": null,
+      "sha256": "e3a9fe6ffab1f0ab42d9a22397e49fcf9b4f7692c8c78b48377530f918b52a2c"
+    },
+    {
+      "path": "contracts/formal-v2/examples/29-status-source-rejected.json",
+      "target_base_sha256": null,
+      "sha256": "f24e76355b2745983083d4713492fc8b004486d067bfdd90ac90998a12c7b845"
+    },
+    {
+      "path": "contracts/formal-v2/examples/30-status-artifact-missing.json",
+      "target_base_sha256": null,
+      "sha256": "30b96aa5cfbb779db6aa35cbcc66e7a6e07f97df737c4542682be33f870d9bca"
+    },
+    {
+      "path": "contracts/formal-v2/examples/index.json",
+      "target_base_sha256": null,
+      "sha256": "b31d8c41b34bf18e04aa57018a4816caa2781bbce6f2dc06f72b0781cc142de0"
+    },
+    {
+      "path": "contracts/formal-v2/manifest.json",
+      "target_base_sha256": null,
+      "sha256": "5d65eb6f1c7fb66ec9fc1c40831b9389eb9d1726ba3c90a1cdbf975f9110e404"
+    },
+    {
+      "path": "contracts/formal-v2/rules.md",
+      "target_base_sha256": null,
+      "sha256": "537f1b837485ed8bb7835b0bb6bc17029bf23755cd8b9cb02689749a65d5e23a"
+    },
+    {
+      "path": "contracts/formal-v2/schemas/formal-admission.v2.schema.json",
+      "target_base_sha256": null,
+      "sha256": "cb0d0b11438b53f378f26d75deb6809c705adee3fc69cdb1ad793e21b4635b2a"
+    },
+    {
+      "path": "contracts/formal-v2/schemas/formal-artifact-upload.v2.schema.json",
+      "target_base_sha256": null,
+      "sha256": "7f05ca759700967d622c076c0e01a81226776adb572e4f2a81f52751a8ea9e17"
+    },
+    {
+      "path": "contracts/formal-v2/schemas/formal-capabilities.v2.schema.json",
+      "target_base_sha256": null,
+      "sha256": "3d910cb21a5f8bbaf2b26c0c1a6d4deaa9636b054be750ae7ce4dae1878b6e2f"
+    },
+    {
+      "path": "contracts/formal-v2/schemas/formal-error.v2.schema.json",
+      "target_base_sha256": null,
+      "sha256": "42ccb09895ea495e7dc41f8535d29820fbac169c5c583e2a1731a3a61c332cf7"
+    },
+    {
+      "path": "contracts/formal-v2/schemas/formal-replay-attestation.v2.schema.json",
+      "target_base_sha256": null,
+      "sha256": "31f5b3649cb4b384f8c65bb5392cd3f3f8a3c67b5ecb9a42b379ff2b39d3d4a7"
+    },
+    {
+      "path": "contracts/formal-v2/schemas/formal-replay-request.v2.schema.json",
+      "target_base_sha256": null,
+      "sha256": "a1776baf88600efe2907481d723238a241e1992c88ae9022d6db8cd33d1e6332"
+    },
+    {
+      "path": "contracts/formal-v2/schemas/formal-result.v2.schema.json",
+      "target_base_sha256": null,
+      "sha256": "1a5489885836e05baec177043bfb42927a690e82987d6fea39cbd837a6c68585"
+    },
+    {
+      "path": "contracts/formal-v2/schemas/formal-run.v2.schema.json",
+      "target_base_sha256": null,
+      "sha256": "0436ea3485c5cbc82d15ce640631dbb5dd22ec82429c65f3fd019eb4dcd551ca"
+    },
+    {
+      "path": "contracts/formal-v2/schemas/formal-search-request.v2.schema.json",
+      "target_base_sha256": null,
+      "sha256": "142ae9d9e12f717c4668485f042b5153310c515f66a343edd3badc1be8883058"
+    },
+    {
       "path": "docker-compose.yml",
       "target_base_sha256": "3c64d7a61a40eaf2caaafdcd24ab4995a716f11c92b1c37154fefb9672796acb",
       "sha256": "4df4c53ca1cba3068037b97c483ed8d907f877dd4827369fac426547f605b87c"
@@ -275,7 +495,7 @@
     {
       "path": "maths_ai/api/tests/fake_backend.py",
       "target_base_sha256": "59261c52cd0bf219719226da61f7800ccfe306745ca24d0f8b728d55e9cc385e",
-      "sha256": "7642f81eef09330a95b27c3b2b24c740da8f7853b16e96d72faf634eef12ce94"
+      "sha256": "f4960620771f8975eb9360c72384b21405cdd4043fc7806a3d7e31e6fdda314c"
     },
     {
       "path": "maths_ai/api/tests/test_api.py",
@@ -350,7 +570,7 @@
     {
       "path": "maths_ai/formal/backends.py",
       "target_base_sha256": null,
-      "sha256": "9c3121ea61bbdba12343ff1a24d58f16e0bdcd589ccefb90903bc77786a16b59"
+      "sha256": "c44b69592727dc44b4926fe51b09938ec57ac7216f93ee17eaf945110592fe84"
     },
     {
       "path": "maths_ai/formal/canonical.py",
@@ -360,7 +580,12 @@
     {
       "path": "maths_ai/formal/contract.py",
       "target_base_sha256": null,
-      "sha256": "c2a7f7677f3373d0e701cd536d7beb8c488019695f7566dfcf1b34d07564a3c8"
+      "sha256": "a46374a0c49aaa100570d8d67dabb1942114dfe5603c57cf157200674b4ddc42"
+    },
+    {
+      "path": "maths_ai/formal/contract_package.py",
+      "target_base_sha256": null,
+      "sha256": "1185a447d52339a110b813d633aae99fa2c16172b4bbfe4de9d42a1c8790f64c"
     },
     {
       "path": "maths_ai/formal/deployments.py",
@@ -370,7 +595,7 @@
     {
       "path": "maths_ai/formal/results.py",
       "target_base_sha256": null,
-      "sha256": "fed21e532a8dff5a5b7af8d455eae02167b52f4bc1a2267990c86ee27c428051"
+      "sha256": "46c196c5c54aacc0b95c13dbb9fce34f672e3d51d99151062e9ed8f53ba07bf9"
     },
     {
       "path": "maths_ai/formal/routes.py",
@@ -378,39 +603,9 @@
       "sha256": "cfff954088418dd1a5ab49bc3283d0547b7ca4ccbb756203e523513815de0735"
     },
     {
-      "path": "maths_ai/formal/schema/digests.json",
-      "target_base_sha256": null,
-      "sha256": "6b77e1cf88581d7056410576a3f5f5979ea481b0d25752cddc6ec98bc808ccdc"
-    },
-    {
-      "path": "maths_ai/formal/schema/formal-admission.v2.schema.json",
-      "target_base_sha256": null,
-      "sha256": "cb0d0b11438b53f378f26d75deb6809c705adee3fc69cdb1ad793e21b4635b2a"
-    },
-    {
-      "path": "maths_ai/formal/schema/formal-error.v2.schema.json",
-      "target_base_sha256": null,
-      "sha256": "d53cc87184dc1374dc27971fffcad6609a27b288fec21d1e9495992e26ab9a65"
-    },
-    {
-      "path": "maths_ai/formal/schema/formal-replay-attestation.v2.schema.json",
-      "target_base_sha256": null,
-      "sha256": "31f5b3649cb4b384f8c65bb5392cd3f3f8a3c67b5ecb9a42b379ff2b39d3d4a7"
-    },
-    {
-      "path": "maths_ai/formal/schema/formal-replay-request.v2.schema.json",
-      "target_base_sha256": null,
-      "sha256": "a1776baf88600efe2907481d723238a241e1992c88ae9022d6db8cd33d1e6332"
-    },
-    {
-      "path": "maths_ai/formal/schema/formal-search-request.v2.schema.json",
-      "target_base_sha256": null,
-      "sha256": "142ae9d9e12f717c4668485f042b5153310c515f66a343edd3badc1be8883058"
-    },
-    {
       "path": "maths_ai/formal/service.py",
       "target_base_sha256": null,
-      "sha256": "7779bbdade8ecdf8a73c98cd6197f9f5c529dfa730b6a3a160cdd07756187234"
+      "sha256": "bc8fd461d10f963658da4d333a9aafb19de422c12a07d678ac83e60d4f6c2a84"
     },
     {
       "path": "maths_ai/formal/source_elaboration.py",
@@ -440,7 +635,7 @@
     {
       "path": "maths_ai/formal/tests/test_schema_files.py",
       "target_base_sha256": null,
-      "sha256": "a8a7416953954f2d2e0af79075b1f8d5ea536cbc0f3f7a81eb70298d017c0a21"
+      "sha256": "53076b9edc95f9f6ae7dc0ee43a410953e56a3453eeddc6341eefdbf7ac69476"
     },
     {
       "path": "maths_ai/gnn_inference/atp_lean_gnn/__init__.py",
@@ -530,7 +725,7 @@
     {
       "path": "maths_ai/gnn_inference/docs/formal_protocol_v2.md",
       "target_base_sha256": null,
-      "sha256": "d864249100699b2ae15cf7b979fabba179d6a239a1dcf294730a3c7f6ffab170"
+      "sha256": "ab4971f30552ce4fb2e81a7f446f52477e60251da0c7974692f565ca0a3c7e71"
     },
     {
       "path": "maths_ai/gnn_inference/docs/mcts_api_pln_remediation_handoff.md",

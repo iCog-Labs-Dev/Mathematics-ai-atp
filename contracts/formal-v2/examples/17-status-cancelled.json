@@ -1,0 +1,119 @@
+{
+  "title": "The cancelled run; its unknown cost is charged in full",
+  "request": {
+    "method": "GET",
+    "path": "/formal-search/example/fr-5",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "protocol_version": 2,
+      "run_id": "example/fr-5",
+      "status": "finished",
+      "request_digest": "sha256:4e44bd66763562be5bd7f891ed5fcb55f3fab4405ef9fd697f994481baff2163",
+      "input_kind": "goal",
+      "input_artifact_hash": "sha256:858cacc89460e8bdcb87fb85b613852b26652e8767812d8ca7d6c9306360156e",
+      "source_artifact_hash": "sha256:ba3d44c477d51270d4082708123e254ab4d36db8b09f267c36b488131f1e6665",
+      "source_origin": "generated-from-text",
+      "resolved": {
+        "deployment_id": "mcts-example",
+        "backend": "mcts-actor-critic",
+        "profile": "puct",
+        "profile_config_hash": "sha256:8029fb7d43ab9da5f3e6204cf7aee4243db5add12f0ce5d4cc9633d24de00819",
+        "environment_id": "mathlib-4.10-rc1",
+        "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+        "model": {
+          "tactic_model_artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "budget": {
+        "requested_max_steps": 100,
+        "admitted_max_steps": 60,
+        "max_steps_reduced": true,
+        "requested_wall_clock_ms": 45000,
+        "admitted_wall_clock_ms": 45000,
+        "wall_clock_reduced": false,
+        "consumed_steps": 60,
+        "consumed_steps_exact": false,
+        "remaining_steps": 0,
+        "verification_max_steps": 100
+      },
+      "attempts": 1,
+      "retry_from": "bound-initial-input",
+      "disposition": "cancelled",
+      "termination": "cancelled",
+      "cancel_requested": true,
+      "result": {
+        "artifacts": [
+          {
+            "role": "admitted-input",
+            "sha256": "sha256:858cacc89460e8bdcb87fb85b613852b26652e8767812d8ca7d6c9306360156e"
+          },
+          {
+            "role": "generated-source",
+            "sha256": "sha256:ba3d44c477d51270d4082708123e254ab4d36db8b09f267c36b488131f1e6665"
+          }
+        ],
+        "attempts": 1,
+        "backend": {
+          "deployment_id": "mcts-example",
+          "name": "mcts-actor-critic",
+          "profile": "puct",
+          "profile_config_hash": "sha256:8029fb7d43ab9da5f3e6204cf7aee4243db5add12f0ce5d4cc9633d24de00819"
+        },
+        "budget": {
+          "admitted_max_steps": 60,
+          "admitted_wall_clock_ms": 45000,
+          "remaining_steps": 0
+        },
+        "budget_used": {
+          "attempt": {
+            "attempt": 1,
+            "reserved_steps": 60,
+            "tactic_steps": 60,
+            "tactic_steps_exact": false,
+            "wall_clock_ms": 512
+          },
+          "tactic_steps": 60,
+          "tactic_steps_exact": false
+        },
+        "coordinator_binding": {
+          "base_revision": 12,
+          "claim_id": "example/c-1",
+          "fencing_token": 4,
+          "lease_id": "writer-lease-7"
+        },
+        "declaration_id": "example/fd-1",
+        "disposition": "cancelled",
+        "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+        "input_artifact_hash": "sha256:858cacc89460e8bdcb87fb85b613852b26652e8767812d8ca7d6c9306360156e",
+        "input_kind": "goal",
+        "obstructions": [],
+        "proof_id": "example",
+        "protocol_version": 2,
+        "request_digest": "sha256:4e44bd66763562be5bd7f891ed5fcb55f3fab4405ef9fd697f994481baff2163",
+        "root_state_id": "example/fs-1",
+        "run_id": "example/fr-5",
+        "source_artifact_hash": "sha256:ba3d44c477d51270d4082708123e254ab4d36db8b09f267c36b488131f1e6665",
+        "source_origin": "generated-from-text",
+        "states": [
+          {
+            "exact_state_hash": "sha256:b8471643246284cad115baac929cc68fdffa134416ced70040d7bedbd4ff2794",
+            "goal_text": "sleep:5",
+            "kind": "goal",
+            "semantic_signature": "sha256:c28a07c53f97ae92ad4c22cd2b78c7d9c4e17d6213eaebf9760b45096ff644c5",
+            "state_id": "example/fs-1",
+            "status": "open"
+          }
+        ],
+        "tactic_edges": [],
+        "termination": {
+          "reason": "cancelled"
+        }
+      },
+      "replays": []
+    },
+    "schema": "formal-run.v2"
+  }
+}

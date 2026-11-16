@@ -24,6 +24,7 @@ from .canonical import object_ref
 
 DISPOSITIONS = {
     "certified": "proved-pending-replay",
+    "search-closed": "proved-pending-replay",
     "step-budget": "budget-exhausted",
     "node-budget": "budget-exhausted",
     "simulation-budget": "budget-exhausted",
@@ -128,7 +129,7 @@ def build_result(
 ) -> dict[str, Any]:
     disposition = DISPOSITIONS[termination]
     input_hash = record.input_artifact_hash or object_ref({"run_id": record.run_id, "input": None})
-    if termination == "certified" and trace is not None:
+    if termination in ("certified", "search-closed") and trace is not None:
         root, states, edges = proof_graph(
             record.run_id, trace, input_artifact_hash=input_hash, environment_hash=record.environment_hash
         )

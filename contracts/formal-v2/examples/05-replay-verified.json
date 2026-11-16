@@ -1,0 +1,42 @@
+{
+  "title": "Independent replay of a source-backed certificate: verified",
+  "request": {
+    "method": "POST",
+    "path": "/formal-replay",
+    "body": {
+      "protocol_version": 2,
+      "run_id": "example/fr-1",
+      "certificate_hash": "sha256:505541318ced9dbb6417f01653d8de33c06bbdab159a147ebf435e91618d557f",
+      "input_artifact_hash": "sha256:e1b35aa5301a7f3122b09a6f62ba86d1636c8f2ce6387aced16f4f824551541d",
+      "source_artifact_hash": "sha256:9e8d40e0f6c29c4830942783552e37082c2449b847e92e0560d13e1e882bcf15",
+      "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+      "budget": {
+        "max_steps": 50,
+        "wall_clock_ms": 30000
+      }
+    },
+    "schema": "formal-replay-request.v2"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "protocol_version": 2,
+      "status": "verified",
+      "reason": null,
+      "run_id": "example/fr-1",
+      "certificate_hash": "sha256:505541318ced9dbb6417f01653d8de33c06bbdab159a147ebf435e91618d557f",
+      "input_artifact_hash": "sha256:e1b35aa5301a7f3122b09a6f62ba86d1636c8f2ce6387aced16f4f824551541d",
+      "source_artifact_hash": "sha256:9e8d40e0f6c29c4830942783552e37082c2449b847e92e0560d13e1e882bcf15",
+      "source_origin": "caller-artifact",
+      "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+      "backend": "mcts-actor-critic",
+      "verification_cost": {
+        "allowance_max_steps": 50,
+        "tactic_steps": null,
+        "wall_clock_ms": 1,
+        "limit": 50
+      }
+    },
+    "schema": "formal-replay-attestation.v2"
+  }
+}

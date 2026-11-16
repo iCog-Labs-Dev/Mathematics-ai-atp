@@ -1,0 +1,105 @@
+{
+  "title": "Capabilities: deployments, environment hashes, ceilings and semantics",
+  "request": {
+    "method": "GET",
+    "path": "/formal-capabilities",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "protocol_versions": [
+        2
+      ],
+      "registry_hash": "sha256:d9398ffa68f8b836c2a0f999e2242f0f7c02d77541ff70f04e09a28bea25aaeb",
+      "deployments": {
+        "mcts-example": {
+          "deployment_id": "mcts-example",
+          "backend": "mcts-actor-critic",
+          "environment_id": "mathlib-4.10-rc1",
+          "inputs": [
+            "goal",
+            "source"
+          ],
+          "profiles": {
+            "puct": {
+              "name": "puct",
+              "max_steps": 60,
+              "wall_clock_ms": 60000,
+              "default_wall_clock_ms": 30000,
+              "backend_settings": {
+                "search_profile": "puct"
+              }
+            },
+            "best_first": {
+              "name": "best_first",
+              "max_steps": 60,
+              "wall_clock_ms": 60000,
+              "default_wall_clock_ms": 30000,
+              "backend_settings": {
+                "search_profile": "best_first"
+              }
+            }
+          },
+          "verification": {
+            "max_steps": 100,
+            "wall_clock_ms": 60000
+          },
+          "model": {
+            "tactic_model_artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "available": true,
+          "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+          "profile_config_hashes": {
+            "puct": "sha256:8029fb7d43ab9da5f3e6204cf7aee4243db5add12f0ce5d4cc9633d24de00819",
+            "best_first": "sha256:1b7f0aeccf302598c544c7a5cd57ff611a244f01c30737f35b241c7c7d71455f"
+          }
+        },
+        "accepted-example": {
+          "deployment_id": "accepted-example",
+          "backend": "accepted-gnn",
+          "environment_id": "mathlib-4.10-rc1",
+          "inputs": [
+            "goal"
+          ],
+          "profiles": {
+            "best_first": {
+              "name": "best_first",
+              "max_steps": 60,
+              "wall_clock_ms": 60000,
+              "default_wall_clock_ms": 60000,
+              "backend_settings": {
+                "max_nodes": 60
+              }
+            }
+          },
+          "verification": {
+            "max_steps": 100,
+            "wall_clock_ms": 60000
+          },
+          "model": {},
+          "available": false,
+          "environment_hash": null,
+          "profile_config_hashes": {
+            "best_first": "sha256:4397eaf5cd09ee204356107459ec18ad27add724b781d94a6a683ae359345a12"
+          }
+        }
+      },
+      "tactic_step": "one tactic command sent to Lean, including rejected commands and proof-combination replay",
+      "budget_fields": [
+        "budget.max_steps",
+        "budget.wall_clock_ms"
+      ],
+      "wall_clock": "per attempt, from that attempt's admission, including queueing",
+      "cancellation": "asynchronous; terminal after the backend's work has stopped",
+      "retry": "bound-initial-input with the remaining admitted allowance",
+      "frontier_resume": false,
+      "replay": "independent, fresh native session, bound to stored evidence",
+      "artifact_upload": {
+        "route": "/formal-artifacts",
+        "max_bytes": 8388608
+      }
+    },
+    "schema": "formal-capabilities.v2"
+  }
+}

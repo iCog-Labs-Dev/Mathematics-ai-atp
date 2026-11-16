@@ -47,8 +47,10 @@ from .contract import (
     PROTOCOL_VERSION,
     Admission,
     FormalReplayRequest,
+    Capabilities,
     FormalSearchRequest,
     ReplayAttestation,
+    RunView,
 )
 from .deployments import Deployment, DeploymentRegistry, Profile
 from .results import DISPOSITIONS, build_result
@@ -67,6 +69,14 @@ class FormalError(Exception):
         self.status = status
         self.category = category
         self.detail = detail
+
+
+def request_digest(request: FormalSearchRequest) -> str:
+    """The request's identity: canonical JSON with null-valued fields removed.
+
+    Omitting an optional field and sending it as ``null`` give the same digest.
+    """
+    return object_ref(request.model_dump(mode="json", exclude_none=True))
 
 
 def environment_hash(environment_id: str, manifest: dict[str, Any]) -> str:
@@ -134,7 +144,7 @@ class FormalService:
                     for name, profile in deployment.profiles.items()
                 },
             }
-        return {
+        capabilities = {
             "protocol_versions": [PROTOCOL_VERSION],
             "registry_hash": self.registry.registry_hash,
             "deployments": deployments,
@@ -148,6 +158,8 @@ class FormalService:
             "replay": "independent, fresh native session, bound to stored evidence",
             "artifact_upload": {"route": "/formal-artifacts", "max_bytes": self.artifacts.max_bytes},
         }
+        Capabilities.model_validate(capabilities)  # the published schema is the contract
+        return capabilities
 
     # Admission -----------------------------------------------------------------
 
@@ -245,7 +257,7 @@ class FormalService:
 
     async def start(self, request: FormalSearchRequest) -> tuple[dict[str, Any], bool]:
         payload = request.model_dump(mode="json")
-        digest = object_ref(payload)
+        digest = request_digest(request)
         existing = self.runs.get(request.run_id)
         if existing is not None:
             return self._reconcile(existing, digest), False
@@ -439,7 +451,7 @@ class FormalService:
         record = self.runs.get(run_id)
         if record is None:
             raise FormalError(404, "run-not-found", f"No run {run_id}.")
-        return {
+        view = {
             **self._ack(record),
             "disposition": record.disposition,
             "termination": record.termination,
@@ -449,6 +461,8 @@ class FormalService:
                 {"replay": item["replay"], "status": item["status"]} for item in self.runs.replays(run_id)
             ],
         }
+        RunView.model_validate(view)  # the published schema is the contract
+        return view
 
     async def cancel(self, run_id: str) -> dict[str, Any]:
         record = self.runs.get(run_id)
