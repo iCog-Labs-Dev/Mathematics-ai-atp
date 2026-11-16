@@ -228,6 +228,7 @@ class LiveBackend:
             reverify,
         )
         from maths_ai.hybrid_reasoner.resource_outcomes import ReplayResourceExhausted
+        from maths_ai.hybrid_reasoner.tactic_budget import TacticAllowance
 
         env = self.runtime.env
         try:
@@ -236,12 +237,14 @@ class LiveBackend:
             return {"status": "rejected", "reason": f"malformed certificate: {exc}", "steps": 0}
         started = time.monotonic()
         steps = {"limit": payload.get("max_tactic_steps")}
+        allowance = None if payload.get("max_tactic_steps") is None else TacticAllowance(payload["max_tactic_steps"])
         try:
             async with await PantographClient.create(env) as client:
                 async with client.state_scope() as scope:
                     result = await reverify(
                         scope, artifact, retire_session=client.aclose,
                         max_tactic_steps=payload.get("max_tactic_steps"),
+                        allowance=allowance,
                     )
             status, reason = "verified", None
             receipt = getattr(result, "receipt", None)
@@ -258,6 +261,7 @@ class LiveBackend:
             "status": status,
             "reason": reason,
             "verification": {**steps, "elapsed_s": time.monotonic() - started},
+            "steps_used": None if allowance is None else allowance.issued,
             "formal_environment": formal_environment(env),
         }
 

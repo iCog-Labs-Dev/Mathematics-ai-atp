@@ -114,3 +114,7 @@ def test_trained_goal_source_and_replay_over_real_http(trained_http, deployment,
         assert receipt["status"] == "verified", receipt
         assert receipt["verification_cost"]["sorry_detected"] is False
         assert receipt["source_artifact_hash"] == result["source_artifact_hash"]
+        if deployment == "mcts":
+            limited = client.formal_replay(result["certificate"], cap["environment_hash"], max_steps=1, wall_clock_ms=60000)
+            assert limited["status"] == "inconclusive", limited
+            assert limited["verification_cost"]["tactic_steps"] == 1

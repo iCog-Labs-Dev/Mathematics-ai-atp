@@ -183,7 +183,7 @@ class MctsFormalBackend:
         except (BackendFailure, AdmissionRejected) as exc:
             return VerifyOutcome("inconclusive", f"verification could not run: {exc}", None, None)
         return VerifyOutcome(
-            result["status"], result.get("reason"), None, result.get("formal_environment"),
+            result["status"], result.get("reason"), result.get("steps_used"), result.get("formal_environment"),
             result.get("verification") or {},
         )
 

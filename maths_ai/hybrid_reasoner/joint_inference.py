@@ -492,6 +492,8 @@ class HybridReasoner:
         when the search ends, on any exit path. One reasoner runs one search at
         a time.
         """
+        if max_tactic_steps is not None and (type(max_tactic_steps) is not int or max_tactic_steps < 1):
+            raise ValueError("max_tactic_steps must be a positive integer or None")
         if self._proving:
             raise PantographStateError("A reasoner supports only one active search.")
         self._proving = True
@@ -543,7 +545,7 @@ class HybridReasoner:
         left to prune ends the search with ``RESOURCE_LIMIT``.
         """
         registry = self._registry
-        root_state, root_goal, _ = await materialize_seed(self._scope, seed)
+        root_state, root_goal, _ = await materialize_seed(self._scope, seed, allowance=self._allowance)
         anchor = registry.adopt_root(root_state, "root anchor")
         graph = ProofHypergraph(root_goal)
         self._graph = graph

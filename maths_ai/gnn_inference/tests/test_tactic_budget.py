@@ -21,7 +21,7 @@ from maths_ai.hybrid_reasoner.hypergraph import SearchEndReason
 from maths_ai.hybrid_reasoner.joint_inference import PantographExecutor
 from maths_ai.hybrid_reasoner.tactic_budget import TacticAllowance, TacticBudgetExhausted
 
-# A conjunction: three exploration commands, then three replay commands.
+# A conjunction: one admission command, three exploration, three replay commands.
 RULES = _commands({
     ("P ∧ Q", "constructor"): Step(children=(Spec("P"), Spec("Q"))),
     ("P", "trivial"): Step(),
@@ -60,12 +60,12 @@ class TacticBudgetTests(unittest.TestCase):
         return graph, client.scopes[0]
 
     def test_an_exact_allowance_covers_exploration_and_replay(self):
-        graph, scope = self.search(6)
+        graph, scope = self.search(7)
         self.assertTrue(graph.is_solved())
         self.assertEqual(graph.execution["original_tactic_calls"], 3)
         self.assertEqual(graph.execution["replay_tactic_calls"], 3)
-        self.assertEqual(graph.execution["tactic_steps_issued"], 6)
-        self.assertEqual(graph.execution["tactic_step_limit"], 6)
+        self.assertEqual(graph.execution["tactic_steps_issued"], 7)
+        self.assertEqual(graph.execution["tactic_step_limit"], 7)
         self.assertEqual(scope.live, 0)
 
     def test_running_out_during_replay_ends_the_search_without_a_proof(self):
@@ -86,19 +86,15 @@ class TacticBudgetTests(unittest.TestCase):
     def test_rejected_commands_count(self):
         rules = _commands({("P", "trivial"): Step()})
         proposals = {"P": [("bogus", 0.9), ("trivial", 0.5)]}
-        graph, _ = self.search(1, rules=rules, root=Spec("P"), proposals=proposals)
+        graph, _ = self.search(2, rules=rules, root=Spec("P"), proposals=proposals)
         # The rejected command used the only step; nothing is left to try trivial.
         self.assertFalse(graph.is_solved())
         self.assertEqual(graph.end_reason, SearchEndReason.STEP_BUDGET)
-        self.assertEqual(graph.execution["tactic_steps_issued"], 1)
+        self.assertEqual(graph.execution["tactic_steps_issued"], 2)
 
     def test_a_zero_allowance_sends_nothing_to_lean(self):
-        graph, scope = self.search(0)
-        self.assertEqual(graph.end_reason, SearchEndReason.STEP_BUDGET)
-        self.assertEqual(graph.execution["original_tactic_calls"], 0)
-        self.assertEqual(graph.execution["tactic_steps_issued"], 0)
-        # Only the admission's own setup reached the fake scope.
-        self.assertEqual(scope.count("goal.tactic"), 1)
+        with self.assertRaisesRegex(ValueError, "positive"):
+            self.search(0)
 
     def test_no_allowance_is_unbounded_and_unreported(self):
         graph, _ = self.search(None)
@@ -106,9 +102,9 @@ class TacticBudgetTests(unittest.TestCase):
         self.assertIsNone(graph.execution["tactic_steps_issued"])
 
     def test_puct_shares_the_same_allowance(self):
-        solved, _ = self.search(6, **PUCT)
+        solved, _ = self.search(7, **PUCT)
         self.assertTrue(solved.is_solved())
-        self.assertEqual(solved.execution["tactic_steps_issued"], 6)
+        self.assertEqual(solved.execution["tactic_steps_issued"], 7)
         short, scope = self.search(4, **PUCT)
         self.assertFalse(short.is_solved())
         self.assertEqual(short.end_reason, SearchEndReason.STEP_BUDGET)

@@ -59,8 +59,10 @@ class _Client:
             await scope.aclose()
 
 
-async def _admit(scope, seed):
+async def _admit(scope, seed, *, allowance=None):
     start = await scope.start_goal("root")
+    if allowance is not None:
+        allowance.reserve()
     state = await scope.apply_tactic(start, "skip")
     await scope.release(start)
     return state, execution_goal_to_goal(state.goals[0]), None
