@@ -227,17 +227,19 @@ def target_unit_signature(units: list[tuple[int, int]], body: bytes, declaration
     found: list[tuple[int, int, int]] = []
     for start, end in units:
         text = body[start:end].decode("utf-8", errors="strict")
-        if (match := _NAMESPACE.match(text)) is not None:
+        from maths_ai.gnn_inference.atp_lean_gnn.proof_tasks import masked
+        view = masked(text)
+        if (match := _NAMESPACE.match(view)) is not None:
             scopes.append(("namespace", match.group(1)))
             continue
-        if (match := _SECTION.match(text)) is not None:
+        if (match := _SECTION.match(view)) is not None:
             scopes.append(("section", match.group(1) or ""))
             continue
-        if (match := _END.match(text)) is not None:
+        if (match := _END.match(view)) is not None:
             if scopes:
                 scopes.pop()
             continue
-        head = _DECL_HEAD.match(text)
+        head = _DECL_HEAD.match(view)
         if head is None:
             continue
         local = _unquote(head.group(2))
@@ -357,6 +359,7 @@ async def admit_source(
         "statement": statement,
         "source_artifact_hash": request_input.artifact_hash,
         "source_origin": "caller-artifact",
+        **({"native_target": goal["native_target"]} if "native_target" in goal else {}),
         **environment,
     }
     try:

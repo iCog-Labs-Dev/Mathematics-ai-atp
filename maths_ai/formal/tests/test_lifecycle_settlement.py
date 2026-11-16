@@ -194,3 +194,23 @@ def test_retry_clears_prior_result_before_becoming_active(tmp_path):
             backend.release.set()
             await service.close()
     asyncio.run(scenario())
+
+
+def test_admission_infrastructure_failure_settles_without_claiming_invalid_math(tmp_path):
+    async def scenario():
+        service, backend, body = service_case(tmp_path)
+        backend.cleanup_release.set()
+        async def broken(*args, **kwargs):
+            raise RuntimeError("native admission worker was lost")
+        backend.elaborate_source = broken
+        artifact = service.put_artifact(b"theorem Demo.goal : True := by trivial\n")
+        body["input"] = {"kind": "source", "artifact_hash": artifact, "declaration": "Demo.goal",
+                         "starting_state": "binders-introduced"}
+        try:
+            await service.start(FormalSearchRequest.model_validate(body))
+            final = await wait_finished(service, body["run_id"])
+            assert final["disposition"] == "internal-error" and final["termination"] == "crash"
+            assert final["attempts"] == 0 and final["budget"]["consumed_steps"] == 0
+        finally:
+            await service.close()
+    asyncio.run(scenario())

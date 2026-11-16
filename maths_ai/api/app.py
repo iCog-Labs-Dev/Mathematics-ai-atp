@@ -81,6 +81,7 @@ ServiceFactory = Callable[[], Awaitable[Any]]
 
 CONFIG_ENV = "MATHS_AI_SERVICE_CONFIG"
 ACCEPTED_ENV = "MATHS_AI_ACCEPTED_GNN"
+FROZEN_CONFIG_ENV = "MATHS_AI_FROZEN_CONFIG"
 _ERRORS = {
     422: {"model": ErrorBody}, 429: {"model": ErrorBody}, 503: {"model": ErrorBody},
     504: {"model": ErrorBody}, 404: {"model": ErrorBody}, 409: {"model": ErrorBody},
@@ -132,6 +133,7 @@ def create_app(
     service_factory: Optional[ServiceFactory] = None,
     *,
     accepted_factory: Optional[ServiceFactory] = None,
+    frozen_factory: Optional[ServiceFactory] = None,
     formal_registry: Any = None,
     formal_state_dir: Optional[Path] = None,
 ) -> FastAPI:
@@ -144,12 +146,20 @@ def create_app(
     """
     mcts_factory = service_factory
     accepted = accepted_factory
-    if mcts_factory is None and accepted is None:
+    frozen = frozen_factory
+    if frozen is None and os.environ.get(FROZEN_CONFIG_ENV):
+        async def frozen():
+            path = Path(os.environ[FROZEN_CONFIG_ENV])
+            service = ProvingService(ServiceConfig.from_json(path), path,
+                                     backend="maths_ai.formal.frozen_runtime:FrozenRuntime")
+            await service.start()
+            return service
+    if mcts_factory is None and accepted is None and frozen_factory is None:
         if os.environ.get(CONFIG_ENV):
             mcts_factory = default_service_factory()
         if _env_flag(ACCEPTED_ENV):
             accepted = default_accepted_factory()
-        if mcts_factory is None and accepted is None:
+        if mcts_factory is None and accepted is None and frozen is None:
             raise RuntimeError(
                 f"No backend is configured: set {CONFIG_ENV} for {MCTS_BACKEND} "
                 f"or {ACCEPTED_ENV}=1 for {ACCEPTED_BACKEND}."
@@ -159,6 +169,7 @@ def create_app(
     async def lifespan(app: FastAPI):
         app.state.service = await mcts_factory() if mcts_factory is not None else None
         app.state.accepted = None
+        app.state.frozen = await frozen() if frozen is not None else None
         app.state.formal = None
         app.state.accepted_error = None if accepted is not None else "not configured"
         if accepted is not None:
@@ -183,6 +194,8 @@ def create_app(
                     logger.exception("accepted-GNN backend shutdown failed")
             if app.state.service is not None:
                 await app.state.service.stop()
+            if app.state.frozen is not None:
+                await app.state.frozen.stop()
 
     app = FastAPI(
         title="Mathematics AI ATP",
@@ -243,6 +256,9 @@ def create_app(
             backends[MCTS_BACKEND] = {"ready": content["ready"], "error": content["error"]}
         if accepted is not None:
             backends[ACCEPTED_BACKEND] = accepted_readiness(request)
+        if request.app.state.frozen is not None:
+            state = request.app.state.frozen.readiness()
+            backends[ACCEPTED_BACKEND] = {"ready": state["ready"], "error": state["error"], "profile": "frozen-best-first"}
         ready_all = all(backend["ready"] for backend in backends.values())
         if not content:
             content = {"ready": ready_all, "error": backends[ACCEPTED_BACKEND]["error"]}
@@ -375,6 +391,10 @@ def _formal_service(app: FastAPI, registry: Any, state_dir: Optional[Path]):
         backends[ACCEPTED_BACKEND] = AcceptedFormalBackend(
             app.state.accepted, project_path=settings.lean_project_path, imports=["Mathlib"],
         )
+    if app.state.frozen is not None:
+        from maths_ai.formal.frozen_backend import FrozenFormalBackend
+
+        backends[ACCEPTED_BACKEND] = FrozenFormalBackend(app.state.frozen)
     directory = Path(state_dir or os.environ.get(FORMAL_STATE_ENV) or "/state/formal")
     return FormalService(registry=registry, state_dir=directory, backends=backends)
 

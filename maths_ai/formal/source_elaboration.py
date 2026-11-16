@@ -5,9 +5,8 @@ The owned Pantograph client deliberately does not expose ``frontend.process``
 process from the same executable, Lake project and imports as the search
 workers, and retires it afterwards. The steps are:
 
-1. ``frontend.process`` the file body (its import header removed; the REPL
-   already has the deployment's imports) to get the compilation-unit
-   boundaries, and locate the target declaration's unit.
+1. Parse the file body without elaborating any caller proof, using the
+   deployment's imported syntax, and locate the target declaration's unit.
 2. Process the body up to that unit with the target's proof replaced by
    ``by sorry``; later declarations are dropped. The goal Lean reports at that
    ``sorry`` is the signature with its outer binders introduced.
@@ -54,24 +53,15 @@ def _errors(messages: list[str]) -> list[str]:
     ]
 
 
-async def elaborate_declaration(send, body: str, declaration: str) -> dict[str, Any]:
+async def elaborate_declaration(send, body: str, declaration: str, *, units) -> dict[str, Any]:
     """Run the three steps over ``send(cmd, payload) -> dict`` (one REPL session)."""
-    first = await send("frontend.process", {"file": body, "sorrys": False, "invocations": False})
-    if "units" not in first:
-        raise AdmissionRejected("input:malformed-source", f"Lean could not process the source: {first}")
-    errors = [m for unit in first["units"] for m in _errors(unit.get("messages", []))]
-    if errors:
-        raise AdmissionRejected("input:lean-rejected", f"The source does not elaborate: {errors[:3]}")
     body_bytes = body.encode("utf-8")
-    start, assign = target_unit_signature(
-        [tuple(unit["boundary"]) for unit in first["units"]], body_bytes, declaration
-    )
+    start, assign = target_unit_signature(units, body_bytes, declaration)
     rewritten = (body_bytes[:assign] + b":= by sorry\n").decode("utf-8")
     second = await send("frontend.process", {"file": rewritten, "sorrys": True, "invocations": False})
     units = second.get("units")
     if not units and second.get("recovery") == "session-unusable":
-        # The file itself elaborated (step 1), so this is the goal's
-        # serialization: the REPL cannot export a goal that mentions constants
+        # The REPL cannot export a goal that mentions constants
         # outside its own environment, i.e. declarations of the source file.
         raise AdmissionRejected(
             "input:unsupported-context",
@@ -168,10 +158,10 @@ class ReplSession:
             await process.wait()
 
 
-async def elaborate_source(session_factory, body: str, declaration: str, statement_of) -> dict[str, Any]:
+async def elaborate_source(session_factory, body: str, declaration: str, statement_of, *, units) -> dict[str, Any]:
     """Elaborate in one session and check the rendered statement in the same one."""
     async with session_factory() as session:
-        goal = await elaborate_declaration(session.send, body, declaration)
+        goal = await elaborate_declaration(session.send, body, declaration, units=units)
         statement = statement_of(goal)
         goal["check"] = await check_statement(session.send, statement)
         return goal

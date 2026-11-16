@@ -1,0 +1,9 @@
+{
+  "rl_config": "frozen_runtime.example.json",
+  "state_dir": "/state/frozen-runtime",
+  "default_search_profile": "frozen",
+  "search_profiles": {
+    "frozen": {"selection_policy": "legacy", "top_k_tactics": 8, "max_depth": 16, "max_nodes": 64}
+  },
+  "limits": {"runtime_start_timeout_s": 900, "cleanup_grace_s": 10}
+}

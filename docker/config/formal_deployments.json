@@ -22,6 +22,17 @@
       },
       "verification": {"max_steps": 1024, "wall_clock_ms": 600000}
     },
+    "accepted-gnn-frozen": {
+      "backend": "accepted-gnn",
+      "environment_id": "mathlib-4.10-rc1",
+      "inputs": ["goal", "source"],
+      "profiles": {"frozen-best-first": {
+        "max_steps": 96, "wall_clock_ms": 120000,
+        "backend_settings": {"model_calls": 32, "max_nodes": 64, "max_depth": 16, "top_k": 8}
+      }},
+      "verification": {"max_steps": 128, "wall_clock_ms": 30000},
+      "model": {"bundle_sha256": "ebc7620282838e7a0d26250ddbf159ec02c859700c17217d9a43db3ef4145107"}
+    },
     "accepted-gnn-v2": {
       "backend": "accepted-gnn",
       "environment_id": "mathlib-4.10-rc1",

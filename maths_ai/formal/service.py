@@ -131,9 +131,16 @@ class FormalService:
         deployments = {}
         for deployment in self.registry.deployments.values():
             backend = self.backends.get(deployment.backend)
+            available = backend is not None and backend.ready()
+            if available and hasattr(backend, "validate_deployment"):
+                try:
+                    for profile in deployment.profiles.values():
+                        backend.validate_deployment(deployment, profile)
+                except ValueError:
+                    available = False
             deployments[deployment.deployment_id] = {
                 **deployment.as_dict(),
-                "available": backend is not None and backend.ready(),
+                "available": available,
                 "environment_hash": self._environment(deployment),
                 "profile_config_hashes": {
                     name: deployment.profile_config_hash(profile)
@@ -248,6 +255,12 @@ class FormalService:
         backend = self.backends.get(deployment.backend)
         if backend is None or not backend.ready():
             raise FormalError(503, "backend-unavailable", f"{deployment.backend} is not available.")
+        validate = getattr(backend, "validate_deployment", None)
+        if validate is not None:
+            try:
+                validate(deployment, profile)
+            except ValueError as exc:
+                raise FormalError(409, "deployment-mismatch", str(exc)) from exc
         if request.environment_id != deployment.environment_id:
             raise FormalError(
                 409, "environment-mismatch",
@@ -371,6 +384,13 @@ class FormalService:
             await self._quiesce(backend)
             self._cancelled_before_attempt(run_id)
             raise
+        except Exception as exc:
+            await self._quiesce(backend)
+            record = self.runs.get(run_id)
+            result = self._result(record, termination="crash", error=f"source admission infrastructure: {exc}",
+                                  charged=0, exact=True, attempt_cost={"admission": "crash"})
+            self.runs.update(run_id, status="finished", disposition="internal-error", termination="crash", result=result)
+            return
         if self.runs.get(run_id).cancel_requested:
             self._cancelled_before_attempt(run_id)
             return
@@ -653,7 +673,9 @@ class FormalService:
                                ("environment_hash", record.environment_hash))
         ):
             return attest("rejected", "the certificate or input manifest is not bound to this run", {},
-                          record.environment_hash)
+                           record.environment_hash)
+        if "native_target" in manifest and certificate.get("native_target") != manifest["native_target"]:
+            return attest("rejected", "certificate changed the original native target", {}, record.environment_hash)
         if backend is None or not backend.ready():
             raise FormalError(503, "backend-unavailable", f"{record.backend} is not available.")
         current = self._environment(deployment)

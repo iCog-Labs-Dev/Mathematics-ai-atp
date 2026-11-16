@@ -197,10 +197,13 @@ class LiveBackend:
         """
         from maths_ai.formal.admission import AdmissionRejected, source_seed
         from maths_ai.formal.source_elaboration import ReplSession, elaborate_source
+        from maths_ai.formal.source_units import source_units
 
         env = self.runtime.env
         declaration = payload["declaration"]
         try:
+            units = await source_units(payload["body"], imports=env.imports, source_root=env.source_root,
+                                       timeout_s=float(payload["timeout_s"]))
             return await elaborate_source(
                 lambda: ReplSession(
                     Path(env.pantograph_repl), Path(env.source_root), list(env.imports),
@@ -209,6 +212,7 @@ class LiveBackend:
                 payload["body"],
                 declaration,
                 lambda goal: source_seed(goal, declaration)[1],
+                units=units,
             )
         except AdmissionRejected as exc:
             return {"rejected": {"category": exc.category, "detail": exc.detail}}
@@ -242,6 +246,10 @@ class LiveBackend:
             status, reason = "verified", None
             receipt = getattr(result, "receipt", None)
             steps["receipt_identity"] = getattr(receipt, "identity", None)
+            axioms = list(receipt.axioms)
+            steps.update(axioms=axioms, sorry_detected="sorryAx" in axioms)
+            if steps["sorry_detected"]:
+                status, reason = "rejected", "native receipt contains sorryAx"
         except ArtifactMismatch as exc:
             status, reason = "rejected", str(exc)
         except (ReplayResourceExhausted, ReplayBudgetExhausted) as exc:

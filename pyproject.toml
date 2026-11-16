@@ -61,6 +61,7 @@ exclude=["data", "experiments", "tests", "tests.*"]
 
 [tool.setuptools.package-data]
 "maths_ai.formal" = ["schema/*.json"]
+"maths_ai.gnn_inference" = ["lean/*.lean"]
 
 
 [dependency-groups]

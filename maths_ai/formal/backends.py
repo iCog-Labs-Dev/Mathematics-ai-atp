@@ -234,6 +234,10 @@ class AcceptedFormalBackend:
     name = ACCEPTED_BACKEND
     supports_universes = False
 
+    def validate_deployment(self, deployment, profile):
+        if profile.name == "frozen-best-first" or "source" in deployment.inputs:
+            raise ValueError("main-derived accepted backend cannot serve the frozen/source profile")
+
     def __init__(self, service, *, project_path: Path, imports: list[str]) -> None:
         self.service = service
         self.project_path = Path(project_path)
