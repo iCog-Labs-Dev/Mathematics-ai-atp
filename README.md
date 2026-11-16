@@ -100,19 +100,13 @@ curl -X POST http://localhost:8000/prove -H 'Content-Type: application/json' \
   -d '{"backend": "accepted-gnn", "goal": "∀ (n : Nat), n + 0 = n"}'
 ```
 
-Persistent ATP clients use the accepted-GNN backend through:
-
-- `POST /formal-search/start`
-- `GET /formal-search/{run_id}`
-- `POST /formal-search/{run_id}/retry` for an interrupted or failed run
-- `POST /formal-search/{run_id}/cancel`
-- `POST /formal-replay`
-
-Formal-search requests are persisted under `/data/formal_runs` by default.
-Set `MATHS_AI_FORMAL_RUNS_DIR` to a writable mounted directory in local or
-container deployments. A search result is reported as `found` until its proof
-trace is independently accepted by `/formal-replay`, after which the run is
-reported as `verified`.
+Persistent ATP clients use formal protocol version 2 on either backend:
+`/formal-capabilities`, `/formal-artifacts`, `/formal-search/start`,
+`/formal-search/{run_id}` (with `/cancel` and `/retry`) and `/formal-replay`.
+The routes are served when `MATHS_AI_FORMAL_DEPLOYMENTS` names a deployment
+registry (see `docker/config/formal_deployments.json`); runs and artifacts
+persist under `MATHS_AI_FORMAL_STATE_DIR`. See
+[the version-2 provider documentation](maths_ai/gnn_inference/docs/formal_protocol_v2.md).
 
 Use a different local port either with an environment variable or a
 command-line option:

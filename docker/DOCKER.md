@@ -11,8 +11,14 @@ The image serves two proving backends from one Uvicorn process, and every
   best-first. Uvicorn owns one runtime process, which holds the model, the
   Lean clients and the search. Enabled by a mounted `service.json`.
 - `accepted-gnn`: the published Mathlib-Sexpr-GNN v2 policy with best-first
-  hypergraph search, and the persistent-atp `/formal-search` and
-  `/formal-replay` routes. Enabled by `MATHS_AI_ACCEPTED_GNN=1`.
+  hypergraph search. Enabled by `MATHS_AI_ACCEPTED_GNN=1`; set
+  `MATHS_AI_ACCEPTED_USE_PLN=0` to run it without PLN (then PeTTa is not required).
+
+Both backends serve persistent-atp's formal protocol version 2 when
+`MATHS_AI_FORMAL_DEPLOYMENTS` names a deployment registry; mount one, for
+example `docker/config/formal_deployments.json`, under `/config`. Formal runs
+and artifacts persist in `/state/formal`. See
+`maths_ai/gnn_inference/docs/formal_protocol_v2.md`.
 
 A backend that is not enabled answers 503; a request is never served by the
 other one. The image contains:
@@ -63,7 +69,8 @@ MATHS_AI_ARTIFACTS=/path/to/artifacts docker compose up api
 # CPU, both backends
 MATHS_AI_ACCEPTED_GNN=1 MATHS_AI_ARTIFACTS=/path/to/artifacts docker compose up api
 
-# One NVIDIA GPU (needs the NVIDIA container toolkit); builds with TORCH_VARIANT=gpu
+# One NVIDIA GPU (needs the NVIDIA Container Toolkit); builds with TORCH_VARIANT=gpu.
+# The service reserves one GPU device (deploy.resources.reservations.devices).
 MATHS_AI_ARTIFACTS=/path/to/artifacts docker compose --profile gpu up api-gpu
 
 # One accepted-GNN proof run without HTTP

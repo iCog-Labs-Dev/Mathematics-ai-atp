@@ -70,12 +70,13 @@ translates a goal from its raw target and locals:
   keeps `is_fallback`, so the search's own DTS sampler can replace it, as
   main's "PLN scores must not fabricate proofs" fix intended.
 
-Main's live-state conversion carries model S-expressions but not raw ones. So
-until the accepted runtime also projects raw expressions, accepted-search
-subgoals are `unsupported` and rank with zero evidence: PLN does not change
-the accepted search's ranking. This is a known gap, not a silent fallback. The
-accepted backend still requires resolvable PeTTa dependencies to be ready, as
-on `main`.
+The accepted runtime already enables `printExprAST`, and its live-state
+conversion now reads the raw expressions Lean sends (all or none of a goal's
+context; never inferred from the model encoding). So accepted subgoals reach
+the structured compiler. PLN is a declared setting
+(`MATHS_AI_ACCEPTED_USE_PLN`, default on, as on `main`): with it on, readiness
+requires resolvable PeTTa dependencies; with it off, subgoals rank as
+`pln-disabled` and PeTTa is not required.
 
 ## HTTP API
 
@@ -95,14 +96,13 @@ one is required.
 | `GET /ready` | both | 200 only when every enabled backend is ready; per-backend state under `backends` |
 | `POST /prove` | selected | **requires `backend`**: `mcts-actor-critic` (the MCTS request schema) or `accepted-gnn` (main's schema); an unconfigured backend is 503, never the other backend |
 | `POST /evaluations…` | MCTS | unchanged |
-| `POST /formal-search/*`, `/formal-replay` | accepted | unchanged schema and behaviour |
+| `/formal-capabilities`, `/formal-artifacts`, `/formal-search/*`, `/formal-replay` | both | formal protocol version 2 (`formal_protocol_v2.md`); version 1 is refused |
 | `POST /gnn/predict_tactic` | accepted | unchanged |
 | `POST /pln/evaluate` | accepted | **structured input**: `{target_sexp, locals: [{internal_name, type_sexp, value_sexp?, is_let?}]}`; `stv`/`score` are null without a rule proof or fallback; an unsupported translation is 422, unresolvable PLN dependencies 503 |
 
 Main's app-wide `ValueError` → 400 handler is not kept, because it would also
 turn MCTS internal errors into client errors. Each accepted route maps its own
-input errors as before; a trace that Lean rejects in `/formal-replay` is still
-400 `invalid input: …`.
+input errors as before.
 
 `backend` is an explicit discriminator, not dual-schema detection. The two
 `/prove` schemas, `/health` (now liveness) and `/pln/evaluate` are
@@ -111,16 +111,17 @@ healthcheck, docs) are migrated. No external caller of `/prove` or the
 component routes is known; the persistent-atp adapter uses only the formal
 routes.
 
-### Not done in this merge: formal protocol version 2
+### Formal protocol version 2
 
-The plan's Stage 4 formal contract (versioned schemas, backend and deployment
-selection at admission, global step/time accounting, content-addressed
-artifacts) is not implemented here. The plan requires agreement with
-persistent-atp's maintainers on that schema and its pinned digest first. The
-formal routes keep main's current contract and run on the accepted backend,
-so the MCTS backend is not yet reachable through `/formal-search`. Protocol v2
-and MCTS formal runs, with the matching persistent-atp adapter branch, are
-the next step once the contract is agreed.
+The formal routes implement the agreed version-2 contract for both backends
+(`formal_protocol_v2.md`). The input is a strict `source`/`goal` union, and
+`budget.max_steps` is the single tactic allowance, shared by exploration and
+replay and persisted across retries. Replay attestation is bound to the
+stored certificate, admitted input and environment. Main's version-1 formal
+routes, `FormalSearchManager` and its `import Init` replay are removed, and
+their tests are migrated to version 2. The persistent-atp adapter migrates to
+version 2 on its own branch; until it does, the deployed adapter is not
+compatible with this provider.
 
 ## Dependencies and deployment
 

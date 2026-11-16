@@ -180,20 +180,108 @@ rate here was roughly 10 KB/s, and the image still needs the Mathlib cache
 Dockerfile, entrypoint (`sh -n`) and Compose file (YAML) were only checked
 statically.
 
+## Formal protocol version 2 (after the review of #94)
+
+The contract revisions agreed with persistent-atp's maintainers:
+- the strict `source`/`goal` input union;
+- `budget.max_steps` as the only tactic allowance, with
+  `search_policy.max_tactic_steps` removed.
+
+The provider side is in `maths_ai/formal`, documented in
+`maths_ai/gnn_inference/docs/formal_protocol_v2.md`. Plan inputs: upstream
+`MCTS-MAIN-PATP-integration` at `15db490` (merged as `d5620a3`).
+
+### Review items
+
+| Item | Done |
+| --- | --- |
+| 1. One formal lifecycle for both backends | `FormalService`: durable registry, idempotent start, run conflicts, async attempts, cancellation terminal after the work stops, restart interruption, retry from the bound input. MCTS through its runtime supervisor and workers; READY/JOINT is never closure; open-root budget exhaustion is `budget-exhausted` |
+| 2. Explicit input forms | `source` (provider store, REPL elaboration with the target's proof replaced by `sorry`, `binders-introduced`, self-exclusion, typed rejections, no text fallback) and `goal` (shared parser and renderer, provider-generated source); content-addressed input manifest bound to run, certificate and replay |
+| 3. `budget.max_steps` only | one reservation counter across exploration and combination replay (MCTS executor; accepted server proxy); capped, acknowledged, persisted and never replenished; profile configuration and environment pinned; finite acknowledged wall clock from admission including queueing |
+| 4. Bound replay attestation | stored evidence re-hashed and re-bound; fresh-session verification (MCTS `reverify`, accepted compilation under Mathlib); `verified`/`rejected`/`inconclusive` with derived identities and cost |
+| 5. Compose GPU | `api-gpu` reserves one NVIDIA device |
+| 6. Accepted PLN projection and readiness | raw expressions read from the wire (`printExprAST`), all-or-none; `MATHS_AI_ACCEPTED_USE_PLN` makes PLN a declared setting, and PLN-disabled readiness does not require PeTTa |
+| 7. Argument-level parity | below |
+
+The published JSON Schemas and their canonical digests are in
+`maths_ai/formal/schema`, for persistent-atp to pin.
+
+### Argument-level parity (trained artifacts)
+
+Scripts: `notes/mcts-main-integration/{mcts_actions,v2_actions}.py`. They run
+on the same 484 miniF2F goals, with each revision's own engine.
+
+| Model | Revisions | Compared | Result |
+| --- | --- | --- | --- |
+| MCTS `v1.0.1-local` checkpoint, with its retrieval index, query encoder, corpus and declaration inventory | MCTS `c53b750` vs this branch | candidate pool (lemma ids and scores, local ids, type signals, policy/query/graph/artifact fingerprints), premise mask, top-15 complete actions (tactic, argument references with sources, raw action id, exact log-prior, rendering) | identical 484/484; 6570 actions, 3348 argument references; the same 46 goals fail rendering identically (their locals are not playable outside a live session) |
+| Published v2 policy and retriever at `8aba626` | `main` `444e057` vs this branch | every `DecodedAction` of the top-10 tactics (argument count, per-argument source, stable id, position, score, completeness) and the rendered candidates | identical 484/484; 4840 decoded actions, 1776 library and 577 local arguments |
+
+The only differing field in the MCTS dump was the in-memory address of the
+pool's library handle, which is not data; it was excluded.
+
+### Lifecycle tests (injected execution)
+
+`maths_ai/formal/tests`: 54 passed. These run the real app, `ProvingService`,
+supervisor and runtime process, with the scripted fake runtime. They cover:
+- strict schema negatives, including the removed field, mixed inputs,
+  boolean and string numbers, version 1, and flat run ids;
+- unavailable or unagreed selections: deployment, backend, profile,
+  environment, model assertion;
+- the 100 → 60 → 40 → 20 retry case, then `allowance-exhausted`;
+- finite default and reduced wall clocks;
+- idempotency and conflicts, and slash run ids;
+- complete AND export;
+- READY, node budget, dead root, inadmissible and crash outcomes;
+- source admission and its rejections: missing declaration, file-local
+  context, unsupported import, missing artifact;
+- cancellation, restart interruption, and a refused retry after a profile
+  change;
+- replay verified, rejected, binding mismatches and tampered evidence;
+- the accepted backend's cap, budget, goal-only input, universe rejection and
+  certificate source.
+
+They also exposed a latent race in the MCTS dispatcher: when the service
+stopped while a cancelled step finished, the dispatcher swallowed its own
+cancellation and hung. It is fixed with `Task.cancelling()`.
+
+### Native end-to-end (real runtimes, both backends, one server)
+
+Server: `python -m maths_ai.api --config … --accepted-gnn`, with a local
+deployment registry (`notes/mcts-main-integration/native/registry.json`).
+- **MCTS:** the `v1.0.1-local` checkpoint, rebound locally to the `46a33e1`
+  REPL with `rebind_source_aware_environment`. Every actor and critic tensor
+  is preserved; this is a metadata rebind, not a model change.
+- **Accepted:** the v2 bundle, the `0dd5d22` REPL and Mathlib, with PLN off
+  (no PeTTa on this host).
+
+| Case | Result |
+| --- | --- |
+| MCTS, source `Native.target (n : ℕ) (h : n = 2) : n + 1 = 3` from an uploaded file with `namespace`/`open` | `proved-pending-replay`, 2 steps (exact); replay `verified` in a fresh Pantograph client, environment hash matches |
+| MCTS, goal `n + 1 = 3` with `n : Nat`, `h : n = 2` | best-first and PUCT both `proved-pending-replay` in 2 steps; replays `verified` |
+| MCTS, goal `a + 0 = a` with `a : Nat` | `stagnated` (`alternatives-exhausted`) after 1 step: a bounded outcome, not a refutation |
+| Accepted, goal `a + 0 = a` with `a : Nat` | `proved-pending-replay`, 5 steps (exact); replay `verified` by compiling the stored statement under Mathlib in a fresh Lean process |
+| MCTS, source depending on a file-local definition | `invalid-request`, `input:unsupported-context` |
+| MCTS, source with an unknown artifact hash | `invalid-request`, `input:artifact-missing`; no text fallback |
+| `search_policy.max_tactic_steps` present | 422 `invalid-request` (`extra_forbidden`) |
+| Stored input manifest altered on disk, then replay | `rejected`: the stored artifact no longer matches its hash |
+
+### Full suite after version 2
+
+The whole repository with the MCTS live tests enabled, on head `eda0371`
+plus these documentation and lineage changes: **1295 passed, 6 failed,
+6 skipped** (12 min). The six failures are the host failures listed above,
+identical on `c53b750`.
+
 ## Unavailable gates
 
-- **Formal protocol version 2 and the MCTS backend through `/formal-search`
-  (Stage 4.1–4.7):** this needs the schema and its pinned digest agreed with
-  persistent-atp's maintainers before coding. The formal routes keep main's
-  contract on the accepted backend.
 - **Caller acceptance (Stage 7):** not run. It needs the migrated
-  persistent-atp adapter branch, which belongs to that repository.
+  persistent-atp version-2 adapter branch, which belongs to that repository.
+  The deployed version-1 adapter is not compatible with this provider, so
+  releases must be coordinated.
 - **Docker image build and container smoke (CPU):** not completed on this
   host (above). Required before release.
 - **GPU deployment:** no GPU on this host.
 - **PLN-enabled native search:** no PeTTa or SWI-Prolog on this host. The
   accepted backend therefore reports itself unready here; `/prove` still runs.
-- **Accepted-search PLN evidence:** the accepted runtime's live states carry
-  model S-expressions but not raw ones, so its subgoals are `unsupported` for
-  PLN and rank with zero evidence. Closing this needs the accepted runtime to
-  project raw expressions.
+- **Accepted-search PLN with a real PeTTa:** raw expressions now reach the
+  compiler, but no PLN-enabled native run happened here (no PeTTa).
