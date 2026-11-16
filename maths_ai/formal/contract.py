@@ -222,6 +222,88 @@ class ReplayAttestation(_Strict):
     verification_cost: dict[str, Any]
 
 
+class ResultTermination(_Strict):
+    reason: TerminationReason
+    detail: Optional[str] = None
+
+
+class ResultBudget(_Strict):
+    admitted_max_steps: StrictInt = Field(ge=1)
+    remaining_steps: StrictInt = Field(ge=0)
+    admitted_wall_clock_ms: StrictInt = Field(ge=1)
+
+
+class ResultUsage(_Strict):
+    tactic_steps: StrictInt = Field(ge=0)
+    tactic_steps_exact: StrictBool
+    attempt: dict[str, Any]
+
+
+class ResultBackend(_Strict):
+    name: BackendName
+    profile: str
+    deployment_id: str
+    profile_config_hash: Sha256
+
+
+class CoordinatorBinding(_Strict):
+    claim_id: str
+    base_revision: StrictInt = Field(ge=0)
+    lease_id: str
+    fencing_token: StrictInt = Field(ge=1)
+
+
+class ResultCertificate(_Strict):
+    artifact_hash: Sha256
+    status: Literal["replay-pending"]
+    producer_run_id: RunId
+
+
+class FormalResult(_Strict):
+    """Versioned evidence envelope; graph rows retain the canonical graph contract.
+
+    Consumers must additionally validate graph structure and complete AND-child
+    obligations. Envelope validation alone cannot establish proof closure.
+    """
+
+    protocol_version: Literal[2]
+    run_id: RunId
+    proof_id: str
+    declaration_id: str
+    environment_hash: Sha256
+    disposition: Disposition
+    termination: ResultTermination
+    root_state_id: str
+    states: list[dict[str, Any]]
+    tactic_edges: list[dict[str, Any]]
+    obstructions: list[dict[str, Any]]
+    artifacts: list[dict[str, Any]]
+    budget_used: ResultUsage
+    budget: ResultBudget
+    input_kind: Literal["source", "goal"]
+    input_artifact_hash: Optional[Sha256]
+    source_artifact_hash: Optional[Sha256]
+    source_origin: Optional[Literal["caller-artifact", "generated-from-text"]]
+    backend: ResultBackend
+    request_digest: Sha256
+    coordinator_binding: CoordinatorBinding
+    attempts: StrictInt = Field(ge=0)
+    certificate: Optional[ResultCertificate] = None
+
+
+class ReplaySummary(_Strict):
+    replay: StrictInt = Field(ge=1)
+    status: Literal["verified", "rejected", "inconclusive"]
+
+
+class RunSnapshot(Admission):
+    disposition: Optional[Disposition]
+    termination: Optional[TerminationReason]
+    cancel_requested: StrictBool
+    result: Optional[FormalResult]
+    replays: list[ReplaySummary]
+
+
 class ErrorBody(_Strict):
     protocol_version: Literal[2] = 2
     category: str
@@ -236,4 +318,6 @@ def json_schemas() -> dict[str, dict[str, Any]]:
         "formal-admission.v2": Admission.model_json_schema(),
         "formal-replay-attestation.v2": ReplayAttestation.model_json_schema(),
         "formal-error.v2": ErrorBody.model_json_schema(),
+        "formal-result.v2": FormalResult.model_json_schema(),
+        "formal-status.v2": RunSnapshot.model_json_schema(),
     }

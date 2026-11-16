@@ -24,3 +24,13 @@ def test_the_request_schema_forbids_the_removed_policy_field():
     policy = request["$defs"]["SearchPolicy"]
     assert "max_tactic_steps" not in policy["properties"]
     assert policy["additionalProperties"] is False
+
+
+def test_status_schema_publishes_the_result_and_replay_bindings():
+    schemas = json_schemas()
+    snapshot = schemas["formal-status.v2"]
+    assert snapshot["additionalProperties"] is False
+    assert "FormalResult" in snapshot["$defs"]
+    assert {"request_digest", "coordinator_binding", "input_artifact_hash",
+            "source_artifact_hash", "backend"} <= set(
+                snapshot["$defs"]["FormalResult"]["required"])

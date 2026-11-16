@@ -50,6 +50,8 @@ from .contract import (
     FormalSearchRequest,
     BackendSelection,
     ReplayAttestation,
+    RunSnapshot,
+    json_schemas,
 )
 from .deployments import Deployment, DeploymentRegistry, Profile
 from .results import DISPOSITIONS, build_result
@@ -137,6 +139,8 @@ class FormalService:
             }
         return {
             "protocol_versions": [PROTOCOL_VERSION],
+            "schema_hashes": {f"{name}.schema.json": object_ref(schema)
+                              for name, schema in json_schemas().items()},
             "default": dict(self.registry.default) if self.registry.default is not None else None,
             "registry_hash": self.registry.registry_hash,
             "deployments": deployments,
@@ -465,7 +469,7 @@ class FormalService:
         record = self.runs.get(run_id)
         if record is None:
             raise FormalError(404, "run-not-found", f"No run {run_id}.")
-        return {
+        snapshot = {
             **self._ack(record),
             "disposition": record.disposition,
             "termination": record.termination,
@@ -475,6 +479,7 @@ class FormalService:
                 {"replay": item["replay"], "status": item["status"]} for item in self.runs.replays(run_id)
             ],
         }
+        return RunSnapshot.model_validate(snapshot).model_dump(mode="json", exclude_unset=True)
 
     async def cancel(self, run_id: str) -> dict[str, Any]:
         record = self.runs.get(run_id)
