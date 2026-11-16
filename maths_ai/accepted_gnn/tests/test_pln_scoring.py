@@ -80,3 +80,8 @@ def test_engine_failure_has_zero_evidence():
     chainer = RecordingChainer(_result(None, "timeout", False))
     score = score_goal(chainer, _structured_goal())
     assert (score.stv, score.status, score.is_fallback) == (NO_EVIDENCE, "timeout", False)
+
+
+def test_a_pln_disabled_deployment_ranks_without_evidence():
+    score = score_goal(None, _structured_goal())
+    assert (score.stv, score.status, score.is_fallback) == (NO_EVIDENCE, "pln-disabled", False)

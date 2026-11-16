@@ -28,6 +28,8 @@ class TacticAllowance:
             raise ValueError(f"A tactic allowance must be a nonnegative integer, got {limit!r}.")
         self.limit = limit
         self.issued = 0
+        # Set once a command was refused, even if a caller swallowed the error.
+        self.refused = False
 
     @property
     def remaining(self) -> int:
@@ -40,6 +42,7 @@ class TacticAllowance:
     def reserve(self) -> None:
         """Count one command about to be issued, or refuse it when none remain."""
         if self.issued >= self.limit:
+            self.refused = True
             raise TacticBudgetExhausted(self.limit)
         self.issued += 1
 

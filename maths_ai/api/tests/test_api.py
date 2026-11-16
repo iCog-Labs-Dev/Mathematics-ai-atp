@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from maths_ai.api.app import create_app
 from maths_ai.api.config import ServiceConfig
 from maths_ai.api.service import ProvingService
+from maths_ai.api.tests.fake_backend import FAKE_FORMAL_ENVIRONMENT
 from maths_ai.api.tests.helpers import FAKE_BACKEND, write_config
 
 
@@ -66,7 +67,9 @@ def test_health_is_independent_of_readiness(tmp_path):
 def test_a_certified_proof_and_its_settings(tmp_path):
     with _client(tmp_path) as client:
         readiness = _wait_ready(client)
-        assert readiness["ready"] and readiness["provenance"] == {"checkpoint": "fake", "workers": 1}
+        assert readiness["ready"] and readiness["provenance"] == {
+            "checkpoint": "fake", "workers": 1, "formal_environment": FAKE_FORMAL_ENVIRONMENT,
+        }
         response = client.post("/prove", json={"backend": "mcts-actor-critic", 
             "goal": "proved", "hypotheses": ["p : Prop"], "search_profile": "puct",
             "proposal_mode": "greedy", "seed": 7, "num_simulations": 16,

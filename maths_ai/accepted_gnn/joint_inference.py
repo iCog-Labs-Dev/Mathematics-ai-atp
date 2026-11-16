@@ -25,6 +25,8 @@ except ImportError:
     GNNModelEngine = None
 from maths_ai.pln_inference.model import PLNInference
 from maths_ai.accepted_gnn.pln_scoring import score_goal
+from maths_ai.accepted_gnn.step_budget import CountingServer
+from maths_ai.hybrid_reasoner.tactic_budget import TacticAllowance, TacticBudgetExhausted
 from maths_ai.pln_inference.metta.translator.translator_modules.runner import DynamicThompsonSampler
 
 from maths_ai.accepted_gnn.hypergraph import ProofHypergraph, ProofNode, TacticExecutor, TacticOutcome
@@ -476,7 +478,13 @@ class HybridReasoner:
      
     # Joint search
      
-    async def prove(self, goal: str, *, hypotheses: Optional[List[str]] = None) -> ProofHypergraph:
+    async def prove(
+        self,
+        goal: str,
+        *,
+        hypotheses: Optional[List[str]] = None,
+        allowance: Optional[TacticAllowance] = None,
+    ) -> ProofHypergraph:
         """Run best-first AND-OR search over the hypergraph rooted at ``goal``.
 
         Loop: pop the highest-``combined_rank`` open node, expand it
@@ -500,18 +508,36 @@ class HybridReasoner:
         """
         graph = ProofHypergraph(Goal(expression=goal, hypotheses=hypotheses or []))
         loop_count = 0
+        saved = None
+        if allowance is not None:
+            saved = (self.server, self.executor.server)
+            counted = CountingServer(self.server, allowance)
+            self.server = self.executor.server = counted
+        try:
+            #Running through the loop untill the theorem is solved or the depth_limit is reached
+            while not graph.is_solved() and not graph.is_exhausted() and len(graph.nodes) < self.max_nodes:
+                if allowance is not None and allowance.refused:
+                    break
+                frontier = graph.frontier()
+                if not frontier:
+                    break
+                loop_count += 1
+                node = frontier[0]
+                print(f"\n=== Loop {loop_count}: expanding node {node.id} (depth {node.depth}) | goal: {node.goal.expression} ===")
+                try:
+                    await self._expand(graph, node)
+                except TacticBudgetExhausted:
+                    break
+        finally:
+            if saved is not None:
+                self.server, self.executor.server = saved
 
-        #Running through the loop untill the theorem is solved or the depth_limit is reached
-        while not graph.is_solved() and not graph.is_exhausted() and len(graph.nodes) < self.max_nodes:
-            frontier = graph.frontier()
-            if not frontier:
-                break
-            loop_count += 1
-            node = frontier[0]
-            print(f"\n=== Loop {loop_count}: expanding node {node.id} (depth {node.depth}) | goal: {node.goal.expression} ===")
-            await self._expand(graph, node)
-
-        if not graph.is_solved() and not graph.is_exhausted() and len(graph.nodes) >= self.max_nodes:
+        graph.tactic_steps_issued = None if allowance is None else allowance.issued
+        if allowance is not None and allowance.refused and not graph.is_solved():
+            # The allowance stopped the search; exhausted nodes are not evidence.
+            graph.mark_budget_exhausted(note=f"tactic-step allowance ({allowance.limit}) used up")
+            graph.termination_reason = "step_budget"
+        elif not graph.is_solved() and not graph.is_exhausted() and len(graph.nodes) >= self.max_nodes:
             graph.mark_budget_exhausted(note=f"global node budget ({self.max_nodes}) reached")
 
         return graph

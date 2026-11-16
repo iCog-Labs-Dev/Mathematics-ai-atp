@@ -1,0 +1,25 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "category": {
+      "title": "Category",
+      "type": "string"
+    },
+    "detail": {
+      "title": "Detail",
+      "type": "string"
+    },
+    "protocol_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Protocol Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "category",
+    "detail"
+  ],
+  "title": "ErrorBody",
+  "type": "object"
+}

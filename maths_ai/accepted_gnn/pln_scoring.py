@@ -29,6 +29,9 @@ class GoalScore:
 
 
 def score_goal(chainer, goal: Goal) -> GoalScore:
+    if chainer is None:
+        # This deployment runs the accepted search without PLN.
+        return GoalScore(NO_EVIDENCE, "pln-disabled", False)
     try:
         structured = GoalInput.from_goal(goal)
     except TranslationError:

@@ -1,0 +1,39 @@
+{
+  "format": "maths-ai-formal-deployments-v1",
+  "deployments": {
+    "mcts-source-aware": {
+      "backend": "mcts-actor-critic",
+      "environment_id": "mathlib-4.10-rc1",
+      "inputs": ["goal", "source"],
+      "profiles": {
+        "puct": {
+          "max_steps": 512,
+          "wall_clock_ms": 600000,
+          "default_wall_clock_ms": 300000,
+          "backend_settings": {"search_profile": "puct"}
+        },
+        "best_first": {
+          "max_steps": 512,
+          "wall_clock_ms": 600000,
+          "default_wall_clock_ms": 300000,
+          "backend_settings": {"search_profile": "best_first"}
+        }
+      },
+      "verification": {"max_steps": 1024, "wall_clock_ms": 600000}
+    },
+    "accepted-gnn-v2": {
+      "backend": "accepted-gnn",
+      "environment_id": "mathlib-4.10-rc1",
+      "inputs": ["goal"],
+      "profiles": {
+        "best_first": {
+          "max_steps": 512,
+          "wall_clock_ms": 600000,
+          "default_wall_clock_ms": 300000,
+          "backend_settings": {"max_nodes": 500, "max_depth": 10}
+        }
+      },
+      "verification": {"max_steps": 1024, "wall_clock_ms": 600000}
+    }
+  }
+}

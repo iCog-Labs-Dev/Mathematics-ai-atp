@@ -9,8 +9,13 @@ Endpoints
 ``GET  /evaluations/{job_id}``          its persisted state and progress
 ``GET  /evaluations/{job_id}/result``   its complete or explicitly partial result
 ``POST /evaluations/{job_id}/cancel``   request cancellation (202 until cleaned up)
-``POST /formal-search/*``               persistent-atp asynchronous search contract (accepted-GNN)
-``POST /formal-replay``                 independently replay a proof trace in Lean (accepted-GNN)
+``GET  /formal-capabilities``           formal protocol version 2: deployments, limits, semantics
+``POST /formal-artifacts``              upload a source artifact to the content-addressed store
+``POST /formal-search/start``           admit a version-2 formal run on its selected backend (202)
+``GET  /formal-search/{run_id}``        its state, admitted budget and result
+``POST /formal-search/{run_id}/cancel`` request cancellation (terminal once the work stopped)
+``POST /formal-search/{run_id}/retry``  another attempt with the remaining admitted allowance
+``POST /formal-replay``                 independent replay of a run's stored certificate
 ``POST /gnn/predict_tactic``            top-k tactic candidates from the accepted v2 policy
 ``POST /pln/evaluate``                  PLN outcome for one structured goal
 
@@ -22,6 +27,11 @@ Two backends are served, each enabled by its own configuration:
 * ``accepted-gnn``: the published Mathlib-Sexpr-GNN v2 policy with best-first
   search on the synchronous Pantograph runtime, enabled with
   ``MATHS_AI_ACCEPTED_GNN=1`` and configured by ``maths_ai.core.config``.
+
+The formal routes are served when a deployment registry is configured
+(``MATHS_AI_FORMAL_DEPLOYMENTS``); runs and artifacts persist under
+``MATHS_AI_FORMAL_STATE_DIR``. They implement protocol version 2 only, for both
+backends (``maths_ai.formal``).
 
 ``/prove`` requires an explicit ``backend`` and never falls back to the other
 one; a backend that is not configured answers 503. Errors map by category:
@@ -45,8 +55,6 @@ from pydantic import Field
 from maths_ai.accepted_gnn.schemas import (
     EvaluateRequest,
     EvaluateResponse,
-    FormalReplayRequest,
-    FormalSearchRequest,
     PredictTacticRequest,
     PredictTacticResponse,
     ProofTerminationReason,
@@ -124,7 +132,8 @@ def create_app(
     service_factory: Optional[ServiceFactory] = None,
     *,
     accepted_factory: Optional[ServiceFactory] = None,
-    formal_runs_dir: Optional[Path] = None,
+    formal_registry: Any = None,
+    formal_state_dir: Optional[Path] = None,
 ) -> FastAPI:
     """Build the app.
 
@@ -150,23 +159,23 @@ def create_app(
     async def lifespan(app: FastAPI):
         app.state.service = await mcts_factory() if mcts_factory is not None else None
         app.state.accepted = None
-        app.state.formal_search = None
+        app.state.formal = None
         app.state.accepted_error = None if accepted is not None else "not configured"
         if accepted is not None:
             # Missing checkpoints or Lean keep the process alive but unready,
             # so orchestration sees the failure through /ready.
             try:
                 app.state.accepted = await accepted()
-                from maths_ai.accepted_gnn.service import FormalSearchManager
-
-                app.state.formal_search = FormalSearchManager(app.state.accepted, formal_runs_dir)
             except Exception as exc:
                 logger.exception("accepted-GNN backend initialization failed")
                 app.state.accepted = None
                 app.state.accepted_error = str(exc)
+        app.state.formal = _formal_service(app, formal_registry, formal_state_dir)
         try:
             yield
         finally:
+            if app.state.formal is not None:
+                await app.state.formal.close()
             if app.state.accepted is not None:
                 try:
                     await app.state.accepted.shutdown()
@@ -326,94 +335,48 @@ def create_app(
             diagnostic=result.diagnostic,
         )
 
-    def formal_search(request: Request):
-        accepted_service(request)
-        return request.app.state.formal_search
+    def formal_service(request: Request):
+        from maths_ai.formal.service import FormalError
 
-    @app.post("/formal-search/start", status_code=202)
-    async def formal_search_start(payload: FormalSearchRequest, request: Request) -> Dict[str, Any]:
-        manager = formal_search(request)
-        try:
-            return await manager.start(payload.model_dump(
-                mode="json", exclude_none=True, exclude_unset=True
-            ))
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except OSError as exc:
-            raise HTTPException(status_code=503, detail=f"formal run persistence unavailable: {exc}") from exc
+        service = request.app.state.formal
+        if service is None:
+            raise FormalError(503, "formal-unavailable", "No formal deployment registry is configured.")
+        return service
 
-    @app.post("/formal-search/{run_id:path}/retry", status_code=202)
-    async def formal_search_retry(run_id: str, request: Request) -> Dict[str, Any]:
-        manager = formal_search(request)
-        try:
-            return await manager.retry(run_id)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=f"run not found: {run_id}") from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    from maths_ai.formal.routes import formal_router
 
-    @app.get("/formal-search/{run_id:path}")
-    async def formal_search_status(run_id: str, request: Request) -> Dict[str, Any]:
-        manager = formal_search(request)
-        try:
-            result = await manager.get(run_id)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        if result is None:
-            raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
-        return result
-
-    @app.post("/formal-search/{run_id:path}/cancel")
-    async def formal_search_cancel(run_id: str, request: Request) -> Dict[str, Any]:
-        manager = formal_search(request)
-        try:
-            return await manager.cancel(run_id)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=f"run not found: {run_id}") from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    @app.post("/formal-replay")
-    async def formal_replay(payload: FormalReplayRequest, request: Request) -> Dict[str, Any]:
-        service = accepted_service(request)
-        manager = request.app.state.formal_search
-        proof_trace = payload.proof_trace.model_dump()
-        if payload.run_id is not None:
-            try:
-                await manager.validate_replay(
-                    payload.run_id,
-                    payload.problem.model_dump(mode="json"),
-                    proof_trace,
-                )
-            except KeyError as exc:
-                raise HTTPException(status_code=404, detail=f"run not found: {exc.args[0]}") from exc
-            except (ValueError, RuntimeError) as exc:
-                raise HTTPException(status_code=409, detail=str(exc)) from exc
-        try:
-            result = await service.replay(
-                payload.problem.goal,
-                proof_trace,
-                payload.problem.hypotheses,
-            )
-        except RuntimeError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except ValueError as exc:
-            # Lean rejected the trace: a client-input problem, as on main.
-            raise HTTPException(status_code=400, detail=f"invalid input: {exc}") from exc
-        try:
-            if payload.run_id is not None:
-                await manager.mark_verified(payload.run_id)
-            return result
-        except ValueError as exc:
-            return {"verified": False, "status": "rejected", "error": str(exc)}
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=f"run not found: {exc.args[0]}") from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    app.include_router(formal_router(formal_service))
 
     return app
+
+
+FORMAL_REGISTRY_ENV = "MATHS_AI_FORMAL_DEPLOYMENTS"
+FORMAL_STATE_ENV = "MATHS_AI_FORMAL_STATE_DIR"
+
+
+def _formal_service(app: FastAPI, registry: Any, state_dir: Optional[Path]):
+    """The formal service over whichever backends started, if a registry is configured."""
+    from maths_ai.formal.deployments import DeploymentRegistry
+
+    if registry is None and os.environ.get(FORMAL_REGISTRY_ENV):
+        registry = Path(os.environ[FORMAL_REGISTRY_ENV])
+    if registry is None:
+        return None
+    if not isinstance(registry, DeploymentRegistry):
+        registry = DeploymentRegistry.from_json(Path(registry))
+    from maths_ai.core.config import settings
+    from maths_ai.formal.backends import AcceptedFormalBackend, MctsFormalBackend
+    from maths_ai.formal.service import FormalService
+
+    backends: dict[str, Any] = {}
+    if app.state.service is not None:
+        backends[MCTS_BACKEND] = MctsFormalBackend(app.state.service)
+    if app.state.accepted is not None:
+        backends[ACCEPTED_BACKEND] = AcceptedFormalBackend(
+            app.state.accepted, project_path=settings.lean_project_path, imports=["Mathlib"],
+        )
+    directory = Path(state_dir or os.environ.get(FORMAL_STATE_ENV) or "/state/formal")
+    return FormalService(registry=registry, state_dir=directory, backends=backends)
 
 
 async def _accepted_prove(payload: AcceptedProveRequest, service: Any) -> Any:

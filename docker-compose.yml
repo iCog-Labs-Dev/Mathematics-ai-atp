@@ -33,6 +33,8 @@ x-api: &api
     - HF_TOKEN=${HF_TOKEN:-}
     - MATHS_AI_DEVICE=${MATHS_AI_DEVICE:-cpu}
     - MATHS_AI_ACCEPTED_GNN=${MATHS_AI_ACCEPTED_GNN:-0}
+    - MATHS_AI_FORMAL_DEPLOYMENTS=${MATHS_AI_FORMAL_DEPLOYMENTS:-}
+    - MATHS_AI_FORMAL_STATE_DIR=/state/formal
   healthcheck:
     # Readiness, not liveness: a failed or recovering backend is unhealthy.
     test: ["CMD", "python", "-m", "maths_ai.healthcheck"]
@@ -59,6 +61,15 @@ services:
     image: maths-ai-api-gpu
     container_name: maths-ai-api-gpu
     profiles: ["gpu"]
+    # Request one NVIDIA GPU (needs the NVIDIA Container Toolkit on the host);
+    # MATHS_AI_DEVICE below selects it inside the container.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
       - MATHS_AI_DEVICE=${MATHS_AI_DEVICE:-cuda:0}

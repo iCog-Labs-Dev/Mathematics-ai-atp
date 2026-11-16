@@ -1,0 +1,10 @@
+{
+  "canonical_sha256": {
+    "formal-admission.v2.schema.json": "sha256:471daa8a41b240f5ab4d9c6619252015abcc9a12ed9d3d87b8727c860b1c0250",
+    "formal-error.v2.schema.json": "sha256:4b56a382633dd7cebad19bcf7efce92a010af4d39af335ec91028d6faf5512b7",
+    "formal-replay-attestation.v2.schema.json": "sha256:8c182ee28371a0e5c24109144600d6a73341c132d2b9994164b2520bee309755",
+    "formal-replay-request.v2.schema.json": "sha256:8f4d23f7a830fc610f1e4c3cf2aaa1dd284dba979d8e587b65256dd657ffd805",
+    "formal-search-request.v2.schema.json": "sha256:a55e9176d78f113fe6889542d6744b01029303ba046f14498d5db2cf63a3a997"
+  },
+  "protocol_version": 2
+}

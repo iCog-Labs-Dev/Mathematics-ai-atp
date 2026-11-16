@@ -170,12 +170,11 @@ def api(tmp_path: Path):
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(service_module, "pln_dependency_error", lambda chainer: None)
-        with TestClient(create_app(accepted_factory=factory, formal_runs_dir=tmp_path / "formal_runs")) as client:
+        with TestClient(create_app(accepted_factory=factory)) as client:
             yield SimpleNamespace(
                 client=client,
                 reasoner=reasoner,
                 dts_state_path=tmp_path / "dts" / "state.json",
-                formal_runs_dir=tmp_path / "formal_runs",
             )
 
 
@@ -241,7 +240,8 @@ def test_endpoints_return_503_while_uninitialized():
         assert client.post("/prove", json={"backend": "accepted-gnn", "goal": "p"}).status_code == 503
         assert client.post("/gnn/predict_tactic", json={"goal": "p"}).status_code == 503
         assert client.post("/pln/evaluate", json={"target_sexp": "(:fv _uniq.1)"}).status_code == 503
-        assert client.post("/formal-search/start", json={"goal": "p"}).status_code == 422
+        # No formal deployment registry is configured for this app.
+        assert client.post("/formal-search/start", json={"goal": "p"}).status_code == 503
 
 
 # POST /prove -----------------------------------------------------------------
@@ -586,129 +586,6 @@ def test_evaluate_rejects_printed_text_and_empty_targets(api):
     assert api.client.post("/pln/evaluate", json={"target_sexp": ""}).status_code == 422
 
 
-# Persistent formal-search contract ------------------------------------------
-
-
-def test_formal_search_lifecycle_preserves_envelope_and_result(api):
-    envelope = {
-        "run_id": "formal-test-1",
-        "problem": {"goal": "Or q p", "hypotheses": ["h : Or p q"]},
-        "environment": {"lean_version": "v4.19.0"},
-        "budget": {"max_nodes": 12},
-    }
-    response = api.client.post("/formal-search/start", json=envelope)
-    assert response.status_code == 202
-    assert response.json()["run_id"] == "formal-test-1"
-    assert response.json()["environment"] == envelope["environment"]
-
-    import time
-    for _ in range(20):
-        status = api.client.get("/formal-search/formal-test-1")
-        if status.json()["status"] == "found":
-            break
-        time.sleep(0.01)
-    assert status.status_code == 200
-    body = status.json()
-    assert body["status"] == "found"
-    assert body["request"] == envelope
-    assert body["result"]["solved"] is True
-
-
-def test_formal_search_missing_run_is_404(api):
-    assert api.client.get("/formal-search/missing").status_code == 404
-    assert api.client.post("/formal-search/missing/retry").status_code == 404
-    assert api.client.post("/formal-search/missing/cancel").status_code == 404
-
-
-def test_formal_search_accepts_namespaced_run_id_and_hashes_storage(api):
-    run_id = "proof/example/task-1"
-    response = api.client.post(
-        "/formal-search/start",
-        json={"run_id": run_id, "problem": {"goal": "Or q p"}},
-    )
-    assert response.status_code == 202
-    assert response.json()["run_id"] == run_id
-    assert response.json()["request"]["run_id"] == run_id
-
-    import time
-    for _ in range(20):
-        status = api.client.get(f"/formal-search/{run_id}")
-        if status.json()["status"] == "found":
-            break
-        time.sleep(0.01)
-
-    assert status.status_code == 200
-    assert status.json()["run_id"] == run_id
-    stored_files = list(api.formal_runs_dir.glob("*.json"))
-    assert len(stored_files) == 1
-    assert stored_files[0].stem != run_id
-    assert not any(path.is_dir() for path in api.formal_runs_dir.iterdir())
-
-    assert api.client.post("/formal-search/proof/example/missing/retry").status_code == 404
-    assert api.client.post("/formal-search/proof/example/missing/cancel").status_code == 404
-
-
-def test_formal_search_generated_id_is_normalized_in_request(api):
-    response = api.client.post(
-        "/formal-search/start",
-        json={"problem": {"goal": "Or q p"}},
-    )
-    assert response.status_code == 202
-    body = response.json()
-    assert body["run_id"]
-    assert body["request"]["run_id"] == body["run_id"]
-
-
-def test_formal_search_unsolved_result_is_not_found(tmp_path: Path):
-    reasoner = FakeReasoner(graph=FakeGraph(solved=False, exhausted=True, trace=None))
-    service = InferenceService(reasoner=reasoner)
-
-    async def factory():
-        return service
-
-    with TestClient(create_app(accepted_factory=factory, formal_runs_dir=tmp_path / "runs")) as client:
-        response = client.post(
-            "/formal-search/start",
-            json={"run_id": "unsolved-test", "problem": {"goal": "False"}},
-        )
-        assert response.status_code == 202
-
-        import time
-        for _ in range(20):
-            status = client.get("/formal-search/unsolved-test").json()
-            if status["status"] == "exhausted":
-                break
-            time.sleep(0.01)
-
-        assert status["status"] == "exhausted"
-        assert status["result"]["solved"] is False
-
-
-def test_formal_search_node_budget_exhausted_exposes_budget_exhausted(tmp_path: Path):
-    reasoner = FakeReasoner(graph=FakeGraph(solved=False, exhausted=False, num_nodes=1, trace=None))
-    service = InferenceService(reasoner=reasoner)
-
-    async def factory():
-        return service
-
-    with TestClient(create_app(accepted_factory=factory, formal_runs_dir=tmp_path / "runs")) as client:
-        response = client.post(
-            "/formal-search/start",
-            json={"run_id": "budget-test", "problem": {"goal": "True"}, "budget": {"max_nodes": 1}},
-        )
-        assert response.status_code == 202
-
-        import time
-        for _ in range(20):
-            status = client.get("/formal-search/budget-test").json()
-            if status["status"] == "exhausted":
-                break
-            time.sleep(0.01)
-
-        assert status["status"] == "exhausted"
-        assert status["result"]["solved"] is False
-        assert status["result"]["exhausted"] is True
-        assert status["result"]["termination_reason"] == "budget_exhausted"
 
 
 def test_proof_hypergraph_mark_budget_exhausted():
@@ -728,52 +605,15 @@ def test_proof_hypergraph_mark_budget_exhausted():
     assert graph.summary()["termination_reason"] == "budget_exhausted"
 
 
-def test_formal_replay_cannot_verify_a_different_problem(api):
-    envelope = {
-        "run_id": "bound-replay-test",
-        "problem": {"goal": "Or q p", "hypotheses": ["h : Or p q"]},
-    }
-    assert api.client.post("/formal-search/start", json=envelope).status_code == 202
+def test_ready_without_pln_does_not_require_petta():
+    reasoner = SimpleNamespace(gnn_engine=FakeGnnEngine(), petta_chainer=None, dts_sampler=None)
+    service = InferenceService(reasoner=reasoner)
 
-    import time
-    for _ in range(20):
-        if api.client.get("/formal-search/bound-replay-test").json()["status"] == "found":
-            break
-        time.sleep(0.01)
+    async def factory():
+        return service
 
-    response = api.client.post(
-        "/formal-replay",
-        json={
-            "run_id": "bound-replay-test",
-            "problem": {"goal": "True"},
-            "proof_trace": SOLVED_TRACE,
-        },
-    )
-    assert response.status_code == 409
-    assert "does not match" in response.json()["detail"]
-
-
-def test_formal_replay_reports_unavailable_lean_as_503(api):
-    response = api.client.post(
-        "/formal-replay",
-    json={
-        "problem": {"goal": "Or q p"},
-        "proof_trace": SOLVED_TRACE,
-    },
-    )
-    assert response.status_code == 503
-
-
-def test_formal_replay_rejected_by_lean_is_400(api):
-    async def rejecting_replay(goal, proof_trace, hypotheses=None):
-        raise ValueError("The rfl tactic failed")
-
-    service = api.client.app.state.accepted
-    service.replay = rejecting_replay
-    response = api.client.post(
-        "/formal-replay",
-        json={"problem": {"goal": "1 = 2"}, "proof_trace": SOLVED_TRACE},
-    )
-
-    assert response.status_code == 400
-    assert response.json()["detail"] == "invalid input: The rfl tactic failed"
+    with TestClient(create_app(accepted_factory=factory)) as client:
+        response = client.get("/ready")
+        assert response.status_code == 200
+        backend = response.json()["backends"]["accepted-gnn"]
+        assert backend["ready"] is True and backend["petta_available"] is None

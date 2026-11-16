@@ -28,6 +28,19 @@ def _expression(payload: Any, owner: str) -> tuple[str, str]:
     return pp, model_sexp
 
 
+def _raw(payload: Any, owner: str) -> str | None:
+    """The expression's raw Lean S-expression (``printExprAST``), when sent.
+
+    It is read only from the wire, never inferred from the model encoding; a
+    missing one leaves the goal without raw expressions, which PLN reports as
+    unsupported.
+    """
+    raw = payload.get("sexp") if isinstance(payload, dict) else None
+    if raw is not None and (not isinstance(raw, str) or not raw):
+        raise ModelSExprProtocolError(f"{owner} has a malformed raw sexp.")
+    return raw
+
+
 def goal_payload_to_goal(payload: dict[str, Any]) -> Goal:
     """Convert one strict v2 goal payload while preserving local identities."""
     target_pp, target_sexp = _expression(payload.get("target"), "goal target")
@@ -67,12 +80,21 @@ def goal_payload_to_goal(payload: dict[str, Any]) -> Goal:
                 type_model_sexp=type_sexp,
                 value_pp=value_pp,
                 value_model_sexp=value_sexp,
+                type_sexp=_raw(variable.get("type"), "local type"),
+                value_sexp=_raw(value_payload, "local value") if value_payload is not None else None,
             )
         )
 
+    target_raw = _raw(payload.get("target"), "goal target")
+    if target_raw is not None and any(local.type_sexp is None for local in locals_):
+        # Raw expressions must cover the whole context or none of it.
+        target_raw = None
+        for local in locals_:
+            local.type_sexp = local.value_sexp = None
     return Goal(
         expression=target_pp,
         goal_model_sexp=target_sexp,
+        goal_sexp=target_raw,
         locals=locals_,
         model_sexp_version=MODEL_SEXPR_GRAPH_SPEC.model_sexp_version,
         case_tag=str(payload.get("name") or "") or None,

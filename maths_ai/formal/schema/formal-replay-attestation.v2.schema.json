@@ -1,0 +1,89 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "backend": {
+      "enum": [
+        "mcts-actor-critic",
+        "accepted-gnn"
+      ],
+      "title": "Backend",
+      "type": "string"
+    },
+    "certificate_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Certificate Hash",
+      "type": "string"
+    },
+    "environment_hash": {
+      "title": "Environment Hash",
+      "type": "string"
+    },
+    "input_artifact_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Input Artifact Hash",
+      "type": "string"
+    },
+    "protocol_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Protocol Version",
+      "type": "integer"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "source_artifact_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Source Artifact Hash",
+      "type": "string"
+    },
+    "source_origin": {
+      "enum": [
+        "caller-artifact",
+        "generated-from-text"
+      ],
+      "title": "Source Origin",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "verified",
+        "rejected",
+        "inconclusive"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "verification_cost": {
+      "additionalProperties": true,
+      "title": "Verification Cost",
+      "type": "object"
+    }
+  },
+  "required": [
+    "status",
+    "run_id",
+    "certificate_hash",
+    "input_artifact_hash",
+    "source_artifact_hash",
+    "source_origin",
+    "environment_hash",
+    "backend",
+    "verification_cost"
+  ],
+  "title": "ReplayAttestation",
+  "type": "object"
+}
