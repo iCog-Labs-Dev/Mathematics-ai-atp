@@ -20,8 +20,11 @@ class FrozenFormalBackend(MctsFormalBackend):
             raise ValueError("frozen deployment does not bind the loaded accepted bundle")
 
     async def run(self, task, *, profile, selection, max_steps, timeout_s):
-        view = await self._run("prove", {"manifest": task.manifest, "settings": dict(profile.backend_settings),
-                                       "max_steps": max_steps}, timeout_s)
+        try:
+            view = await self._run("prove", {"manifest": task.manifest, "settings": dict(profile.backend_settings),
+                                           "max_steps": max_steps}, timeout_s)
+        except AdmissionRejected as exc:
+            return AttemptOutcome("invalid-input", steps_used=0, error=str(exc))
         return AttemptOutcome(**{key: value for key, value in view.items() if key in AttemptOutcome.__dataclass_fields__})
 
     async def verify(self, certificate, *, statement, max_steps, timeout_s):

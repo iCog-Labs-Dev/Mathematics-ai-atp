@@ -202,7 +202,7 @@ class LiveBackend:
         env = self.runtime.env
         declaration = payload["declaration"]
         try:
-            units = await source_units(payload["body"], imports=env.imports, source_root=env.source_root,
+            units = await source_units(payload["body"], declaration=declaration, imports=env.imports, source_root=env.source_root,
                                        timeout_s=float(payload["timeout_s"]))
             return await elaborate_source(
                 lambda: ReplSession(

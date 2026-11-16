@@ -33,6 +33,14 @@ def test_trace_export_preserves_all_native_siblings():
         proof_trace(report)
 
 
+def test_absolute_source_locator_ignores_surrounding_namespace():
+    from maths_ai.formal.admission import target_unit_signature
+    prefix = b"namespace Surrounding\n"
+    body = prefix + b"theorem _root_.Demo.goal : True := by trivial\n"
+    start, assign = target_unit_signature([(0, len(prefix)), (len(prefix), len(body))], body, "Demo.goal")
+    assert body[start:assign].strip() == b"theorem _root_.Demo.goal : True"
+
+
 @pytest.fixture
 def native(tmp_path):
     bundle, pantograph = os.environ.get("MATHS_AI_GNN_BUNDLE"), os.environ.get("MATHS_AI_FROZEN_PANTOGRAPH")
@@ -144,3 +152,37 @@ def test_native_cancel_settles_and_worker_can_prove_again(native):
     assert client.post("/formal-search/start", json=request(env, run=2)).status_code == 202
     following = wait(client, "native/fr-2")
     assert following["disposition"] == "proved-pending-replay", following
+
+
+@pytest.mark.parametrize("source_mode", [False, True])
+def test_invalid_native_targets_are_input_rejections_not_crashes(native, source_mode):
+    client, env, _ = native
+    formal_input = {"kind": "goal", "goal_text": "UNDEFINED_FORMAL_CONSTANT", "hypotheses": [], "universe_levels": []}
+    if source_mode:
+        artifact = client.post("/formal-artifacts", content=b"theorem True.intro : True := by trivial\n").json()["artifact_hash"]
+        formal_input = {"kind": "source", "artifact_hash": artifact, "declaration": "True.intro", "starting_state": "binders-introduced"}
+    assert client.post("/formal-search/start", json=request(env, input=formal_input)).status_code == 202
+    result = wait(client, "native/fr-1")
+    assert result["disposition"] == "invalid-request" and result["termination"] == "invalid-input", result
+    assert result["budget"]["consumed_steps"] == 0
+
+
+def test_source_parser_activates_notation_without_executing_proof_or_later_code():
+    from maths_ai.formal.source_units import source_units
+    from maths_ai.formal.admission import target_unit_signature
+    from maths_ai.gnn_inference.atp_lean_gnn.native_session import lean_environment
+    from maths_ai.gnn_inference.atp_lean_gnn.proof_verification import LeanProofVerifier
+    root = os.environ.get("MATHS_AI_FROZEN_PANTOGRAPH")
+    if not root:
+        pytest.skip("set frozen native environment for source-context acceptance")
+    body = 'namespace Demo\nlocal notation "★" => True\ntheorem goal : ★ := by exact DOES_NOT_EXIST\nend Demo\nrun_elab throwError "MUST_NOT_RUN"\n'
+    async def scenario():
+        lean, env = lean_environment(root, root)
+        units = await source_units(body, declaration="Demo.goal", imports=["Init"], source_root=root,
+                                   lean=lean, env=env, timeout_s=30)
+        start, assign = target_unit_signature(units, body.encode(), "Demo.goal")
+        assert len(units) == 3
+        prefix, header = body.encode()[:start].decode(), body.encode()[start:assign].decode()
+        checked = await LeanProofVerifier(source_root=root, imports=["Init"], prefix=prefix).verify(header, ["trivial"], timeout=15)
+        assert checked["status"] == "passed", checked
+    asyncio.run(scenario())

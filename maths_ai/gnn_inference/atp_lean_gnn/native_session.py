@@ -81,6 +81,7 @@ class LiveLeanSession:
         self.heartbeats, self.rec_depth = heartbeats, rec_depth
         self.proc, self.temporary, self.stderr_task = None, None, None
         self.logs = []
+        self.had_errors = False
         self.root, self.header = None, None
 
     async def __aenter__(self):
@@ -92,6 +93,7 @@ class LiveLeanSession:
     async def _stderr(self, process):
         while line := await process.stderr.readline():
             self.logs.append(line.decode("utf-8", errors="replace").rstrip())
+            self.had_errors |= ": error:" in self.logs[-1]
             del self.logs[:-40]
 
     async def _response(self):
@@ -103,6 +105,7 @@ class LiveLeanSession:
             if line.startswith("GNN_STATE "):
                 return json.loads(line[len("GNN_STATE "):])
             self.logs.append(line)
+            self.had_errors |= ": error:" in line
             del self.logs[:-40]
 
     @staticmethod
@@ -140,6 +143,8 @@ class LiveLeanSession:
         self.stderr_task = asyncio.create_task(self._stderr(self.proc))
         try:
             response = await asyncio.wait_for(self._response(), timeout=self.startup_timeout)
+            if self.had_errors:
+                raise LiveStateError("native input elaboration failed: " + "\n".join(self.logs))
             self.root, self.header = self._snapshot(response), header
             return self.root
         except RuntimeError as error:

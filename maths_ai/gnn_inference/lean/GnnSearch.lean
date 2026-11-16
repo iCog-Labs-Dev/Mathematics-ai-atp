@@ -69,6 +69,16 @@ partial def serve (states : Array Tactic.SavedState) : TacticM Unit := do
   unless finished do serve next
 
 elab "gnn_native_search" : tactic => do
+  if (← Core.getMessageLog).hasErrors then
+    throwError "GNN_INPUT_ELABORATION_FAILED"
+  withMainContext do
+    if (← getMainTarget).hasSorry then
+      throwError "GNN_INPUT_CONTAINS_SORRY"
+    for localDecl in (← getLCtx) do
+      if localDecl.type.hasSorry then
+        throwError "GNN_LOCAL_TYPE_CONTAINS_SORRY"
+      if localDecl.value?.any (·.hasSorry) then
+        throwError "GNN_LOCAL_VALUE_CONTAINS_SORRY"
   let snapshot ← Tactic.saveState
   send (← describe 0)
   serve #[snapshot]

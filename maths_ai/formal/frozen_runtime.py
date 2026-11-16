@@ -13,7 +13,7 @@ import time
 from maths_ai.accepted_gnn.best_first import GnnSearchBudget, search_gnn
 from maths_ai.accepted_gnn.flat_policy import LiveJointPolicy
 from maths_ai.gnn_inference.atp_lean_gnn.native_session import (
-    LiveLeanSession, environment_binding, lean_environment,
+    LiveLeanSession, LiveStateError, environment_binding, lean_environment,
 )
 from maths_ai.gnn_inference.atp_lean_gnn.proof_tasks import checked_header, masked
 from maths_ai.gnn_inference.atp_lean_gnn.proof_verification import LeanProofVerifier
@@ -118,7 +118,7 @@ class FrozenRuntime:
         self.check_environment()
         body, name = payload["body"], payload["declaration"]
         lean, env = lean_environment(str(self.paths["source_root"]), str(self.paths["pantograph_root"]))
-        units = await source_units(body, imports=self.imports, source_root=self.paths["source_root"],
+        units = await source_units(body, declaration=name, imports=self.imports, source_root=self.paths["source_root"],
                                    lean=lean, env=env, timeout_s=payload["timeout_s"])
         encoded = body.encode("utf-8")
         start, assign = target_unit_signature(units, encoded, name)
@@ -134,7 +134,10 @@ class FrozenRuntime:
         if actual != name:
             raise AdmissionRejected("input:declaration-mismatch", "Native target differs from source locator")
         async with self.session(prefix=prefix) as session:
-            root = await session.start_declaration(header)
+            try:
+                root = await session.start_declaration(header)
+            except LiveStateError as exc:
+                raise AdmissionRejected("input:lean-rejected", str(exc)) from exc
             if len(root.goals) != 1:
                 raise AdmissionRejected("input:unsupported-context", "Expected exactly one target obligation")
             goal = root.goals[0]
@@ -149,7 +152,7 @@ class FrozenRuntime:
         if statement["universe_levels"]:
             raise AdmissionRejected("input:unsupported-context", "Frozen text profile does not support universes")
         target = {"header": "theorem FormalGenerated : (" + statement["expression"] + ")",
-                  "prefix": "", "declaration": "FormalGenerated"}
+                  "prefix": "set_option autoImplicit false\n", "declaration": "FormalGenerated"}
         actions = ["intro " + " ".join(statement["local_names"])] if statement["local_names"] else []
         return target, actions
 
@@ -161,7 +164,10 @@ class FrozenRuntime:
         deadline = time.monotonic() + payload["timeout_s"]
         verifier = LeanProofVerifier(source_root=self.paths["source_root"], imports=self.imports, prefix=target["prefix"])
         async with self.session(prefix=target["prefix"]) as session:
-            root = await session.start_declaration(target["header"])
+            try:
+                root = await session.start_declaration(target["header"])
+            except LiveStateError as exc:
+                raise AdmissionRejected("input:lean-rejected", str(exc)) from exc
             initial = root
             for command in actions:
                 allowance.reserve()
