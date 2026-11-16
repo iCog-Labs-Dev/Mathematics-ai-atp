@@ -580,8 +580,12 @@ class RLHybridReasoner(HybridReasoner):
         *,
         proposal: ProposalSpec,
         deadline: Optional[float] = None,
+        max_tactic_steps: Optional[int] = None,
     ) -> RLSearchResult:
         """Run the search and return ``RLSearchResult(graph, observations)``.
+
+        ``max_tactic_steps`` bounds the tactic commands the search sends to
+        Lean (see ``HybridReasoner.prove``).
 
         Per-search state is reset per call, so one reasoner instance must run searches
         sequentially (cross-theorem concurrency needs per-search instances).
@@ -613,7 +617,7 @@ class RLHybridReasoner(HybridReasoner):
         self._generator = torch.Generator(device=self.device).manual_seed(proposal.seed)
         self._result = RLSearchResult(graph=None)  # graph attached after the base search
         try:
-            graph = await super().prove(seed, deadline=deadline)
+            graph = await super().prove(seed, deadline=deadline, max_tactic_steps=max_tactic_steps)
             if self._pending:
                 raise AssertionError(
                     "Normal search completion left sampled actions without an expansion outcome."

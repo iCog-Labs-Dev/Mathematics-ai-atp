@@ -49,6 +49,7 @@ from maths_ai.lean_replay import GoalReplaySpec
 
 from .failure_evidence import execution_phase
 from .execution_registry import Lease, LeaseKind, RetentionExceeded, SnapshotRegistry
+from .tactic_budget import TacticAllowance, TacticBudgetExhausted
 from .execution_types import (
     DeclarationKey,
     ExecutionOccurrence,
@@ -74,6 +75,7 @@ from maths_ai.data_models.tactic_commands import render_tactic_command
 
 __all__ = [
     "ArtifactMismatch",
+    "ReplayBudgetExhausted",
     "ReplayConflict",
     "ReplayContinuation",
     "ReplayCoordinator",
@@ -274,10 +276,14 @@ class ReplayCoordinator:
                 result.certificate, result.witness = certified
         except PantographResourceError as exc:
             self._resource(ResourceDiagnostic.from_error(exc))
-        except (_Stop, RetentionExceeded) as stop:
-            result.status = (
-                stop.status if isinstance(stop, _Stop) else ReplayStatus.RESOURCE_LIMIT
-            )
+        except (_Stop, RetentionExceeded, TacticBudgetExhausted) as stop:
+            if isinstance(stop, _Stop):
+                result.status = stop.status
+            elif isinstance(stop, TacticBudgetExhausted):
+                # The search's step allowance, shared with exploration, is used up.
+                result.status = ReplayStatus.BUDGET
+            else:
+                result.status = ReplayStatus.RESOURCE_LIMIT
             for continuation in result.continuations:
                 await self.registry.release(continuation.occurrence.lease)
             result.continuations.clear()
@@ -562,7 +568,22 @@ def build_artifact(
     )
 
 
-async def reverify(scope, artifact, *, retire_session, max_heartbeats: Optional[int] = None) -> CertificationResult:
+class ReplayBudgetExhausted(RuntimeError):
+    """Artifact replay was inconclusive: its verification allowance ran out."""
+
+    def __init__(self, limit: int):
+        self.limit = limit
+        super().__init__(f"The verification allowance of {limit} tactic steps ran out.")
+
+
+async def reverify(
+    scope,
+    artifact,
+    *,
+    retire_session,
+    max_heartbeats: Optional[int] = None,
+    max_tactic_steps: Optional[int] = None,
+) -> CertificationResult:
     """Replay ``artifact`` in ``scope`` from its statement and certify it again.
 
     Steps are applied in order to the obligations their keys name, arguments
@@ -570,6 +591,10 @@ async def reverify(scope, artifact, *, retire_session, max_heartbeats: Optional[
     prove the same statement with the same proof term against the same
     trusted environment. A step that does not apply, a slot shape that
     differs or a receipt that differs raises ``ArtifactMismatch``.
+
+    ``max_tactic_steps`` is the verification's own allowance, separate from
+    any search's; running out raises ``ReplayBudgetExhausted``, which is
+    inconclusive rather than a rejection.
     """
     statement = artifact.statement
     spec = GoalReplaySpec(
@@ -587,6 +612,8 @@ async def reverify(scope, artifact, *, retire_session, max_heartbeats: Optional[
             ObligationKey.root(): (root.goal_name, root_declarations(goal), goal)
         }
         executor = RetainedTacticExecutor()
+        if max_tactic_steps is not None:
+            executor.allowance = TacticAllowance(max_tactic_steps)
         for step in artifact.steps:
             if step.obligation not in open_obligations:
                 raise ArtifactMismatch(f"Step {step.attempt} names an unknown obligation.")
@@ -615,6 +642,8 @@ async def reverify(scope, artifact, *, retire_session, max_heartbeats: Optional[
                 )
             except ExecutionReferenceError as exc:
                 raise ArtifactMismatch(f"Step {step.attempt}: {exc}") from exc
+            except TacticBudgetExhausted as exc:
+                raise ReplayBudgetExhausted(exc.limit) from exc
             if outcome.resource is not None:
                 raise ReplayResourceExhausted(outcome.resource)
             if not outcome.success:

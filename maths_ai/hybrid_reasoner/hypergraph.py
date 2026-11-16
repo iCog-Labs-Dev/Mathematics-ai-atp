@@ -107,6 +107,7 @@ class SearchEndReason(str, Enum):
     FRONTIER_EMPTY = "frontier_empty"
     EXTERNAL_ABORT = "external_abort"
     RESOURCE_LIMIT = "resource_limit"
+    STEP_BUDGET = "step_budget"
 
 
 class BackupValidity(str, Enum):

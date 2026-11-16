@@ -192,7 +192,10 @@ async def create_live_reasoner_pool(
     settings = dict(cfg.search_kwargs() if search_kwargs is None else search_kwargs)
 
     async def search_factory(reasoner, theorem, proposal, deadline):
-        return await reasoner.prove(theorem.seed, proposal=proposal, deadline=deadline)
+        return await reasoner.prove(
+            theorem.seed, proposal=proposal, deadline=deadline,
+            max_tactic_steps=getattr(theorem, "max_tactic_steps", None),
+        )
 
     try:
         result = await LiveReasonerPool.create(

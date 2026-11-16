@@ -47,6 +47,7 @@ from maths_ai.hybrid_reasoner.execution_registry import (
     RetentionExceeded,
     SnapshotRegistry,
 )
+from maths_ai.hybrid_reasoner.tactic_budget import TacticAllowance, TacticBudgetExhausted
 from maths_ai.hybrid_reasoner.execution_types import (
     ExecutionOccurrence,
     ObligationKey,
@@ -127,6 +128,7 @@ class ExpansionResult(str, Enum):
     ELABORATION_ERROR = "elaboration_error"
     EXTERNAL_ABORT = "external_abort"
     RESOURCE_LIMIT = "resource_limit"
+    STEP_BUDGET = "step_budget"
     UNSUPPORTED_OBSERVATION = "unsupported_observation"
 
 
@@ -216,6 +218,7 @@ class HybridReasoner:
     ) -> None:
         self.use_pln = use_pln
         self._proving = False
+        self._allowance = None
         self.pln_counts = {}
         self._scope: PantographStateScope | None = None
         self._registry: SnapshotRegistry | None = None
@@ -432,6 +435,7 @@ class HybridReasoner:
         seed: LeanGoalSeed,
         *,
         deadline: Optional[float] = None,
+        max_tactic_steps: Optional[int] = None,
     ) -> ProofHypergraph:
         """Run AND-OR search over the hypergraph rooted at ``seed``.
 
@@ -474,6 +478,10 @@ class HybridReasoner:
           * retention or memory bound reached with nothing left to prune →
             ``RESOURCE_LIMIT``, unknown evidence
 
+        ``max_tactic_steps`` bounds the tactic commands sent to Lean, exploration
+        and combination replay together; reaching it ends the search with
+        ``STEP_BUDGET``, which is not evidence about the goal.
+
         ``max_depth`` bounds branch depth and ``max_nodes`` bounds total
         graph size — the design report's "branching-factor explosion"
         safeguards. Cycle detection (a hole-free subgoal identical to one of
@@ -489,6 +497,11 @@ class HybridReasoner:
         self._proving = True
         self._search_deadline = deadline
         self.pln_counts = {}
+        # Exploration and combination replay share the executor, so one
+        # allowance bounds every command this search sends to Lean.
+        allowance = None if max_tactic_steps is None else TacticAllowance(max_tactic_steps)
+        self.executor.allowance = allowance
+        self._allowance = allowance
         try:
             async with self.server.state_scope() as scope:
                 self._scope = scope
@@ -507,6 +520,7 @@ class HybridReasoner:
                 )
                 return await self._prove_scoped(seed, deadline)
         finally:
+            self.executor.allowance = None
             self._scope = None
             self._registry = None
             self._replay = None
@@ -581,7 +595,11 @@ class HybridReasoner:
         return graph
 
     def _stopped(self, graph: ProofHypergraph) -> bool:
-        return graph.end_reason in (SearchEndReason.EXTERNAL_ABORT, SearchEndReason.RESOURCE_LIMIT)
+        return graph.end_reason in (
+            SearchEndReason.EXTERNAL_ABORT,
+            SearchEndReason.RESOURCE_LIMIT,
+            SearchEndReason.STEP_BUDGET,
+        )
 
     async def _prove_best_first(self, graph: ProofHypergraph, deadline: Optional[float]) -> None:
         loop_count = 0
@@ -630,7 +648,7 @@ class HybridReasoner:
             for node in graph.nodes.values()
         )
         if not graph.is_solved() and resource_incomplete and graph.end_reason not in (
-            SearchEndReason.EXTERNAL_ABORT, SearchEndReason.DEADLINE,
+            SearchEndReason.EXTERNAL_ABORT, SearchEndReason.DEADLINE, SearchEndReason.STEP_BUDGET,
         ):
             graph.end_reason = SearchEndReason.RESOURCE_LIMIT
         graph.execution = {
@@ -640,6 +658,9 @@ class HybridReasoner:
             "evidence": SEARCH_EVIDENCE_VERSION,
             "replay_tactic_calls": replay.total_steps,
             "replay_combinations": replay.total_combinations,
+            # Every command sent to Lean, exploration and replay together.
+            "tactic_steps_issued": None if self._allowance is None else self._allowance.issued,
+            "tactic_step_limit": None if self._allowance is None else self._allowance.limit,
             "continuations": len(self._continuations),
             "peak_snapshots": registry.peak_snapshots,
             "snapshots_adopted": registry.adopted,
@@ -724,6 +745,9 @@ class HybridReasoner:
             if result.status in (ReplayStatus.BUDGET, ReplayStatus.INCONCLUSIVE):
                 # Replay or certification ran out; further evidence stays unknown.
                 self._replay_stopped = True
+                if self._allowance is not None and self._allowance.exhausted:
+                    # The search's step allowance, not replay's own bound, stopped it.
+                    graph.end_reason = SearchEndReason.STEP_BUDGET
                 return
 
     def _environment(self, result) -> dict:
@@ -1536,6 +1560,11 @@ class HybridReasoner:
                 # Retention is exhausted; unexecuted proposals carry no evidence.
                 graph.end_reason = SearchEndReason.RESOURCE_LIMIT
                 self._on_expansion_complete(node, ExpansionResult.RESOURCE_LIMIT)
+                return
+            except TacticBudgetExhausted:
+                # The step allowance is used up; unexecuted proposals carry no evidence.
+                graph.end_reason = SearchEndReason.STEP_BUDGET
+                self._on_expansion_complete(node, ExpansionResult.STEP_BUDGET)
                 return
             except _INFRASTRUCTURE_ERRORS as exc:
                 graph.mark_node_exhausted(
