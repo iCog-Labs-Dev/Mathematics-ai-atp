@@ -528,8 +528,10 @@ class ProvingService:
             try:
                 await asyncio.shield(self._step)
             except asyncio.CancelledError:
-                if not self._step.done():
-                    raise  # the dispatcher itself is being cancelled
+                # The dispatcher itself is being cancelled (service stop), even
+                # if the step it was waiting on finished in the same moment.
+                if not self._step.done() or asyncio.current_task().cancelling():
+                    raise
             except Exception:  # noqa: BLE001 — one failed step does not stop the service
                 logger.exception("service step failed")
             finally:
