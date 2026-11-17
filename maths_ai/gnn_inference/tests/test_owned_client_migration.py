@@ -2,6 +2,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.graph import model_goal_to_dag
 """Shared caller contracts after the atomic owned-client migration."""
 
 import asyncio
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -142,6 +143,7 @@ def test_lazy_exports_preserve_existing_package_api():
 
 CLIENT_REPOSITORY = "https://github.com/123nol/Pantograph-Client"
 CLIENT_COMMIT = "2b3265083908b2d1e1e1c5698570d94bfb51c56c"
+PYPANTOGRAPH_COMMIT = "3322696b72e81ed50f2f7dc0b667f8278a932283"
 
 
 def test_dependency_is_the_pinned_client_and_not_pypantograph():
@@ -162,12 +164,28 @@ def test_dependency_is_the_pinned_client_and_not_pypantograph():
         dependency.split()[0] == "pantograph"
         for dependency in project["project"]["dependencies"]
     )
-    assert "pantograph" not in project.get("tool", {}).get("uv", {}).get("sources", {})
+    # PyPantograph is only the accepted-GNN backend's declared runtime: an
+    # optional extra at a pinned commit, never imported by MCTS code.
+    assert project["project"]["optional-dependencies"]["accepted-gnn"] == ["pantograph"]
+    assert project["tool"]["uv"]["sources"]["pantograph"] == {
+        "git": "https://github.com/stanford-centaur/PyPantograph",
+        "rev": PYPANTOGRAPH_COMMIT,
+    }
     locked = {
         package["name"]: package
         for package in tomllib.loads((root / "uv.lock").read_text())["package"]
     }
-    assert "pantograph" not in locked
+    assert locked["pantograph"]["source"]["git"].endswith(f"#{PYPANTOGRAPH_COMMIT}")
+    project_lock = locked["mathematics-ai-atp"]
+    assert not any(d["name"] == "pantograph" for d in project_lock["dependencies"])
+    assert [d["name"] for d in project_lock["optional-dependencies"]["accepted-gnn"]] == ["pantograph"]
+    sync_importers = [
+        str(path.relative_to(root))
+        for path in (root / "maths_ai").rglob("*.py")
+        if "accepted_gnn" not in path.parts
+        and re.search(r"^\s*(from|import) pantograph(\.|\s|$)", path.read_text(), re.M)
+    ]
+    assert sync_importers == []
     assert locked["pantograph-async-client"]["source"]["git"] == (
         f"{CLIENT_REPOSITORY}?rev={CLIENT_COMMIT}#{CLIENT_COMMIT}"
     )
@@ -414,5 +432,21 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
         if entry["path"] in expected:
             assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
         expected[entry["path"]] = entry["sha256"]
+    # Merging main (the accepted-GNN backend, formal routes, Docker) follows.
+    merged = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "mcts_main_integration/source_manifest.json").read_text()
+    )
+    assert merged["target_base_commit"] == "c53b75034e8229ca16236e60deaa0c6b388346ae"
+    assert merged["merged_commit"] == "444e057df1b15c6a2be4afc5b7d9ae8b3cee3d7b"
+    assert merged["client_commit"] == CLIENT_COMMIT
+    assert merged["accepted_runtime"]["pypantograph_commit"] == PYPANTOGRAPH_COMMIT
+    for entry in merged["sources"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        if entry["sha256"] is None:
+            expected.pop(entry["path"], None)
+            assert not (root / entry["path"]).exists(), entry["path"]
+        else:
+            expected[entry["path"]] = entry["sha256"]
     for path, digest in expected.items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path

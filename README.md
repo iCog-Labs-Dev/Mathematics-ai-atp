@@ -20,6 +20,7 @@ The current implementation is research-oriented rather than a finished end-user 
 ## Repository structure
 
 - `maths_ai/` — core library for proof search, inference, data models, and utilities
+  - `api/` — FastAPI HTTP server exposing the inference and persistent formal-search APIs
   - `core/` — shared configuration and runtime settings
   - `data/` — preprocessing and representation helpers
   - `data_models/` — proof-related data structures
@@ -82,6 +83,54 @@ uv add -r requirements.txt
 ```bash
 ./scripts/run_prover.sh --hypotheses "COMMA SEPARATED HYPOTHESESES" --goal_statement "GOAL EXPRESSION"
 ```
+
+### Running the API server
+
+Each backend is enabled by its own configuration, and `/prove` names the one
+it wants with `backend` (`mcts-actor-critic` or `accepted-gnn`); a backend that
+is not enabled answers 503 rather than handing the request to the other.
+
+```bash
+# accepted-GNN backend (paths from maths_ai.core.config); needs the accepted-gnn extra
+uv sync --extra cpu --extra accepted-gnn
+uv run python -m maths_ai.api --accepted-gnn
+# MCTS backend, or both: add --config service.json
+curl http://localhost:8000/ready
+curl -X POST http://localhost:8000/prove -H 'Content-Type: application/json' \
+  -d '{"backend": "accepted-gnn", "goal": "∀ (n : Nat), n + 0 = n"}'
+```
+
+Persistent ATP clients use formal protocol version 2 on either backend:
+`/formal-capabilities`, `/formal-artifacts`, `/formal-search/start`,
+`/formal-search/{run_id}` (with `/cancel` and `/retry`) and `/formal-replay`.
+The routes are served when `MATHS_AI_FORMAL_DEPLOYMENTS` names a deployment
+registry (see `docker/config/formal_deployments.json`); runs and artifacts
+persist under `MATHS_AI_FORMAL_STATE_DIR`. See
+[the version-2 provider documentation](maths_ai/gnn_inference/docs/formal_protocol_v2.md).
+
+Use a different local port either with an environment variable or a
+command-line option:
+
+```bash
+MATHS_AI_API_PORT=8001 uv run python -m maths_ai.api
+# or
+uv run python -m maths_ai.api --accepted-gnn --port 8001
+curl http://localhost:8001/ready
+```
+
+### Docker (API server)
+
+```bash
+MATHS_AI_ACCEPTED_GNN=1 MATHS_AI_API_PORT=8001 docker compose up api
+curl http://localhost:8001/ready
+curl -X POST http://localhost:8001/prove -H 'Content-Type: application/json' \
+  -d '{"backend": "accepted-gnn", "goal": "∀ (n : Nat), n + 0 = n"}'
+```
+
+`MATHS_AI_API_PORT` changes only the host port; the API continues to listen
+on port 8000 inside the container. See [docker/DOCKER.md](docker/DOCKER.md).
+
+See `docker-compose.yml` for all services and profiles.
 
 Most of the real research logic lives in the packages under `maths_ai/` and the experimental folders under `experiments/`.
 

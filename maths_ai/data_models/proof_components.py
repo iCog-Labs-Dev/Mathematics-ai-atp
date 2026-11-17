@@ -3,8 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from dataclasses import dataclass
-from typing import List, Literal, Optional
+from typing import Iterable, List, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -325,6 +326,21 @@ class ProposedAction:
     @property
     def command(self) -> str | None:
         return self.candidate.command
+
+
+_UNRESOLVED_LEMMA_RE = re.compile(r"^<lemma_[^>]+>$")
+
+
+def has_unresolved_lemma_argument(candidate: TacticCandidate) -> bool:
+    """Return whether a candidate contains an internal lemma placeholder."""
+    return any(_UNRESOLVED_LEMMA_RE.fullmatch(argument) for argument in candidate.arguments)
+
+
+def filter_executable_tactic_candidates(
+    candidates: Iterable[TacticCandidate],
+) -> list[TacticCandidate]:
+    """Remove candidates that cannot be rendered as executable Lean tactics."""
+    return [candidate for candidate in candidates if not has_unresolved_lemma_argument(candidate)]
 
 
 class RankedSubgoal(BaseModel):

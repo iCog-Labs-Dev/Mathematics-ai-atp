@@ -1,0 +1,111 @@
+{
+  "title": "A source artifact the provider does not have: no text fallback",
+  "request": {
+    "method": "GET",
+    "path": "/formal-search/example/fr-11",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "protocol_version": 2,
+      "run_id": "example/fr-11",
+      "status": "finished",
+      "request_digest": "sha256:14a73f3ea11b15f537f7a4113f6c706da114283a32d84d6e7db97293a9257e1d",
+      "input_kind": "source",
+      "input_artifact_hash": null,
+      "source_artifact_hash": null,
+      "source_origin": null,
+      "resolved": {
+        "deployment_id": "mcts-example",
+        "backend": "mcts-actor-critic",
+        "profile": "puct",
+        "profile_config_hash": "sha256:8029fb7d43ab9da5f3e6204cf7aee4243db5add12f0ce5d4cc9633d24de00819",
+        "environment_id": "mathlib-4.10-rc1",
+        "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+        "model": {
+          "tactic_model_artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "budget": {
+        "requested_max_steps": 100,
+        "admitted_max_steps": 60,
+        "max_steps_reduced": true,
+        "requested_wall_clock_ms": 45000,
+        "admitted_wall_clock_ms": 45000,
+        "wall_clock_reduced": false,
+        "consumed_steps": 0,
+        "consumed_steps_exact": true,
+        "remaining_steps": 60,
+        "verification_max_steps": 100
+      },
+      "attempts": 1,
+      "retry_from": "bound-initial-input",
+      "disposition": "invalid-request",
+      "termination": "invalid-input",
+      "cancel_requested": false,
+      "result": {
+        "artifacts": [],
+        "attempts": 1,
+        "backend": {
+          "deployment_id": "mcts-example",
+          "name": "mcts-actor-critic",
+          "profile": "puct",
+          "profile_config_hash": "sha256:8029fb7d43ab9da5f3e6204cf7aee4243db5add12f0ce5d4cc9633d24de00819"
+        },
+        "budget": {
+          "admitted_max_steps": 60,
+          "admitted_wall_clock_ms": 45000,
+          "remaining_steps": 60
+        },
+        "budget_used": {
+          "attempt": {
+            "attempt": 1,
+            "reserved_steps": 60,
+            "tactic_steps": 0,
+            "tactic_steps_exact": true,
+            "wall_clock_ms": 0
+          },
+          "tactic_steps": 0,
+          "tactic_steps_exact": true
+        },
+        "coordinator_binding": {
+          "base_revision": 12,
+          "claim_id": "example/c-1",
+          "fencing_token": 4,
+          "lease_id": "writer-lease-7"
+        },
+        "declaration_id": "example/fd-1",
+        "disposition": "invalid-request",
+        "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+        "input_artifact_hash": null,
+        "input_kind": "source",
+        "obstructions": [],
+        "proof_id": "example",
+        "protocol_version": 2,
+        "request_digest": "sha256:14a73f3ea11b15f537f7a4113f6c706da114283a32d84d6e7db97293a9257e1d",
+        "root_state_id": "example/fr-11/attempt-1/fs-1",
+        "run_id": "example/fr-11",
+        "source_artifact_hash": null,
+        "source_origin": null,
+        "states": [
+          {
+            "exact_state_hash": "sha256:dec2de66707b498b96d58c6de8114a356acbed28ea1c9033544821503862076c",
+            "goal_text": "Demo.target",
+            "kind": "goal",
+            "semantic_signature": "sha256:a9830b402682cf822216d82ca38310120206a7ff3fa03b8a052c0fbfc091d080",
+            "state_id": "example/fr-11/attempt-1/fs-1",
+            "status": "open"
+          }
+        ],
+        "tactic_edges": [],
+        "termination": {
+          "detail": "input:artifact-missing: No artifact sha256:9999999999999999999999999999999999999999999999999999999999999999 in the provider store.",
+          "reason": "invalid-input"
+        }
+      },
+      "replays": []
+    },
+    "schema": "formal-run.v2"
+  }
+}

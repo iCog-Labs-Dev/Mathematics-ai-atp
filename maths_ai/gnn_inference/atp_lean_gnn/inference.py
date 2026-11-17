@@ -8,6 +8,7 @@ action so a valid alternative can still reach the reasoner.
 from __future__ import annotations
 
 import math
+import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
@@ -28,6 +29,8 @@ from .premise_scoring import PremiseScorer
 from .pyg import build_premise_mask, dag_to_pyg
 from .state import ProofState, parse_state
 from .training import transform_edge_index
+
+logger = logging.getLogger(__name__)
 
 # ── Tactic-aware argument filtering rules ──────────────────────────────────
 # Fresh name only: generate a new identifier, reject all candidates
@@ -133,6 +136,19 @@ def _extract_fresh_names_from_dag(dag: DAGBuilder) -> list[str]:
         and node.binder_depth == 1
         and not node.children
     ]
+
+
+def _fresh_arguments_for_tactic(
+    tactic_name: str,
+    fresh_names: list[str],
+    required_arity: int,
+) -> list[str] | None:
+    """Return fresh-name arguments, allowing Lean's bare ``intro`` form."""
+    if not fresh_names and tactic_name == "intro":
+        return []
+    if len(fresh_names) < required_arity:
+        return None
+    return fresh_names
 
 
 def _top_tactic_candidates(
@@ -362,3 +378,10 @@ class InferencePipeline:
             first["selected_argument_details"],
             top_tactic_predictions=predictions,
         )
+
+    def _is_resolvable_argument(self, source: str, candidate_id: int) -> bool:
+        if source == "local":
+            return True
+        if candidate_id < 0:
+            return False
+        return self.lemma_corpus is not None and candidate_id in self.lemma_corpus

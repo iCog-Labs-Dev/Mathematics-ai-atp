@@ -1,12 +1,23 @@
 annotated-types
+faiss-cpu
+fastapi
+graphviz
+httpx
+uvicorn
+huggingface_hub
 iniconfig
-packaging        
+packaging
 pluggy
 pydantic
 pydantic-core
 pygments
 pytest
-typing-extensions
-typing-inspection
+PyYAML
+safetensors
+pantograph @ git+https://github.com/stanford-centaur/PyPantograph
 torch
 torch-geometric
+transformers>=4.45.0
+tokenizers>=0.20.0
+typing-extensions
+typing-inspection

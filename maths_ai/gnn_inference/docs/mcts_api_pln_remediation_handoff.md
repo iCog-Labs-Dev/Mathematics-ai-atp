@@ -37,6 +37,7 @@ The supplied Docker service configuration includes `puct`, `best_first`,
 ```bash
 curl -s http://127.0.0.1:8000/prove \
   -H 'Content-Type: application/json' -d '{
+    "backend": "mcts-actor-critic",
     "goal": "True ∧ True",
     "search_profile": "puct_pln",
     "proposal_mode": "sample",

@@ -241,6 +241,7 @@ After readiness succeeds, use a profile present in the mounted `service.json`:
 curl --fail http://localhost:8000/prove \
   -H 'Content-Type: application/json' \
   -d '{
+    "backend": "mcts-actor-critic",
     "goal": "True",
     "hypotheses": [],
     "search_profile": "puct",

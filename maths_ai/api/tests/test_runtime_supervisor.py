@@ -18,6 +18,7 @@ from maths_ai.api.runtime_supervisor import (
     RuntimeSupervisor,
     RuntimeUnavailable,
 )
+from maths_ai.api.tests.fake_backend import FAKE_FORMAL_ENVIRONMENT
 from maths_ai.api.tests.helpers import FAKE_BACKEND, write_config
 
 
@@ -49,7 +50,7 @@ def test_ready_handshake_and_result(tmp_path):
         supervisor = await _started(tmp_path)
         try:
             assert supervisor.state == READY and supervisor.generation == 1
-            assert supervisor.provenance == {"checkpoint": "fake", "workers": 1}
+            assert supervisor.provenance == {"checkpoint": "fake", "workers": 1, "formal_environment": FAKE_FORMAL_ENVIRONMENT}
             result = await supervisor.run("prove", _payload("proved"), timeout=10)
             assert result["certified"] is True
             with pytest.raises(OperationFailed) as error:

@@ -13,9 +13,14 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
+MCTS_BACKEND = "mcts-actor-critic"
+ACCEPTED_BACKEND = "accepted-gnn"
+
+
 class ProveRequest(_Strict):
     """One goal with its ordered local declarations, searched under a server profile."""
 
+    backend: Literal["mcts-actor-critic"]
     goal: StrictStr = Field(min_length=1)
     hypotheses: list[StrictStr] = Field(default_factory=list)
     search_profile: Optional[StrictStr] = None

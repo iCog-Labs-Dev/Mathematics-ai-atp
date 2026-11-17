@@ -15,6 +15,10 @@ import time
 from maths_ai.api.runtime_backend import BackendError
 
 SPAWNED: list[int] = []
+FAKE_FORMAL_ENVIRONMENT = {
+    "format": "maths-ai-formal-environment-v1", "backend": "mcts-actor-critic",
+    "client": {"fake": True}, "repl_sha256": "0" * 64, "imports": ["Mathlib"],
+}
 
 
 class FakeBackend:
@@ -27,13 +31,15 @@ class FakeBackend:
         checkpoint = self.config.checkpoint
         if checkpoint is not None and checkpoint.name == "missing.pt":
             raise BackendError("artifacts", "checkpoint missing.pt does not exist")
-        return {"checkpoint": "fake", "workers": 1}
+        return {"checkpoint": "fake", "workers": 1, "formal_environment": FAKE_FORMAL_ENVIRONMENT}
 
     def status(self):
         return {"workers": 1, "usable_workers": 1, "admission_clients": 0,
                 "live_clients": 1 + len(self.children), "resident_jobs": 0}
 
     async def prove(self, payload):
+        if payload.get("seed_spec") is not None:
+            return await self._formal_prove(payload)
         goal = payload["goal"]
         if goal.startswith("sleep:"):
             await asyncio.sleep(float(goal.split(":")[1]))
@@ -67,6 +73,73 @@ class FakeBackend:
             "proposal": {"mode": payload["proposal_mode"], "seed": payload["seed"], "derivation": "fake"},
             "echo": payload,
         }
+
+    async def _formal_prove(self, payload):
+        """Formal attempts, scripted by the admitted goal text (``source`` seeds prove).
+
+        Script words select an outcome; any other goal text proves, so worked
+        examples can use ordinary statements.
+        """
+        from maths_ai.formal.admission import seed_from_spec
+        from maths_ai.lean_replay import render_replay
+
+        spec = payload["seed_spec"]
+        script = spec.get("goal", "proved") if spec["kind"] == "text" else "proved"
+        limit = payload["max_tactic_steps"]
+        statement = render_replay(seed_from_spec(spec))
+        if script.startswith("sleep:"):
+            await asyncio.sleep(float(script.split(":")[1]))
+        if script == "inadmissible":
+            return {"outcome": "inadmissible", "exception_category": "lean-rejected"}
+        if script == "crash":
+            raise BackendError("internal", "scripted runtime failure")
+        scripts = ("sleep:", "inadmissible", "crash", "proved-bad", "proved-unclear", "ready", "nodes",
+                   "uses:", "dead")
+        if not script.startswith(scripts):
+            script = "proved"
+        if script in ("proved", "proved-bad", "proved-unclear"):
+            used = min(3, limit)
+            proof = {"proved": "fake-ok", "proved-bad": "fake-bad"}.get(script, "fake-unclear")
+            return {
+                "outcome": "solved", "certified": True, "candidate": True, "end_reason": "root_certified",
+                "proof_trace": {"goal": statement.expression, "command": "constructor", "subgoals": [
+                    {"goal": "P", "command": "trivial", "subgoals": []},
+                    {"goal": "Q", "command": "trivial", "subgoals": []},
+                ]},
+                "artifact": {"version": 2, "statement": {"expression": statement.expression},
+                             "receipt": {"proof": proof}},
+                "execution": {"tactic_steps_issued": used, "tactic_step_limit": limit},
+            }
+        if script == "ready":  # a graph candidate that never certified
+            return {"outcome": "unsolved", "certified": False, "candidate": True,
+                    "end_reason": "step_budget",
+                    "execution": {"tactic_steps_issued": limit, "tactic_step_limit": limit}}
+        if script == "nodes":
+            return {"outcome": "unsolved", "certified": False, "end_reason": "max_nodes",
+                    "execution": {"tactic_steps_issued": min(5, limit), "tactic_step_limit": limit}}
+        if script.startswith("uses:"):
+            used = min(int(script.split(":")[1]), limit)
+            reason = "step_budget" if used == limit else "frontier_empty"
+            return {"outcome": "unsolved", "certified": False, "end_reason": reason,
+                    "execution": {"tactic_steps_issued": used, "tactic_step_limit": limit}}
+        return {"outcome": "unsolved", "certified": False, "end_reason": "root_dead",
+                "execution": {"tactic_steps_issued": min(2, limit), "tactic_step_limit": limit}}
+
+    async def admit_source(self, payload):
+        declaration = payload["declaration"]
+        if declaration.endswith("missing"):
+            return {"rejected": {"category": "input:declaration-not-found", "detail": f"No theorem {declaration}"}}
+        if "local_context" in payload["body"]:
+            return {"rejected": {"category": "input:unsupported-context", "detail": "depends on the file"}}
+        return {"target_sexp": "(:c True)", "target_pp": "True", "locals": [],
+                "target_unit_start": 0, "check": {"ok": True}}
+
+    async def verify(self, payload):
+        proof = payload["artifact"].get("receipt", {}).get("proof")
+        status = {"fake-ok": "verified", "fake-bad": "rejected"}.get(proof, "inconclusive")
+        return {"status": status, "reason": None if status == "verified" else f"scripted {status}",
+                "verification": {"limit": payload.get("max_tactic_steps")},
+                "formal_environment": FAKE_FORMAL_ENVIRONMENT}
 
     async def admit(self, payload):
         self.admit_steps = getattr(self, "admit_steps", 0) + 1

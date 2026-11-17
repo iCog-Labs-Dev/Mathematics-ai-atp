@@ -185,3 +185,16 @@ Use isolated test environments. Re-run checks when new edits or main updates aff
 6. Merge only after the provider/caller pair and required deployment profiles meet the gates. Coordinate release rollout so a new provider contract is not deployed before its real callers have a verified migration.
 
 Completion means the actual integration branch is merged into main with both required backends and a working persistent-atp boundary. Resolving the 31 text conflicts alone, copying the MCTS API over main, or preserving only one set of tests does not complete this plan.
+
+## Formal v2 remediation contract
+
+The follow-up architecture is specified in
+`formal_v2_identity_admission_deadline_and_cancellation_remediation.md`.
+Formal state and tactic occurrences are qualified by run and physical attempt,
+for example `example/fr-1/attempt-1/fs-1` and
+`example/fr-1/attempt-1/ta-1`. Migrate the persistent consumer schemas and
+ingestion together; proof-wide numbering is not a compatible substitute.
+One cumulative run time allowance covers each attempt from input admission
+through queueing and execution. Terminal cancellation follows native cleanup.
+Source admission isolates the signature with Lean syntax before executing the
+target proof or suffix. See the follow-up plan for tests and rollout gates.

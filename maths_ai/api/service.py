@@ -110,6 +110,9 @@ class _Proof:
     future: asyncio.Future
     started: bool = False
     queue_timer: Any = None
+    # The runtime operation; formal operations get the runtime's raw result.
+    operation: str = "prove"
+    formal: bool = False
 
 
 @dataclass
@@ -281,6 +284,56 @@ class ProvingService:
         """Admit, queue and run one proof; raises a ``ServiceError`` on refusal."""
         admitted_at = time.monotonic()
         payload = self.resolve_prove(request)
+        return await self._enqueue(payload, admitted_at)
+
+    def resolve_formal_prove(
+        self,
+        *,
+        seed_spec: dict[str, Any],
+        display_goal: str,
+        search_profile: str,
+        settings: dict[str, Any],
+        proposal_mode: str | None,
+        seed: int | None,
+        max_tactic_steps: int,
+        timeout_s: float,
+    ) -> dict[str, Any]:
+        """The runtime payload of one formal attempt on an admitted seed.
+
+        The formal service has already admitted the input and resolved the
+        deployment profile; ``settings`` are that profile's backend settings
+        (node, depth and simulation limits), applied over the named service
+        search profile.
+        """
+        profile = self._profile(search_profile, settings)
+        return {
+            "goal": display_goal,
+            "hypotheses": [],
+            "seed_spec": seed_spec,
+            "search_profile": profile[0],
+            "profile": profile[1],
+            "proposal_mode": proposal_mode or "sample",
+            "seed": int(seed or 0),
+            "timeout_s": float(timeout_s),
+            "queue_timeout_s": float(timeout_s),
+            "max_tactic_steps": int(max_tactic_steps),
+        }
+
+    async def run_formal(self, operation: str, payload: dict[str, Any], *, timeout_s: float) -> dict[str, Any]:
+        """Queue one formal runtime operation and return its raw result.
+
+        ``operation`` is ``prove`` (an admitted seed under a step allowance),
+        ``admit_source`` or ``verify``. The deadline covers queueing, as the
+        formal wall-clock budget does; a cancelled caller cancels the work.
+        """
+        if operation not in ("prove", "admit_source", "verify"):
+            raise ValueError(f"Unknown formal operation {operation!r}.")
+        payload = {**payload, "timeout_s": float(timeout_s), "queue_timeout_s": float(timeout_s)}
+        return await self._enqueue(payload, time.monotonic(), operation=operation, formal=True)
+
+    async def _enqueue(
+        self, payload: dict[str, Any], admitted_at: float, *, operation: str = "prove", formal: bool = False
+    ) -> dict[str, Any]:
         if not self.supervisor.ready:
             raise Unavailable(self.supervisor.error or f"runtime is {self.supervisor.state}")
         if len(self._proofs) + self._active_proofs >= self.limits.max_pending_proofs:
@@ -291,6 +344,8 @@ class ProvingService:
             deadline=admitted_at + payload["timeout_s"],
             queue_deadline=admitted_at + payload["queue_timeout_s"],
             future=asyncio.get_running_loop().create_future(),
+            operation=operation,
+            formal=formal,
         )
         def expire_queue():
             if not proof.started and proof in self._proofs:
@@ -306,7 +361,9 @@ class ProvingService:
             if not proof.started and proof in self._proofs:
                 self._proofs.remove(proof)
             elif self._step is not None and getattr(self._step, "proof", None) is proof:
-                self._step.cancel()
+                owned_step = self._step
+                owned_step.cancel()
+                await asyncio.shield(asyncio.gather(owned_step, return_exceptions=True))
             proof.future.cancel()
             raise DeadlineExceeded("The request deadline expired")
         except asyncio.CancelledError:
@@ -314,7 +371,9 @@ class ProvingService:
             if not proof.started and proof in self._proofs:
                 self._proofs.remove(proof)
             elif self._step is not None and getattr(self._step, "proof", None) is proof:
-                self._step.cancel()
+                owned_step = self._step
+                owned_step.cancel()
+                await asyncio.shield(asyncio.gather(owned_step, return_exceptions=True))
             proof.future.cancel()
             raise
         finally:
@@ -334,7 +393,21 @@ class ProvingService:
                 raise DeadlineExceeded("The request deadline expired before dispatch")
             payload["timeout_s"] = remaining * 0.8
             started = time.monotonic()
-            result = await self.supervisor.run("prove", payload, timeout=remaining)
+            result = await self.supervisor.run(proof.operation, payload, timeout=remaining)
+            if proof.formal:
+                # Formal callers classify every outcome themselves.
+                result = {
+                    **result,
+                    "timing": {
+                        "queue_wait_s": queue_wait,
+                        "execution_s": time.monotonic() - started,
+                        "total_s": time.monotonic() - proof.admitted_at,
+                    },
+                    "runtime": {"generation": self.supervisor.generation, "provenance": self.supervisor.provenance},
+                }
+                if not proof.future.done():
+                    proof.future.set_result(result)
+                return
             outcome = result.get("outcome")
             if outcome == "inadmissible":
                 raise InputRejected(
@@ -528,8 +601,10 @@ class ProvingService:
             try:
                 await asyncio.shield(self._step)
             except asyncio.CancelledError:
-                if not self._step.done():
-                    raise  # the dispatcher itself is being cancelled
+                # The dispatcher itself is being cancelled (service stop), even
+                # if the step it was waiting on finished in the same moment.
+                if not self._step.done() or asyncio.current_task().cancelling():
+                    raise
             except Exception:  # noqa: BLE001 — one failed step does not stop the service
                 logger.exception("service step failed")
             finally:

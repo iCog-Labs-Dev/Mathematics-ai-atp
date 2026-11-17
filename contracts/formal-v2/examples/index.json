@@ -1,0 +1,152 @@
+[
+  {
+    "file": "examples/01-capabilities.json",
+    "title": "Capabilities: deployments, environment hashes, ceilings and semantics",
+    "status": 200
+  },
+  {
+    "file": "examples/02-upload-source-artifact.json",
+    "title": "Upload a source artifact (raw bytes)",
+    "status": 201
+  },
+  {
+    "file": "examples/03-start-source.json",
+    "title": "Start a source-backed run (202; input hashes follow admission)",
+    "status": 202
+  },
+  {
+    "file": "examples/04-status-source-proved.json",
+    "title": "A source-backed run, proved: complete obligations, certificate",
+    "status": 200
+  },
+  {
+    "file": "examples/05-replay-verified.json",
+    "title": "Independent replay of a source-backed certificate: verified",
+    "status": 200
+  },
+  {
+    "file": "examples/06-start-goal.json",
+    "title": "Start a text-based run; the allowance is capped at the profile's 60",
+    "status": 202
+  },
+  {
+    "file": "examples/07-start-repeat.json",
+    "title": "Repeat the same start: the existing run (200), no new work",
+    "status": 200
+  },
+  {
+    "file": "examples/08-status-goal-proved.json",
+    "title": "A text-based run, proved; generated source recorded",
+    "status": 200
+  },
+  {
+    "file": "examples/09-read-generated-source.json",
+    "title": "Read the provider-generated source of a text-based run",
+    "status": 200
+  },
+  {
+    "file": "examples/10-read-input-manifest.json",
+    "title": "Read the admitted-input manifest bound to the run",
+    "status": 200
+  },
+  {
+    "file": "examples/11-status-stagnated.json",
+    "title": "Run 3 used 40 of its admitted 60 steps and stagnated",
+    "status": 200
+  },
+  {
+    "file": "examples/12-retry.json",
+    "title": "Retry: a second attempt with the remaining 20 steps (202)",
+    "status": 202
+  },
+  {
+    "file": "examples/13-status-budget-exhausted.json",
+    "title": "The retry used the remaining 20: budget-exhausted, step-budget",
+    "status": 200
+  },
+  {
+    "file": "examples/14-retry-allowance-exhausted.json",
+    "title": "No allowance remains: retry refused (409)",
+    "status": 409
+  },
+  {
+    "file": "examples/15-status-candidate-not-proof.json",
+    "title": "A READY graph candidate without a certificate is not a proof",
+    "status": 200
+  },
+  {
+    "file": "examples/16-cancel.json",
+    "title": "Cancel: acknowledged at once (202), terminal after the work stops",
+    "status": 202
+  },
+  {
+    "file": "examples/17-status-cancelled.json",
+    "title": "The cancelled run; its unknown cost is charged in full",
+    "status": 200
+  },
+  {
+    "file": "examples/18-replay-rejected.json",
+    "title": "Replay rejected: the certificate does not verify",
+    "status": 200
+  },
+  {
+    "file": "examples/19-replay-inconclusive.json",
+    "title": "Replay inconclusive: verification ran out, not a verdict",
+    "status": 200
+  },
+  {
+    "file": "examples/20-replay-binding-mismatch.json",
+    "title": "Replay naming another certificate: refused (409)",
+    "status": 409
+  },
+  {
+    "file": "examples/21-error-protocol-version.json",
+    "title": "Protocol version 1 is refused",
+    "status": 422
+  },
+  {
+    "file": "examples/22-error-removed-field.json",
+    "title": "search_policy.max_tactic_steps is refused",
+    "status": 422
+  },
+  {
+    "file": "examples/23-error-mixed-input.json",
+    "title": "A source input with goal text is refused",
+    "status": 422
+  },
+  {
+    "file": "examples/24-error-run-conflict.json",
+    "title": "The same run id with a different request (409)",
+    "status": 409
+  },
+  {
+    "file": "examples/25-error-environment-mismatch.json",
+    "title": "A request for another environment hash (409)",
+    "status": 409
+  },
+  {
+    "file": "examples/26-error-unknown-deployment.json",
+    "title": "An unknown deployment (422)",
+    "status": 422
+  },
+  {
+    "file": "examples/27-error-unsupported-input.json",
+    "title": "A source input for a deployment that admits goals only (422)",
+    "status": 422
+  },
+  {
+    "file": "examples/28-error-run-not-found.json",
+    "title": "Status of an unknown run (404)",
+    "status": 404
+  },
+  {
+    "file": "examples/29-status-source-rejected.json",
+    "title": "A source declaration that is not in the file: invalid-request",
+    "status": 200
+  },
+  {
+    "file": "examples/30-status-artifact-missing.json",
+    "title": "A source artifact the provider does not have: no text fallback",
+    "status": 200
+  }
+]

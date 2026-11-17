@@ -28,7 +28,7 @@ from .ipc import IPCError, read_message, send_message
 logger = logging.getLogger("maths_ai.api.runtime")
 
 DEFAULT_BACKEND = "maths_ai.api.runtime_backend:LiveBackend"
-OPERATIONS = ("prove", "admit", "evaluate", "release")
+OPERATIONS = ("prove", "admit", "evaluate", "release", "admit_source", "verify")
 
 
 def _load_backend(spec: str):

@@ -79,6 +79,9 @@ class TheoremItem:
     seed: LeanGoalSeed
     tactic_label: str  # ground-truth tactic from the dataset row ("" in file mode)
     size: int
+    # Tactic commands this item's search may send to Lean; None is unbounded
+    # (dataset collection keeps its node, simulation and replay limits).
+    max_tactic_steps: int | None = None
 
 
 @dataclass(frozen=True)

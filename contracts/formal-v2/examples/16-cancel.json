@@ -1,0 +1,52 @@
+{
+  "title": "Cancel: acknowledged at once (202), terminal after the work stops",
+  "request": {
+    "method": "POST",
+    "path": "/formal-search/example/fr-5/cancel",
+    "body": null
+  },
+  "response": {
+    "status": 202,
+    "body": {
+      "protocol_version": 2,
+      "run_id": "example/fr-5",
+      "status": "cancelling",
+      "request_digest": "sha256:4e44bd66763562be5bd7f891ed5fcb55f3fab4405ef9fd697f994481baff2163",
+      "input_kind": "goal",
+      "input_artifact_hash": "sha256:858cacc89460e8bdcb87fb85b613852b26652e8767812d8ca7d6c9306360156e",
+      "source_artifact_hash": "sha256:ba3d44c477d51270d4082708123e254ab4d36db8b09f267c36b488131f1e6665",
+      "source_origin": "generated-from-text",
+      "resolved": {
+        "deployment_id": "mcts-example",
+        "backend": "mcts-actor-critic",
+        "profile": "puct",
+        "profile_config_hash": "sha256:8029fb7d43ab9da5f3e6204cf7aee4243db5add12f0ce5d4cc9633d24de00819",
+        "environment_id": "mathlib-4.10-rc1",
+        "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+        "model": {
+          "tactic_model_artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "budget": {
+        "requested_max_steps": 100,
+        "admitted_max_steps": 60,
+        "max_steps_reduced": true,
+        "requested_wall_clock_ms": 45000,
+        "admitted_wall_clock_ms": 45000,
+        "wall_clock_reduced": false,
+        "consumed_steps": 0,
+        "consumed_steps_exact": true,
+        "remaining_steps": 60,
+        "verification_max_steps": 100
+      },
+      "attempts": 1,
+      "retry_from": "bound-initial-input",
+      "disposition": null,
+      "termination": null,
+      "cancel_requested": true,
+      "result": null,
+      "replays": []
+    },
+    "schema": "formal-run.v2"
+  }
+}

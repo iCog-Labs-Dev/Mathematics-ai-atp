@@ -23,6 +23,7 @@ from .execution_registry import Lease, LeaseKind, SnapshotRegistry
 from .execution_types import DIRECT, EXTRA, ChildObligation, ExecutionOccurrence
 from .pantograph_adapter import execution_goal_to_goal
 from .resource_outcomes import ResourceDiagnostic
+from .tactic_budget import TacticAllowance
 
 __all__ = [
     "ExecutionReferenceError",
@@ -79,7 +80,14 @@ def _introduced(parent: Goal, child: Goal) -> tuple[str, ...]:
 
 
 class RetainedTacticExecutor:
-    """Runs commands on retained snapshots owned by a ``SnapshotRegistry``."""
+    """Runs commands on retained snapshots owned by a ``SnapshotRegistry``.
+
+    With an ``allowance``, every command it sends to Lean is counted against
+    it first; a command beyond the allowance is never sent and raises
+    ``TacticBudgetExhausted``.
+    """
+
+    allowance: Optional[TacticAllowance] = None
 
     async def apply(
         self,
@@ -98,6 +106,8 @@ class RetainedTacticExecutor:
                 f"Goal {occurrence.goal_name} is not open in its snapshot."
             )
         index = names.index(occurrence.goal_name)
+        if self.allowance is not None:
+            self.allowance.reserve()
         async with registry.request(occurrence.lease) as reservation:
             try:
                 with execution_phase(holder):

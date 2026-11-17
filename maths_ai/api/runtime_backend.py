@@ -37,6 +37,36 @@ from maths_ai.gnn_inference.atp_lean_gnn.theorem_sources import TheoremSourceCon
 from maths_ai.hybrid_reasoner.search_results import plain, record_view
 
 
+def formal_environment(env) -> dict[str, Any]:
+    """The runtime's content identity for formal environment hashes.
+
+    Unlike ``environment_identity`` it holds no filesystem paths: the client
+    source, the REPL executable's bytes, the imports, the Lake project's
+    manifest and toolchain, and the compiled top-level library of each import.
+    """
+    import hashlib
+
+    def digest(path: Path) -> str | None:
+        return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+
+    identity = environment_identity(env)
+    root = Path(env.source_root)
+    libraries = {
+        name: digest(root / ".lake" / "build" / "lib" / Path(*name.split(".")).with_suffix(".olean"))
+        for name in env.imports
+    }
+    return {
+        "format": "maths-ai-formal-environment-v1",
+        "backend": "mcts-actor-critic",
+        "client": identity["client"],
+        "repl_sha256": identity["repl_sha256"],
+        "imports": identity["imports"],
+        "lake_manifest_sha256": identity["lake_manifest_sha256"],
+        "lean_toolchain_sha256": identity["lean_toolchain_sha256"],
+        "library_olean_sha256": libraries,
+    }
+
+
 class BackendError(RuntimeError):
     """An operation failed for a typed reason the API maps to a response."""
 
@@ -98,6 +128,7 @@ class LiveBackend:
                 },
                 "graph_representation": policy.graph_representation.to_dict(),
                 "environment": environment_identity(runtime.env),
+                "formal_environment": formal_environment(runtime.env),
                 "workers": len(runtime.pool.active_workers),
                 "pln": runtime.pool.pln_identity,
                 "devices": [str(device) for device in runtime.plan.collection_devices],
@@ -125,9 +156,21 @@ class LiveBackend:
         return resolved
 
     async def prove(self, payload: dict[str, Any]) -> dict[str, Any]:
-        seed = _seed(payload["goal"], payload["hypotheses"])
+        if payload.get("seed_spec") is not None:
+            # A formal attempt: the seed was admitted by the formal service.
+            from maths_ai.formal.admission import seed_from_spec
+
+            try:
+                seed = seed_from_spec(payload["seed_spec"])
+            except ReplayInputError as exc:
+                raise BackendError(f"input:{exc.reason.value}", str(exc)) from exc
+        else:
+            seed = _seed(payload["goal"], payload["hypotheses"])
         profile = self._use_profile(payload["profile"])
-        item = TheoremItem(seed=seed, tactic_label="", size=len(payload["goal"]))
+        item = TheoremItem(
+            seed=seed, tactic_label="", size=len(payload["goal"]),
+            max_tactic_steps=payload.get("max_tactic_steps"),
+        )
         (proposal,) = proposal_specs(
             [seed], mode=payload["proposal_mode"], namespace="prove",
             base_seed=payload["seed"], pass_index=0,
@@ -145,6 +188,70 @@ class LiveBackend:
         view["pln_runtime"] = self.runtime.pool.pln_identity
         view["input_identity"] = subset_identity([item])
         return view
+
+    async def admit_source(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Elaborate a source declaration's signature for the formal service.
+
+        A dedicated REPL process from the workers' executable, Lake project and
+        imports is used and retired; search sessions are not touched.
+        """
+        from maths_ai.formal.admission import AdmissionRejected, source_seed
+        from maths_ai.formal.source_elaboration import ReplSession, elaborate_source
+
+        env = self.runtime.env
+        declaration = payload["declaration"]
+        try:
+            return await elaborate_source(
+                lambda: ReplSession(
+                    Path(env.pantograph_repl), Path(env.source_root), list(env.imports),
+                    timeout_s=float(payload["timeout_s"]),
+                ),
+                payload["body"],
+                declaration,
+                lambda goal: source_seed(goal, declaration)[1],
+            )
+        except AdmissionRejected as exc:
+            return {"rejected": {"category": exc.category, "detail": exc.detail}}
+
+    async def verify(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Replay a stored certificate in a fresh Lean session and certify it again."""
+        from pantograph_async import PantographClient
+
+        from maths_ai.hybrid_reasoner.proof_recipes import ReplayArtifact
+        from maths_ai.hybrid_reasoner.proof_replay import (
+            ArtifactMismatch,
+            ReplayBudgetExhausted,
+            reverify,
+        )
+        from maths_ai.hybrid_reasoner.resource_outcomes import ReplayResourceExhausted
+
+        env = self.runtime.env
+        try:
+            artifact = ReplayArtifact.from_dict(payload["artifact"])
+        except (KeyError, TypeError, ValueError) as exc:
+            return {"status": "rejected", "reason": f"malformed certificate: {exc}", "steps": 0}
+        started = time.monotonic()
+        steps = {"limit": payload.get("max_tactic_steps")}
+        try:
+            async with await PantographClient.create(env) as client:
+                async with client.state_scope() as scope:
+                    result = await reverify(
+                        scope, artifact, retire_session=client.aclose,
+                        max_tactic_steps=payload.get("max_tactic_steps"),
+                    )
+            status, reason = "verified", None
+            receipt = getattr(result, "receipt", None)
+            steps["receipt_identity"] = getattr(receipt, "identity", None)
+        except ArtifactMismatch as exc:
+            status, reason = "rejected", str(exc)
+        except (ReplayResourceExhausted, ReplayBudgetExhausted) as exc:
+            status, reason = "inconclusive", str(exc)
+        return {
+            "status": status,
+            "reason": reason,
+            "verification": {**steps, "elapsed_s": time.monotonic() - started},
+            "formal_environment": formal_environment(env),
+        }
 
     async def admit(self, payload: dict[str, Any]) -> dict[str, Any]:
         job_id = payload["job_id"]

@@ -14,6 +14,9 @@ _support_files/
 artifacts/
 runs/
 
+# Lean/Lake build artifacts
+.lake/
+
 PeTTa/
 PeTTaChainer/
 

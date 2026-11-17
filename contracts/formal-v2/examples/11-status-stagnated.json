@@ -1,0 +1,123 @@
+{
+  "title": "Run 3 used 40 of its admitted 60 steps and stagnated",
+  "request": {
+    "method": "GET",
+    "path": "/formal-search/example/fr-3",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "protocol_version": 2,
+      "run_id": "example/fr-3",
+      "status": "finished",
+      "request_digest": "sha256:5a1f0cc53d527444c043b6d74367042fec3d797d14bcd8a3d7981946cb55a727",
+      "input_kind": "goal",
+      "input_artifact_hash": "sha256:0d64c5225dc658bf9ac199ea85573a07d2972c997f6c1cc974cf5a30a9b041b6",
+      "source_artifact_hash": "sha256:317d17ec20d41121abc1805da99d4b2f5c191789f8d4dba7647a7c787502f878",
+      "source_origin": "generated-from-text",
+      "resolved": {
+        "deployment_id": "mcts-example",
+        "backend": "mcts-actor-critic",
+        "profile": "puct",
+        "profile_config_hash": "sha256:8029fb7d43ab9da5f3e6204cf7aee4243db5add12f0ce5d4cc9633d24de00819",
+        "environment_id": "mathlib-4.10-rc1",
+        "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+        "model": {
+          "tactic_model_artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "budget": {
+        "requested_max_steps": 100,
+        "admitted_max_steps": 60,
+        "max_steps_reduced": true,
+        "requested_wall_clock_ms": 45000,
+        "admitted_wall_clock_ms": 45000,
+        "wall_clock_reduced": false,
+        "consumed_steps": 40,
+        "consumed_steps_exact": true,
+        "remaining_steps": 20,
+        "verification_max_steps": 100
+      },
+      "attempts": 1,
+      "retry_from": "bound-initial-input",
+      "disposition": "stagnated",
+      "termination": "frontier-exhausted",
+      "cancel_requested": false,
+      "result": {
+        "artifacts": [
+          {
+            "role": "admitted-input",
+            "sha256": "sha256:0d64c5225dc658bf9ac199ea85573a07d2972c997f6c1cc974cf5a30a9b041b6"
+          },
+          {
+            "role": "generated-source",
+            "sha256": "sha256:317d17ec20d41121abc1805da99d4b2f5c191789f8d4dba7647a7c787502f878"
+          },
+          {
+            "role": "search-summary",
+            "sha256": "sha256:5b342ee83bcb6773cf4029a0aca9d484650e67ea6e7266c659aeaccd59deee95"
+          }
+        ],
+        "attempts": 1,
+        "backend": {
+          "deployment_id": "mcts-example",
+          "name": "mcts-actor-critic",
+          "profile": "puct",
+          "profile_config_hash": "sha256:8029fb7d43ab9da5f3e6204cf7aee4243db5add12f0ce5d4cc9633d24de00819"
+        },
+        "budget": {
+          "admitted_max_steps": 60,
+          "admitted_wall_clock_ms": 45000,
+          "remaining_steps": 20
+        },
+        "budget_used": {
+          "attempt": {
+            "attempt": 1,
+            "reserved_steps": 60,
+            "tactic_steps": 40,
+            "tactic_steps_exact": true,
+            "wall_clock_ms": 11
+          },
+          "tactic_steps": 40,
+          "tactic_steps_exact": true
+        },
+        "coordinator_binding": {
+          "base_revision": 12,
+          "claim_id": "example/c-1",
+          "fencing_token": 4,
+          "lease_id": "writer-lease-7"
+        },
+        "declaration_id": "example/fd-1",
+        "disposition": "stagnated",
+        "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+        "input_artifact_hash": "sha256:0d64c5225dc658bf9ac199ea85573a07d2972c997f6c1cc974cf5a30a9b041b6",
+        "input_kind": "goal",
+        "obstructions": [],
+        "proof_id": "example",
+        "protocol_version": 2,
+        "request_digest": "sha256:5a1f0cc53d527444c043b6d74367042fec3d797d14bcd8a3d7981946cb55a727",
+        "root_state_id": "example/fr-3/attempt-1/fs-1",
+        "run_id": "example/fr-3",
+        "source_artifact_hash": "sha256:317d17ec20d41121abc1805da99d4b2f5c191789f8d4dba7647a7c787502f878",
+        "source_origin": "generated-from-text",
+        "states": [
+          {
+            "exact_state_hash": "sha256:193f9dadc3a92ba7f1baa4b676992e0b2370fd3f11ed57066c4669d67df82856",
+            "goal_text": "uses:40",
+            "kind": "goal",
+            "semantic_signature": "sha256:8dc4204e221dacb2c91897c61bd85b38e7f0da2499ba933d37f2ea0a1448a58a",
+            "state_id": "example/fr-3/attempt-1/fs-1",
+            "status": "open"
+          }
+        ],
+        "tactic_edges": [],
+        "termination": {
+          "reason": "frontier-exhausted"
+        }
+      },
+      "replays": []
+    },
+    "schema": "formal-run.v2"
+  }
+}

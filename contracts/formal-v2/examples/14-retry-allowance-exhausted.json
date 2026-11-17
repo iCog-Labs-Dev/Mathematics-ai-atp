@@ -1,0 +1,17 @@
+{
+  "title": "No allowance remains: retry refused (409)",
+  "request": {
+    "method": "POST",
+    "path": "/formal-search/example/fr-3/retry",
+    "body": null
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "protocol_version": 2,
+      "category": "allowance-exhausted",
+      "detail": "Run example/fr-3 has used its admitted 60 steps."
+    },
+    "schema": "formal-error.v2"
+  }
+}

@@ -9,16 +9,50 @@ dependencies = [
     "faiss-cpu>=1.14.2",
     "fastapi>=0.115.0",
     "graphviz>=0.21",
+    "httpx>=0.27.0",
     "huggingface-hub>=0.36.2,<1",
     "pantograph-async-client @ git+https://github.com/123nol/Pantograph-Client@2b3265083908b2d1e1e1c5698570d94bfb51c56c",
     "pydantic>=2.13.4",
+    "pyyaml>=6.0",
     "pytest>=9.0.3",
+    "regex>=2024.11.6",
+    "safetensors>=0.5.3",
     "torch>=2.12.0",
     "torch-geometric>=2.7.0",
+    "tokenizers>=0.20.0",
     "transformers>=4.45,<5",
     "uvicorn>=0.30.0",
 ]
 
+[project.optional-dependencies]
+# Accelerator forks for PyTorch (see uv's PyTorch integration guide):
+# `uv sync --extra cpu` resolves torch from the dedicated PyTorch CPU wheel
+# index so CPU-only images (and CI) never pull the CUDA 13 / NVIDIA / Triton
+# wheel metadata of the default PyPI build. Plain `uv sync` (no extra) keeps
+# the PyPI GPU build for the GPU-capable training image; both forks live in
+# the same uv.lock. torch is also a base dependency so plain syncs never
+# drop it; the extras only pin the source *within* each fork.
+cpu = ["torch>=2.12.0"]
+gpu = ["torch>=2.12.0"]
+# The accepted-GNN backend runs on Stanford's synchronous PyPantograph and its
+# own lean_project; the MCTS backend uses pantograph-async-client above. The
+# two packages install side by side under different names. Install this extra
+# only for deployments that serve the accepted backend.
+accepted-gnn = ["pantograph"]
+
+[tool.uv]
+conflicts = [
+    [{ extra = "cpu" }, { extra = "gpu" }],
+]
+
+[tool.uv.sources]
+pantograph = { git = "https://github.com/stanford-centaur/PyPantograph", rev = "3322696b72e81ed50f2f7dc0b667f8278a932283" }
+torch = [{ index = "pytorch-cpu", extra = "cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.setuptools.packages.find]
 where=["."]
@@ -27,4 +61,7 @@ exclude=["data", "experiments", "tests", "tests.*"]
 
 
 [dependency-groups]
-dev = ["httpx>=0.27.0", "pytest>=9.0.3"]
+dev = ["httpx>=0.27.0", "pytest>=9.0.3", "jsonschema>=4.26.0"]
+
+[tool.setuptools.package-data]
+"maths_ai.formal" = ["*.lean"]
