@@ -83,7 +83,7 @@ def main(argv=None):
         }
         save(output / f"{key}-request.json", request)
         acknowledgement = client.formal_search_start(request)
-        print(f"\n=== {label} ===\nRun: {run_id}\nAdmitted budget: {acknowledgement['budget']}", flush=True)
+        print(f"\n=== {label} ===\nRun: {run_id}\nAdmitted budget: {acknowledgement['provider']['budget']}", flush=True)
         until = time.monotonic() + args.wall_clock_ms / 1000 + 120
         while True:
             result = client.result(run_id)
