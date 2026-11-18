@@ -35,7 +35,7 @@
     {"path":"maths_ai/hybrid_reasoner/joint_inference.py","target_base_sha256":"9f4368a8c799e150499d842c650f254a31e5a1c4c5cd98f48addc1ba1a659b53","sha256":"8d67df43fc9f73a4e11e4fd4f6d1e7f27322c98332dbfe38d1153bf4b2b39754"},
     {"path":"maths_ai/hybrid_reasoner/pantograph_model_sexpr.py","target_base_sha256":"dbdbc8c5c5724af5cac21581a448c8033b4cae54f55ab680a829bc888456fa9c","sha256":"79ed8d9b58015a1d37d5c098018ae99947cb8bacd0fa8263389c218bbc570199"},
     {"path":"maths_ai/hybrid_reasoner/proof_replay.py","target_base_sha256":"95ae40e3b1f3ad0bf0aed9735cacf570ab1e8817fe8d04a0ef44109dfbfd527a","sha256":"9f3b0952ecb2c42f339cdbc5c45a4ff3f82adf08ec6095ceccfa2f3d7471f0b1"},
-    {"path":"pyproject.toml","target_base_sha256":"f015622e84c180bed193ff4a05e9f6a9c08e9ab021931b0e40e67e59c1f757e5","sha256":"cadf4e02e8023cc710d573d17eb0ccba239cc59ca94576ded3fec7bb912a9531"},
+    {"path":"pyproject.toml","target_base_sha256":"f015622e84c180bed193ff4a05e9f6a9c08e9ab021931b0e40e67e59c1f757e5","sha256":"a11fd2e6b6e7947b3fcc7a9fa7e7bb3a310aa83678423f3c7949a83db108b899"},
     {"path":"uv.lock","target_base_sha256":"89d22c29c6453946b8e84c7fb578528a702dd000b3f068c73c7f62b89f83eaeb","sha256":"df99f115b45ba7d8a55ec87a78fd22cfbec5b28954f14002b03b048d4a02d471"}
   ]
 }
