@@ -13,7 +13,8 @@ import sys
 import time
 import uuid
 
-from mathproof.formal_v2 import FormalV2Error, FormalV2HTTPATP
+from mathproof.maths_ai_http import MathsAIAPIError, MathsAIHTTPFormalATP
+from maths_ai.formal.artifacts import ArtifactStore
 
 EXAMPLES = Path(__file__).with_name("problems.json")
 BACKENDS = {
@@ -43,15 +44,17 @@ def main(argv=None):
     if args.max_steps < 1 or not 1 <= args.wall_clock_ms <= 120000:
         parser.error("max-steps must be positive; wall-clock-ms must be between 1 and 120000")
     selected = BACKENDS if args.backend == "both" else {args.backend: BACKENDS[args.backend]}
-    client = FormalV2HTTPATP(args.url, timeout=120)
+    output = args.output.resolve() / f"{args.example}-{uuid.uuid4().hex[:12]}"
+    artifacts = ArtifactStore(output / "artifacts")
+    client = MathsAIHTTPFormalATP(args.url, artifacts=artifacts, timeout=120)
     print("Waiting for the selected trained backends...", flush=True)
     deadline = time.monotonic() + 300
     while True:
         try:
-            capabilities = client.capabilities()
+            capabilities = client.formal_capabilities()
             if all(capabilities["deployments"].get(spec[1], {}).get("available") for spec in selected.values()):
                 break
-        except FormalV2Error as error:
+        except MathsAIAPIError as error:
             if error.status_code not in (None, 503):
                 raise
             if "pinned v2 schemas" in str(error):
@@ -63,8 +66,6 @@ def main(argv=None):
     example = examples[args.example]
     print(f"\n{example['title']}\n{example['description']}\n{example['model_search']}", flush=True)
     show("Input statement and ordered context", example["input"])
-    output = args.output.resolve() / f"{args.example}-{uuid.uuid4().hex[:12]}"
-    output.mkdir(parents=True)
     save(output / "example.json", example)
     verified = []
     for key, (label, deployment, backend, profile) in selected.items():
@@ -93,7 +94,7 @@ def main(argv=None):
             time.sleep(.2)
         save(output / f"{key}-result.json", result)
         save(output / f"{key}-binding.json", client.binding(run_id))
-        show("Search outcome", {"disposition": result["disposition"], "termination": result["termination"],
+        show("Search outcome", {"disposition": result["disposition"], "termination": result["provider"]["termination"],
                                  "budget_used": result["budget_used"]})
         if result["disposition"] != "proved-pending-replay":
             print("No certified proof within these bounds; this is not a refutation.", flush=True)
@@ -102,7 +103,7 @@ def main(argv=None):
         save(output / f"{key}-certificate.json", certificate)
         show("Model-discovered proof trace", certificate.get("proof_trace"))
         print("Independent verification in a fresh Lean session...", flush=True)
-        receipt = client.formal_replay(result["certificate"], result["environment_hash"],
+        receipt = client.replay_attestation(result["certificate"], result["environment_hash"],
                                        max_steps=128, wall_clock_ms=60000)
         save(output / f"{key}-replay.json", receipt)
         show("Replay receipt", receipt)
@@ -118,6 +119,6 @@ def main(argv=None):
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (FormalV2Error, RuntimeError) as error:
+    except (MathsAIAPIError, RuntimeError) as error:
         print(f"Example failed: {error}", file=sys.stderr)
         raise SystemExit(1)

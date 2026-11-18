@@ -203,8 +203,12 @@ The provider side is in `maths_ai/formal`, documented in
 | 6. Accepted PLN projection and readiness | raw expressions read from the wire (`printExprAST`), all-or-none; `MATHS_AI_ACCEPTED_USE_PLN` makes PLN a declared setting, and PLN-disabled readiness does not require PeTTa |
 | 7. Argument-level parity | below |
 
-The published JSON Schemas and their canonical digests are in
-`maths_ai/formal/schema`, for persistent-atp to pin.
+The shared contract package for the persistent-atp adapter is
+`contracts/formal-v2`. It holds the JSON Schemas of every request and
+response, worked examples recorded from the provider (both input kinds, the
+lifecycle calls, the three replay verdicts and the errors), the resolution
+and hashing rules, and a capability table per backend, all pinned by
+`manifest.json`.
 
 ### Argument-level parity (trained artifacts)
 

@@ -41,7 +41,6 @@ __all__ = [
     "seed_from_spec",
     "source_seed",
     "split_header",
-    "target_unit_signature",
 ]
 
 
@@ -173,13 +172,6 @@ def admit_goal(
 # Source inputs ------------------------------------------------------------------
 
 _IMPORT = re.compile(r"^import\s+([^\s]+)\s*$")
-_DECL_HEAD = re.compile(
-    r"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:private|protected|noncomputable|nonrec|unsafe|partial)\s+)*"
-    r"(theorem|lemma)\s+(«[^»]+»|[^\s:({\[⦃]+)"
-)
-_NAMESPACE = re.compile(r"^\s*namespace\s+([^\s]+)\s*$")
-_END = re.compile(r"^\s*end(?:\s+([^\s]+))?\s*$")
-_SECTION = re.compile(r"^\s*(?:noncomputable\s+)?section(?:\s+([^\s]+))?\s*$")
 
 
 def split_header(text: str) -> tuple[list[str], str]:
@@ -208,9 +200,16 @@ def split_header(text: str) -> tuple[list[str], str]:
         imports.append(match.group(1))
         index += 1
     body = "\n".join(lines[index:])
-    if any(_IMPORT.match(line.strip()) for line in lines[index:]):
-        raise AdmissionRejected("input:malformed-source", "An import appears after the file header.")
     return imports, body
+
+
+_DECL_HEAD = re.compile(
+    r"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:private|protected|noncomputable|nonrec|unsafe|partial)\s+)*"
+    r"(theorem|lemma)\s+(«[^»]+»|[^\s:({\[⦃]+)"
+)
+_NAMESPACE = re.compile(r"^\s*namespace\s+([^\s]+)\s*$")
+_SECTION = re.compile(r"^\s*(?:noncomputable\s+)?section(?:\s+([^\s]+))?\s*$")
+_END = re.compile(r"^\s*end(?:\s+([^\s]+))?\s*$")
 
 
 def _unquote(name: str) -> str:

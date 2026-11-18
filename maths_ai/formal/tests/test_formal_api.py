@@ -284,7 +284,9 @@ def test_slash_run_ids_round_trip_and_missing_runs_are_404(api):
 def test_a_certified_goal_run_exports_complete_obligations_and_bound_evidence(api):
     client, env_hash, _ = api
     ack = client.post("/formal-search/start", json=_request(env_hash)).json()
-    assert ack["input_kind"] == "goal" and ack["source_origin"] == "generated-from-text"
+    assert ack["input_kind"] == "goal"
+    ack = _wait(client, "example/fr-1")
+    assert ack["source_origin"] == "generated-from-text"
     body = _wait(client, "example/fr-1")
     result = body["result"]
     assert result["disposition"] == "proved-pending-replay"
@@ -294,7 +296,7 @@ def test_a_certified_goal_run_exports_complete_obligations_and_bound_evidence(ap
     assert root_edge["subgoal_count"] == 2 and len(root_edge["produced_goal_ids"]) == 2
     assert len(result["states"]) == 3 and len(result["tactic_edges"]) == 3
     assert len({state["exact_state_hash"] for state in result["states"]}) == 3
-    assert all(state["state_id"].startswith("example/fs-") for state in result["states"])
+    assert all(state["state_id"].startswith("example/fr-1/attempt-1/fs-") for state in result["states"])
     assert result["coordinator_binding"] == {
         "claim_id": "example/c-1", "base_revision": 12, "lease_id": "writer-lease-7", "fencing_token": 4,
     }
@@ -365,7 +367,7 @@ def test_failed_source_admission_is_typed_and_never_runs_as_text(api, artifact_t
     body = _wait(client, "example/fr-1")
     assert body["disposition"] in ("invalid-request", "environment-error")
     assert body["result"]["termination"]["detail"].startswith(category)
-    assert body["attempts"] == 0 and body["input_artifact_hash"] is None
+    assert body["attempts"] == 1 and body["input_artifact_hash"] is None
 
 
 # Cancellation and restart ----------------------------------------------------------

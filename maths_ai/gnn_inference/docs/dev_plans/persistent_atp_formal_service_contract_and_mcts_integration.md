@@ -374,3 +374,16 @@ Gate: both backend policies load verified artifacts and execute native proofs un
 Provider and caller implementations can be tested on coordinated branches before merge. Publish compatible revisions together; do not remove the currently deployed contract before its external callers have a verified migration path. Any temporary dual-protocol requirement needs explicit owner approval, a removal plan, and tests; it is not the default design.
 
 Completion means both selected backends serve bounded formal attempts through the real persistent-atp adapter, with enforced budgets, original source/environment binding, durable lifecycle semantics, and independently replayed evidence admitted only by the coordinator's commit gate. Resolving text conflicts or passing isolated model tests does not establish completion.
+
+## Formal v2 remediation contract
+
+The follow-up architecture is specified in
+`formal_v2_identity_admission_deadline_and_cancellation_remediation.md`.
+Formal state and tactic occurrences are qualified by run and physical attempt,
+for example `example/fr-1/attempt-1/fs-1` and
+`example/fr-1/attempt-1/ta-1`. Migrate the persistent consumer schemas and
+ingestion together; proof-wide numbering is not a compatible substitute.
+One cumulative run time allowance covers each attempt from input admission
+through queueing and execution. Terminal cancellation follows native cleanup.
+Source admission isolates the signature with Lean syntax before executing the
+target proof or suffix. See the follow-up plan for tests and rollout gates.

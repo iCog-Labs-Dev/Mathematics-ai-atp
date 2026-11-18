@@ -361,7 +361,9 @@ class ProvingService:
             if not proof.started and proof in self._proofs:
                 self._proofs.remove(proof)
             elif self._step is not None and getattr(self._step, "proof", None) is proof:
-                self._step.cancel()
+                owned_step = self._step
+                owned_step.cancel()
+                await asyncio.shield(asyncio.gather(owned_step, return_exceptions=True))
             proof.future.cancel()
             if formal:
                 await self._settle_formal_work(proof)
@@ -371,7 +373,9 @@ class ProvingService:
             if not proof.started and proof in self._proofs:
                 self._proofs.remove(proof)
             elif self._step is not None and getattr(self._step, "proof", None) is proof:
-                self._step.cancel()
+                owned_step = self._step
+                owned_step.cancel()
+                await asyncio.shield(asyncio.gather(owned_step, return_exceptions=True))
             proof.future.cancel()
             if formal:
                 await self._settle_formal_work(proof)

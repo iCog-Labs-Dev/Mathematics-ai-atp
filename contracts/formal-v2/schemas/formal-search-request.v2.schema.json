@@ -274,8 +274,12 @@
   "properties": {
     "backend": {
       "anyOf": [
-        {"$ref": "#/$defs/BackendSelection"},
-        {"type": "null"}
+        {
+          "$ref": "#/$defs/BackendSelection"
+        },
+        {
+          "type": "null"
+        }
       ],
       "default": null
     },
@@ -305,8 +309,14 @@
     },
     "deployment_id": {
       "anyOf": [
-        {"maxLength": 256, "minLength": 1, "type": "string"},
-        {"type": "null"}
+        {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
       ],
       "default": null,
       "title": "Deployment Id"

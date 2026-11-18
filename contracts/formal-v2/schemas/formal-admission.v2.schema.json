@@ -112,12 +112,30 @@
           "type": "string"
         },
         "proposal_mode": {
-          "anyOf": [{"enum": ["sample", "greedy"], "type": "string"}, {"type": "null"}],
+          "anyOf": [
+            {
+              "enum": [
+                "sample",
+                "greedy"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": null,
           "title": "Proposal Mode"
         },
         "seed": {
-          "anyOf": [{"type": "integer"}, {"type": "null"}],
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": null,
           "title": "Seed"
         }

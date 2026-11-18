@@ -1,0 +1,101 @@
+{
+  "additionalProperties": false,
+  "description": "``GET /formal-capabilities``; deployments are keyed by ``deployment_id``.",
+  "properties": {
+    "artifact_upload": {
+      "additionalProperties": true,
+      "title": "Artifact Upload",
+      "type": "object"
+    },
+    "budget_fields": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Budget Fields",
+      "type": "array"
+    },
+    "cancellation": {
+      "title": "Cancellation",
+      "type": "string"
+    },
+    "default": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Default"
+    },
+    "deployments": {
+      "additionalProperties": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Deployments",
+      "type": "object"
+    },
+    "frontier_resume": {
+      "const": false,
+      "title": "Frontier Resume",
+      "type": "boolean"
+    },
+    "protocol_versions": {
+      "items": {
+        "const": 2,
+        "type": "integer"
+      },
+      "title": "Protocol Versions",
+      "type": "array"
+    },
+    "registry_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Registry Hash",
+      "type": "string"
+    },
+    "replay": {
+      "title": "Replay",
+      "type": "string"
+    },
+    "retry": {
+      "title": "Retry",
+      "type": "string"
+    },
+    "schema_hashes": {
+      "additionalProperties": {
+        "pattern": "^sha256:[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "title": "Schema Hashes",
+      "type": "object"
+    },
+    "tactic_step": {
+      "title": "Tactic Step",
+      "type": "string"
+    },
+    "wall_clock": {
+      "title": "Wall Clock",
+      "type": "string"
+    }
+  },
+  "required": [
+    "protocol_versions",
+    "schema_hashes",
+    "registry_hash",
+    "deployments",
+    "tactic_step",
+    "budget_fields",
+    "wall_clock",
+    "cancellation",
+    "retry",
+    "frontier_resume",
+    "replay",
+    "artifact_upload"
+  ],
+  "title": "Capabilities",
+  "type": "object"
+}

@@ -1,12 +1,9 @@
 {
   "additionalProperties": false,
   "properties": {
-    "category": {
-      "title": "Category",
-      "type": "string"
-    },
-    "detail": {
-      "title": "Detail",
+    "artifact_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Artifact Hash",
       "type": "string"
     },
     "protocol_version": {
@@ -17,9 +14,8 @@
     }
   },
   "required": [
-    "category",
-    "detail"
+    "artifact_hash"
   ],
-  "title": "ErrorBody",
+  "title": "ArtifactUpload",
   "type": "object"
 }

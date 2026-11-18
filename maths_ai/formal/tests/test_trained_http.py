@@ -85,10 +85,11 @@ def trained_http(tmp_path_factory):
 @pytest.mark.parametrize("deployment,profile,backend", [
     ("mcts", "puct", "mcts-actor-critic"), ("frozen", "frozen-best-first", "accepted-gnn"),
 ])
-def test_trained_goal_source_and_replay_over_real_http(trained_http, deployment, profile, backend):
-    client_module = pytest.importorskip("mathproof.formal_v2")
-    client = client_module.FormalV2HTTPATP(trained_http, timeout=90)
-    cap = client.capabilities()["deployments"][deployment]
+def test_trained_goal_source_and_replay_over_real_http(trained_http, deployment, profile, backend, tmp_path):
+    client_module = pytest.importorskip("mathproof.maths_ai_http")
+    from maths_ai.formal.artifacts import ArtifactStore
+    client = client_module.MathsAIHTTPFormalATP(trained_http, artifacts=ArtifactStore(tmp_path / "client-artifacts"), timeout=90)
+    cap = client.formal_capabilities()["deployments"][deployment]
     assert cap["available"]
     source = client.put_artifact(b"namespace NativeHTTP\ntheorem goal (P : Prop) (h : P) : P := by exact DOES_NOT_EXIST\nend NativeHTTP\n")
     inputs = [{"kind": "goal", "goal_text": "P", "hypotheses": ["P : Prop", "h : P"], "universe_levels": []},
@@ -110,11 +111,11 @@ def test_trained_goal_source_and_replay_over_real_http(trained_http, deployment,
             assert time.monotonic() < deadline
             time.sleep(.1)
         assert result["disposition"] == "proved-pending-replay", result
-        receipt = client.formal_replay(result["certificate"], cap["environment_hash"], max_steps=128, wall_clock_ms=60000)
+        receipt = client.replay_attestation(result["certificate"], cap["environment_hash"], max_steps=128, wall_clock_ms=60000)
         assert receipt["status"] == "verified", receipt
         assert receipt["verification_cost"]["sorry_detected"] is False
-        assert receipt["source_artifact_hash"] == result["source_artifact_hash"]
+        assert receipt["source_artifact_hash"] == result["provider"]["source_artifact_hash"]
         if deployment == "mcts":
-            limited = client.formal_replay(result["certificate"], cap["environment_hash"], max_steps=1, wall_clock_ms=60000)
+            limited = client.replay_attestation(result["certificate"], cap["environment_hash"], max_steps=1, wall_clock_ms=60000)
             assert limited["status"] == "inconclusive", limited
             assert limited["verification_cost"]["tactic_steps"] == 1

@@ -65,6 +65,8 @@ CREATE TABLE IF NOT EXISTS attempts (
     used_steps INTEGER,
     used_exact INTEGER,
     outcome TEXT,
+    elapsed_ms INTEGER NOT NULL DEFAULT 0,
+    result_json TEXT,
     PRIMARY KEY (run_id, attempt)
 );
 CREATE TABLE IF NOT EXISTS replays (
@@ -166,6 +168,9 @@ class FormalRunStore:
         self._db.executescript(SCHEMA)
         if "selection_json" not in {row[1] for row in self._db.execute("PRAGMA table_info(runs)")}:
             self._db.execute("ALTER TABLE runs ADD COLUMN selection_json TEXT")
+        columns = {row[1] for row in self._db.execute("PRAGMA table_info(attempts)")}
+        if "elapsed_ms" not in columns or "result_json" not in columns:
+            raise RuntimeError("Formal store uses an older contract; use a fresh state directory.")
 
     def close(self) -> None:
         with self._lock:
@@ -247,7 +252,7 @@ class FormalRunStore:
                 )
                 self._db.execute(
                     "UPDATE runs SET attempts = ?, status = 'queued', disposition = NULL, termination = NULL, "
-                    "result_json = NULL, certificate_hash = NULL, "
+                    "result_json = NULL, certificate_hash = NULL, cancel_requested = 0, "
                     "updated_at = ? WHERE run_id = ?",
                     (attempt, time.time(), run_id),
                 )
@@ -278,6 +283,7 @@ class FormalRunStore:
         ``used_steps`` of ``None`` means the attempt's cost is unknown: its whole
         reservation is charged and the run's consumption stops being exact.
         """
+        run_fields = dict(run_fields)
         with self._lock:
             self._db.execute("BEGIN IMMEDIATE")
             try:
@@ -291,9 +297,10 @@ class FormalRunStore:
                 exact = used_steps is not None
                 charged = reserved if used_steps is None else min(int(used_steps), reserved)
                 self._db.execute(
-                    "UPDATE attempts SET ended_at = ?, used_steps = ?, used_exact = ?, outcome = ? "
+                    "UPDATE attempts SET ended_at = ?, used_steps = ?, used_exact = ?, outcome = ?, elapsed_ms = ?, result_json = ? "
                     "WHERE run_id = ? AND attempt = ?",
-                    (time.time(), charged, int(exact), outcome, run_id, attempt),
+                    (time.time(), charged, int(exact), outcome,
+                     run_fields.pop("elapsed_ms", 0), json.dumps(run_fields.get("result")), run_id, attempt),
                 )
                 fields = dict(run_fields)
                 assignments = ["consumed_steps = consumed_steps + ?", "updated_at = ?"]
@@ -319,6 +326,12 @@ class FormalRunStore:
                 "SELECT * FROM attempts WHERE run_id = ? ORDER BY attempt", (run_id,)
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def consumed_wall_ms(self, run_id: str) -> int:
+        with self._lock:
+            return self._db.execute(
+                "SELECT COALESCE(SUM(elapsed_ms), 0) FROM attempts WHERE run_id = ?", (run_id,)
+            ).fetchone()[0]
 
     def open_attempt(self, run_id: str) -> Optional[int]:
         with self._lock:

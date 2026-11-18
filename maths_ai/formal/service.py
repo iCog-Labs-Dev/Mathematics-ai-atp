@@ -39,6 +39,8 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from maths_ai.async_ownership import owned_thread
+
 from .admission import AdmissionRejected, AdmittedTask, admit_goal, admit_source, manifest_task
 from .artifacts import ArtifactError, ArtifactStore
 from .backends import AttemptOutcome
@@ -47,10 +49,11 @@ from .contract import (
     PROTOCOL_VERSION,
     Admission,
     FormalReplayRequest,
+    Capabilities,
     FormalSearchRequest,
     BackendSelection,
     ReplayAttestation,
-    RunSnapshot,
+    RunView,
     json_schemas,
 )
 from .deployments import Deployment, DeploymentRegistry, Profile
@@ -61,6 +64,7 @@ logger = logging.getLogger("maths_ai.formal")
 
 _MODEL_KEYS = ("tactic_model_artifact", "argument_model_artifact", "premise_model_artifact")
 _CORPUS_KEYS = ("premise_corpus_artifact", "retrieval_policy")
+QUIESCE_TIMEOUT_S = 120.0
 
 
 class FormalError(Exception):
@@ -69,6 +73,14 @@ class FormalError(Exception):
         self.status = status
         self.category = category
         self.detail = detail
+
+
+def request_digest(request: FormalSearchRequest) -> str:
+    """The request's identity: canonical JSON with null-valued fields removed.
+
+    Omitting an optional field and sending it as ``null`` give the same digest.
+    """
+    return object_ref(request.model_dump(mode="json", exclude_none=True))
 
 
 def environment_hash(environment_id: str, manifest: dict[str, Any]) -> str:
@@ -84,7 +96,8 @@ class FormalService:
         self.artifacts = ArtifactStore(state_dir / "artifacts")
         self.runs = FormalRunStore(state_dir / "formal_runs.sqlite3")
         self._tasks: dict[str, asyncio.Task] = {}
-        self._cancellations: set[asyncio.Task] = set()
+        self._cleanup: dict[str, asyncio.Task] = {}
+        self._blocked_backends: set[str] = set()
         self._recover()
 
     # Lifecycle -----------------------------------------------------------------
@@ -98,6 +111,8 @@ class FormalService:
                                   exact=attempt is None, attempt_cost={"interrupted": True})
             fields = {"status": "interrupted", "disposition": DISPOSITIONS["interrupted"],
                       "termination": "interrupted", "result": result}
+            if attempt is not None:
+                fields["elapsed_ms"] = record.admitted_wall_clock_ms
             if attempt is None:
                 self.runs.update(record.run_id, **fields)
             else:
@@ -105,17 +120,9 @@ class FormalService:
                                          outcome="interrupted", run_fields=fields)
 
     async def close(self) -> None:
-        tasks = list(self._tasks.values())
-        for task in tasks:
-            if not task.cancelling():
-                task.cancel()
-        for task in tasks:
-            try:
-                await task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if self._cancellations:
-            await asyncio.gather(*self._cancellations, return_exceptions=True)
+        for run_id in list(self._tasks):
+            await self.cancel(run_id)
+        await asyncio.gather(*list(self._tasks.values()), *list(self._cleanup.values()), return_exceptions=True)
         self.runs.close()
 
     # Capabilities --------------------------------------------------------------
@@ -140,14 +147,14 @@ class FormalService:
                     available = False
             deployments[deployment.deployment_id] = {
                 **deployment.as_dict(),
-                "available": available,
+                "available": available and deployment.backend not in self._blocked_backends,
                 "environment_hash": self._environment(deployment),
                 "profile_config_hashes": {
                     name: deployment.profile_config_hash(profile)
                     for name, profile in deployment.profiles.items()
                 },
             }
-        return {
+        capabilities = {
             "protocol_versions": [PROTOCOL_VERSION],
             "schema_hashes": {f"{name}.schema.json": object_ref(schema)
                               for name, schema in json_schemas().items()},
@@ -157,13 +164,15 @@ class FormalService:
             "tactic_step": "one tactic command sent to Lean, including rejected commands "
                            "and proof-combination replay",
             "budget_fields": ["budget.max_steps", "budget.wall_clock_ms"],
-            "wall_clock": "per attempt, from that attempt's admission, including queueing",
+            "wall_clock": "cumulative across attempts; each starts at admission, including queueing",
             "cancellation": "asynchronous; terminal after the backend's work has stopped",
             "retry": "bound-initial-input with the remaining admitted allowance",
             "frontier_resume": False,
             "replay": "independent, fresh native session, bound to stored evidence",
             "artifact_upload": {"route": "/formal-artifacts", "max_bytes": self.artifacts.max_bytes},
         }
+        Capabilities.model_validate(capabilities)  # the published schema is the contract
+        return capabilities
 
     # Admission -----------------------------------------------------------------
 
@@ -253,7 +262,7 @@ class FormalService:
                 f"not {request.input.kind!r}.",
             )
         backend = self.backends.get(deployment.backend)
-        if backend is None or not backend.ready():
+        if backend is None or not backend.ready() or deployment.backend in self._blocked_backends:
             raise FormalError(503, "backend-unavailable", f"{deployment.backend} is not available.")
         validate = getattr(backend, "validate_deployment", None)
         if validate is not None:
@@ -291,7 +300,7 @@ class FormalService:
     async def start(self, request: FormalSearchRequest) -> tuple[dict[str, Any], bool]:
         admitted_at = time.monotonic()
         payload = request.model_dump(mode="json")
-        digest = object_ref(payload)
+        digest = request_digest(request)
         existing = self.runs.get(request.run_id)
         if existing is not None:
             return self._reconcile(existing, digest), False
@@ -316,21 +325,91 @@ class FormalService:
         )
         if not self.runs.insert(record):
             return self._reconcile(self.runs.get(request.run_id), digest), False
-        environment = {"environment_id": deployment.environment_id, "environment_hash": env_hash}
-        if request.input.kind == "goal":
-            try:
-                task = admit_goal(
-                    request.input, store=self.artifacts, imports=backend.imports(),
-                    environment=environment, supports_universes=backend.supports_universes,
-                )
-            except AdmissionRejected as exc:
-                self._reject(request.run_id, exc)
-                return self._ack(self.runs.get(request.run_id)), True
-            self._bind_input(request.run_id, task)
-            self._spawn(request.run_id, self._attempt(request.run_id, task, admitted_at))
-        else:
-            self._spawn(request.run_id, self._admit_source_then_attempt(request, backend, environment, admitted_at))
+        self._launch(request.run_id)
         return self._ack(self.runs.get(request.run_id)), True
+
+    def _launch(self, run_id: str, task: Optional[AdmittedTask] = None) -> None:
+        # Allocate ownership synchronously, before any admission or cancellation.
+        record = self.runs.get(run_id)
+        remaining = record.admitted_wall_clock_ms - self.runs.consumed_wall_ms(run_id)
+        if remaining <= 0:
+            raise FormalError(409, "allowance-exhausted", "No admitted wall-clock allowance remains.")
+        started = time.monotonic()
+        attempt, reserved = self.runs.begin_attempt(run_id, time.time())
+        self.runs.update(run_id, status="admitting", cancel_requested=False)
+        self._spawn(run_id, self._execute(run_id, attempt, reserved, started, remaining / 1000, task))
+
+    async def _execute(self, run_id, attempt, reserved, started, allowance, task):
+        record = self.runs.get(run_id)
+        request = FormalSearchRequest.model_validate(record.request)
+        backend = self.backends[record.backend]
+        deadline = started + allowance
+        issued = False
+        outcome = None
+        try:
+            async with asyncio.timeout_at(deadline):
+                if task is None:
+                    environment = {"environment_id": record.environment_id, "environment_hash": record.environment_hash}
+                    if request.input.kind == "goal":
+                        task = await owned_thread(
+                            admit_goal, request.input, store=self.artifacts, imports=backend.imports(),
+                            environment=environment, supports_universes=backend.supports_universes)
+                    else:
+                        async def elaborate(payload):
+                            remaining = deadline - time.monotonic()
+                            if remaining <= 0:
+                                raise TimeoutError()
+                            return await backend.elaborate_source(payload, timeout_s=remaining)
+                        task = await admit_source(request.input, store=self.artifacts,
+                            imports=backend.imports(), environment=environment, elaborate=elaborate)
+                    self._bind_input(run_id, task)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError()
+                if reserved == 0:
+                    outcome = AttemptOutcome("step-budget", steps_used=0)
+                else:
+                    self.runs.mark_started(run_id, attempt)
+                    profile = self.registry.deployments[record.deployment_id].profiles[record.profile]
+                    issued = True
+                    selection = BackendSelection.model_validate(record.backend_selection or request.backend)
+                    outcome = await backend.run(task, profile=profile, selection=selection,
+                                                max_steps=reserved, timeout_s=remaining)
+                    if time.monotonic() >= deadline:
+                        outcome = AttemptOutcome("deadline", steps_used=outcome.steps_used)
+        except AdmissionRejected as exc:
+            termination = "environment-mismatch" if exc.category.startswith("environment:") else "invalid-input"
+            outcome = AttemptOutcome(termination, steps_used=0, error=f"{exc.category}: {exc.detail}")
+        except TimeoutError:
+            outcome = AttemptOutcome("deadline", steps_used=None if issued else 0)
+        except asyncio.CancelledError:
+            outcome = AttemptOutcome("cancelled", steps_used=None if issued else 0)
+        except Exception as exc:
+            logger.exception("formal attempt failed")
+            outcome = AttemptOutcome("crash", steps_used=None if issued else 0, error=str(exc))
+        if outcome.termination in ("cancelled", "deadline", "crash"):
+            self.runs.update(run_id, status="cancelling")
+            cleanup = asyncio.create_task(backend.quiesce(), name=f"formal-cleanup:{run_id}:{attempt}")
+            self._cleanup[run_id] = cleanup
+            try:
+                # Cleanup owns native work; a second cancel must not interrupt it.
+                await asyncio.wait_for(asyncio.shield(cleanup), QUIESCE_TIMEOUT_S)
+            except TimeoutError:
+                self._blocked_backends.add(record.backend)
+                try:
+                    await asyncio.wait_for(backend.retire(), QUIESCE_TIMEOUT_S)
+                    await asyncio.wait_for(asyncio.shield(cleanup), QUIESCE_TIMEOUT_S)
+                except Exception:
+                    logger.exception("Cannot establish termination of %s; run remains nonterminal", run_id)
+                    return
+            except Exception:
+                self._blocked_backends.add(record.backend)
+                logger.exception("Cannot establish termination of %s; run remains nonterminal", run_id)
+                return
+            finally:
+                if cleanup.done():
+                    self._cleanup.pop(run_id, None)
+        self._settle(run_id, attempt, outcome, started)
 
     def _reconcile(self, existing: RunRecord, digest: str) -> dict[str, Any]:
         if existing.request_digest != digest:
@@ -346,78 +425,6 @@ class FormalService:
             source_artifact_hash=task.source_artifact_hash, source_origin=task.source_origin,
             status="queued",
         )
-
-    def _reject(self, run_id: str, exc: AdmissionRejected) -> None:
-        record = self.runs.get(run_id)
-        termination = "environment-mismatch" if exc.category.startswith("environment:") else "invalid-input"
-        result = self._result(record, termination=termination, error=f"{exc.category}: {exc.detail}",
-                              charged=0, exact=True, attempt_cost={"admission": "rejected"})
-        self.runs.update(run_id, status="finished", disposition=DISPOSITIONS[termination],
-                         termination=termination, result=result)
-
-    async def _admit_source_then_attempt(self, request, backend, environment, admitted_at) -> None:
-        run_id = request.run_id
-        wall_s = self.runs.get(run_id).admitted_wall_clock_ms / 1000.0
-
-        async def elaborate(payload):
-            remaining = max(0.0, admitted_at + wall_s - time.monotonic())
-            return await backend.elaborate_source(payload, timeout_s=remaining)
-
-        try:
-            async with asyncio.timeout_at(admitted_at + wall_s):
-                task = await admit_source(
-                    request.input, store=self.artifacts, imports=backend.imports(),
-                    environment=environment, elaborate=elaborate,
-                )
-        except AdmissionRejected as exc:
-            if exc.category == "input:admission-timeout":
-                await self._quiesce(backend)
-                self._deadline_before_attempt(run_id, admitted_at)
-            else:
-                self._reject(run_id, exc)
-            return
-        except TimeoutError:
-            await self._quiesce(backend)
-            self._deadline_before_attempt(run_id, admitted_at)
-            return
-        except asyncio.CancelledError:
-            await self._quiesce(backend)
-            self._cancelled_before_attempt(run_id)
-            raise
-        except Exception as exc:
-            await self._quiesce(backend)
-            record = self.runs.get(run_id)
-            result = self._result(record, termination="crash", error=f"source admission infrastructure: {exc}",
-                                  charged=0, exact=True, attempt_cost={"admission": "crash"})
-            self.runs.update(run_id, status="finished", disposition="internal-error", termination="crash", result=result)
-            return
-        if self.runs.get(run_id).cancel_requested:
-            self._cancelled_before_attempt(run_id)
-            return
-        self._bind_input(run_id, task)
-        await self._attempt(run_id, task, admitted_at)
-
-    async def _quiesce(self, backend) -> None:
-        quiesce = getattr(backend, "quiesce", None)
-        if quiesce is not None:
-            # Runtime supervision owns bounded kill escalation. A wait timeout
-            # is not evidence that native work stopped, so never settle on it.
-            await quiesce()
-
-    def _deadline_before_attempt(self, run_id, admitted_at) -> None:
-        record = self.runs.get(run_id)
-        result = self._result(record, termination="deadline", error="The input admission deadline expired.",
-                              charged=0, exact=True, attempt_cost={
-                                  "admission": "deadline", "wall_clock_ms": int((time.monotonic() - admitted_at) * 1000)})
-        self.runs.update(run_id, status="finished", disposition="budget-exhausted",
-                         termination="deadline", result=result)
-
-    def _cancelled_before_attempt(self, run_id: str) -> None:
-        record = self.runs.get(run_id)
-        result = self._result(record, termination="cancelled", error=None, charged=0, exact=True,
-                              attempt_cost={"admission": "cancelled"})
-        self.runs.update(run_id, status="finished", disposition="cancelled",
-                         termination="cancelled", result=result)
 
     def _spawn(self, run_id: str, coroutine) -> None:
         task = asyncio.get_running_loop().create_task(coroutine, name=f"formal-run:{run_id}")
@@ -447,41 +454,6 @@ class FormalService:
             consumed_exact=record.consumed_exact and exact,
             attempt_cost=attempt_cost, display_goal=display,
         )
-
-    async def _attempt(self, run_id: str, task: AdmittedTask, admitted_at: float) -> None:
-        attempt, reserved = self.runs.begin_attempt(run_id, time.time())
-        record = self.runs.get(run_id)
-        deployment = self.registry.deployments[record.deployment_id]
-        profile = deployment.profiles[record.profile]
-        backend = self.backends[record.backend]
-        if reserved == 0:
-            outcome = AttemptOutcome("step-budget", steps_used=0, error="No tactic steps remain.")
-        else:
-            self.runs.mark_started(run_id, attempt)
-            selection = BackendSelection.model_validate(record.backend_selection or record.request["backend"])
-            timeout_s = admitted_at + record.admitted_wall_clock_ms / 1000.0 - time.monotonic()
-            try:
-                if timeout_s <= 0:
-                    outcome = AttemptOutcome("deadline", steps_used=0)
-                else:
-                    async with asyncio.timeout(timeout_s):
-                        outcome = await backend.run(
-                            task, profile=profile, selection=selection, max_steps=reserved, timeout_s=timeout_s,
-                        )
-                    if time.monotonic() >= admitted_at + record.admitted_wall_clock_ms / 1000.0:
-                        outcome = AttemptOutcome("deadline", steps_used=outcome.steps_used)
-            except asyncio.CancelledError:
-                # The cost of interrupted work is unknown: charge the reservation.
-                await self._quiesce(backend)
-                self._settle(run_id, attempt, AttemptOutcome("cancelled", steps_used=None), admitted_at)
-                raise
-            except TimeoutError:
-                await self._quiesce(backend)
-                outcome = AttemptOutcome("deadline", steps_used=None)
-            except Exception as exc:  # noqa: BLE001 — typed as a crash, never a proof outcome
-                logger.exception("formal attempt %s/%s failed", run_id, attempt)
-                outcome = AttemptOutcome("crash", steps_used=None, error=f"{type(exc).__name__}: {exc}")
-        self._settle(run_id, attempt, outcome, admitted_at)
 
     def _settle(self, run_id: str, attempt: int, outcome: AttemptOutcome, admitted_at: float) -> None:
         record = self.runs.get(run_id)
@@ -518,6 +490,7 @@ class FormalService:
         self.runs.settle_attempt(
             run_id, attempt, used_steps=outcome.steps_used, outcome=termination,
             run_fields={
+                "elapsed_ms": cost["wall_clock_ms"],
                 "status": "finished",
                 "disposition": DISPOSITIONS[termination],
                 "termination": termination,
@@ -532,7 +505,7 @@ class FormalService:
         record = self.runs.get(run_id)
         if record is None:
             raise FormalError(404, "run-not-found", f"No run {run_id}.")
-        snapshot = {
+        view = {
             **self._ack(record),
             "disposition": record.disposition,
             "termination": record.termination,
@@ -542,7 +515,8 @@ class FormalService:
                 {"replay": item["replay"], "status": item["status"]} for item in self.runs.replays(run_id)
             ],
         }
-        return RunSnapshot.model_validate(snapshot).model_dump(mode="json", exclude_unset=True)
+        RunView.model_validate(view)  # the published schema is the contract
+        return view
 
     async def cancel(self, run_id: str) -> dict[str, Any]:
         record = self.runs.get(run_id)
@@ -553,26 +527,10 @@ class FormalService:
         self.runs.update(run_id, cancel_requested=True, status="cancelling")
         task = self._tasks.get(run_id)
         if task is not None:
-            cleanup = asyncio.get_running_loop().create_task(self._finish_cancel(run_id, task))
-            self._cancellations.add(cleanup)
-            cleanup.add_done_callback(self._cancellations.discard)
+            await asyncio.sleep(0)
+            if not task.done():
+                task.cancel()
         return self.get(run_id)
-
-    async def _finish_cancel(self, run_id: str, task: asyncio.Task) -> None:
-        if not task.cancelling():
-            task.cancel()
-        try:
-            await task
-        except (asyncio.CancelledError, Exception):  # noqa: BLE001
-            pass
-        record = self.runs.get(run_id)
-        if record.status == "finished":
-            return  # The owning coroutine already awaited cleanup and settled.
-        backend = self.backends.get(record.backend)
-        quiesce = getattr(backend, "quiesce", None)
-        if quiesce is not None:
-            await quiesce()
-        self._cancelled_before_attempt(run_id)
 
     async def retry(self, run_id: str) -> dict[str, Any]:
         admitted_at = time.monotonic()
@@ -600,23 +558,16 @@ class FormalService:
         if self._environment(deployment) != record.environment_hash:
             raise FormalError(409, "environment-changed", f"The backend no longer runs {record.environment_hash}.")
         backend = self.backends.get(record.backend)
-        if backend is None or not backend.ready():
+        if backend is None or not backend.ready() or deployment.backend in self._blocked_backends:
             raise FormalError(503, "backend-unavailable", f"{record.backend} is not available.")
-        if record.input_artifact_hash is None:
-            # Admission itself was interrupted: admit the bound request again.
-            request = FormalSearchRequest.model_validate(record.request)
-            environment = {"environment_id": record.environment_id, "environment_hash": record.environment_hash}
-            self.runs.update(run_id, status="admitting", cancel_requested=False, disposition=None,
-                             termination=None, result=None)
-            self._spawn(run_id, self._admit_source_then_attempt(request, backend, environment, admitted_at))
-            return self.get(run_id)
-        try:
-            manifest = self.artifacts.get_json(record.input_artifact_hash)
-        except ArtifactError as exc:
-            raise FormalError(409, "input-evidence-unavailable", exc.detail) from exc
-        task = manifest_task(manifest, record.input_artifact_hash)
-        self.runs.update(run_id, cancel_requested=False)
-        self._spawn(run_id, self._attempt(run_id, task, admitted_at))
+        task = None
+        if record.input_artifact_hash is not None:
+            try:
+                manifest = self.artifacts.get_json(record.input_artifact_hash)
+            except ArtifactError as exc:
+                raise FormalError(409, "input-evidence-unavailable", exc.detail) from exc
+            task = manifest_task(manifest, record.input_artifact_hash)
+        self._launch(run_id, task)
         await asyncio.sleep(0)
         return self.get(run_id)
 
@@ -676,7 +627,7 @@ class FormalService:
                            record.environment_hash)
         if "native_target" in manifest and certificate.get("native_target") != manifest["native_target"]:
             return attest("rejected", "certificate changed the original native target", {}, record.environment_hash)
-        if backend is None or not backend.ready():
+        if backend is None or not backend.ready() or deployment.backend in self._blocked_backends:
             raise FormalError(503, "backend-unavailable", f"{record.backend} is not available.")
         current = self._environment(deployment)
         if current != record.environment_hash:

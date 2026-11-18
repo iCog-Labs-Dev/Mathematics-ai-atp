@@ -1,0 +1,48 @@
+{
+  "title": "Read the admitted-input manifest bound to the run",
+  "request": {
+    "method": "GET",
+    "path": "/formal-artifacts/sha256:8495db7febd2b48e3d3879c65ebee2c3d5f8c51089f44236d38a8687d57e4b19",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+      "environment_id": "mathlib-4.10-rc1",
+      "format": "maths-ai-formal-input-v1",
+      "input": {
+        "goal_text": "n + 1 = 3",
+        "hypotheses": [
+          "n : Nat",
+          "h : n = 2"
+        ],
+        "kind": "goal",
+        "universe_levels": []
+      },
+      "kind": "goal",
+      "seed": {
+        "goal": "n + 1 = 3",
+        "hypotheses": [
+          "n : Nat",
+          "h : n = 2"
+        ],
+        "kind": "text",
+        "source": {
+          "origin": "formal-goal"
+        }
+      },
+      "source_artifact_hash": "sha256:10880359a57172ed310e1486f43714c4337f4eda68f6edcacb3568288e3ca18c",
+      "source_origin": "generated-from-text",
+      "statement": {
+        "expression": "∀ (n : Nat), ∀ (h : n = 2), n + 1 = 3",
+        "fingerprint": "c105718564dc922ed8f1b02b7aa0e729afa0d7ac5bdc123bdbaf02d4e4657e03",
+        "local_names": [
+          "n",
+          "h"
+        ],
+        "universe_levels": []
+      }
+    }
+  }
+}

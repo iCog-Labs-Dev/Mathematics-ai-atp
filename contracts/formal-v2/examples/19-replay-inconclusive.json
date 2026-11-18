@@ -1,0 +1,41 @@
+{
+  "title": "Replay inconclusive: verification ran out, not a verdict",
+  "request": {
+    "method": "POST",
+    "path": "/formal-replay",
+    "body": {
+      "protocol_version": 2,
+      "run_id": "example/fr-7",
+      "certificate_hash": "sha256:1098a687e2843b0cda88a2cd19d749095f3f5d6cb7b0235968fffbb54a7dcd2a",
+      "input_artifact_hash": "sha256:faebf8bebd5e091befab7510d1685a805f453f08e78fb88b17de73c446e8e206",
+      "source_artifact_hash": "sha256:58db31f77db7759a56a7b80dad2d57986bd315e502ed7fff46c2b1f588c9d611",
+      "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+      "budget": {
+        "max_steps": 50,
+        "wall_clock_ms": 30000
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "protocol_version": 2,
+      "status": "inconclusive",
+      "reason": "scripted inconclusive",
+      "run_id": "example/fr-7",
+      "certificate_hash": "sha256:1098a687e2843b0cda88a2cd19d749095f3f5d6cb7b0235968fffbb54a7dcd2a",
+      "input_artifact_hash": "sha256:faebf8bebd5e091befab7510d1685a805f453f08e78fb88b17de73c446e8e206",
+      "source_artifact_hash": "sha256:58db31f77db7759a56a7b80dad2d57986bd315e502ed7fff46c2b1f588c9d611",
+      "source_origin": "generated-from-text",
+      "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+      "backend": "mcts-actor-critic",
+      "verification_cost": {
+        "allowance_max_steps": 50,
+        "tactic_steps": null,
+        "wall_clock_ms": 0,
+        "limit": 50
+      }
+    },
+    "schema": "formal-replay-attestation.v2"
+  }
+}

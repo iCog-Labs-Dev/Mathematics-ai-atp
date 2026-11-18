@@ -133,7 +133,7 @@ def test_admission_timeout_is_budget_exhaustion_not_invalid_input(tmp_path):
             final = await wait_finished(service, body["run_id"])
             assert final["termination"] == "deadline" and final["disposition"] == "budget-exhausted"
             assert not backend.entered.is_set() and backend.stopped.is_set()
-            assert final["budget"]["consumed_steps"] == 0 and final["attempts"] == 0
+            assert final["budget"]["consumed_steps"] == 0 and final["attempts"] == 1
         finally:
             await service.close()
     asyncio.run(scenario())
@@ -210,7 +210,7 @@ def test_admission_infrastructure_failure_settles_without_claiming_invalid_math(
             await service.start(FormalSearchRequest.model_validate(body))
             final = await wait_finished(service, body["run_id"])
             assert final["disposition"] == "internal-error" and final["termination"] == "crash"
-            assert final["attempts"] == 0 and final["budget"]["consumed_steps"] == 0
+            assert final["attempts"] == 1 and final["budget"]["consumed_steps"] == 0
         finally:
             await service.close()
     asyncio.run(scenario())

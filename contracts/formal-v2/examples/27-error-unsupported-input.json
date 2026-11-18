@@ -1,0 +1,49 @@
+{
+  "title": "A source input for a deployment that admits goals only (422)",
+  "request": {
+    "method": "POST",
+    "path": "/formal-search/start",
+    "body": {
+      "protocol_version": 2,
+      "proof_id": "example",
+      "claim_id": "example/c-1",
+      "formal_declaration_id": "example/fd-1",
+      "run_id": "example/fr-9",
+      "base_revision": 12,
+      "lease_id": "writer-lease-7",
+      "fencing_token": 4,
+      "input": {
+        "kind": "source",
+        "artifact_hash": "sha256:9e8d40e0f6c29c4830942783552e37082c2449b847e92e0560d13e1e882bcf15",
+        "declaration": "Demo.target",
+        "starting_state": "binders-introduced"
+      },
+      "environment_id": "mathlib-4.10-rc1",
+      "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+      "backend": {
+        "name": "accepted-gnn",
+        "profile": "best_first",
+        "proposal_mode": "sample",
+        "seed": 42
+      },
+      "deployment_id": "accepted-example",
+      "search_policy": {
+        "policy_name": "bounded-formal",
+        "deny_sorry": true
+      },
+      "budget": {
+        "max_steps": 100,
+        "wall_clock_ms": 45000
+      }
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "protocol_version": 2,
+      "category": "unsupported-proposal",
+      "detail": "The accepted backend is greedy and does not use a seed."
+    },
+    "schema": "formal-error.v2"
+  }
+}

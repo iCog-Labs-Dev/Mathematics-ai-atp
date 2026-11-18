@@ -20,6 +20,8 @@ inject fakes; docs generation imports the app).
 from __future__ import annotations
 
 import asyncio
+
+from maths_ai.async_ownership import owned_thread
 import os
 import logging
 from dataclasses import dataclass, field
@@ -224,7 +226,7 @@ class InferenceService:
             async with self.proof_lock:
                 async with self.gnn_lock:
                     structured_goal = await self._structured_goal_for_prediction(goal, hypotheses)
-                    candidates = await asyncio.to_thread(
+                    candidates = await owned_thread(
                         engine.inference,
                         goal,
                         top_k=top_k,
@@ -233,11 +235,11 @@ class InferenceService:
         else:
             async with self.gnn_lock:
                 if hypotheses:
-                    candidates = await asyncio.to_thread(
+                    candidates = await owned_thread(
                         engine.inference, goal, top_k=top_k, hypotheses=hypotheses,
                     )
                 else:
-                    candidates = await asyncio.to_thread(engine.inference, goal, top_k=top_k)
+                    candidates = await owned_thread(engine.inference, goal, top_k=top_k)
         filtered = filter_executable_tactic_candidates(candidates)
         if len(filtered) != len(candidates):
             logger.warning(
@@ -249,7 +251,7 @@ class InferenceService:
     async def evaluate(self, goal: GoalInput) -> PLNResult:
         """Score one structured goal with the shared PLN compiler."""
         async with self.pln_lock:
-            return await asyncio.to_thread(self.reasoner.petta_chainer.evaluate, goal)
+            return await owned_thread(self.reasoner.petta_chainer.evaluate, goal)
 
     async def persist_dts_state(self) -> None:
         """Persist the DTS sampler under the state-file lock."""
@@ -258,7 +260,7 @@ class InferenceService:
             return
         async with self.dts_lock:
             try:
-                await asyncio.to_thread(self._save_dts_sync)
+                await owned_thread(self._save_dts_sync)
             except Exception:
                 logger.exception("failed to persist DTS state to %s", self.dts_state_path)
 
@@ -272,7 +274,7 @@ class InferenceService:
         server = getattr(self.reasoner, "server", None)
         close = getattr(server, "_close", None)
         if close is not None:
-            await asyncio.to_thread(close)
+            await owned_thread(close)
 
 
 async def build_default_service(
