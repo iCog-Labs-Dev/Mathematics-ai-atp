@@ -9,7 +9,7 @@
 This table is what each backend supports in this provider. A deployment can
 offer less than its backend supports, never more.
 
-| | `mcts-actor-critic` | `accepted-gnn` |
+| | `mcts-actor-critic` | `accepted-gnn` (main-derived profile) |
 | --- | --- | --- |
 | Model | source-aware actor-critic checkpoint (MCTS release, e.g. `v1.0.x`) | published `iCogLabs-Dev/Mathlib-Sexpr-GNN` v2 bundle at `8aba62625dfeb833e4591498700f351f3bc60af9` |
 | Runtime | `pantograph-async-client` `2b32650` with REPL `123nol/Pantograph@46a33e1` | PyPantograph `3322696` with REPL `jajos12/Pantograph@0dd5d22` |
@@ -40,3 +40,19 @@ Terminations either backend reports, and their dispositions:
 | `cancelled` | `cancelled` |
 
 `counterexample` is never produced: neither backend searches for refutations.
+
+## Frozen accepted GNN profile
+
+When `MATHS_AI_FROZEN_CONFIG` is configured, the `accepted-gnn-frozen` deployment
+uses profile `frozen-best-first`, with the original accepted-local-cues policy
+and native theorem-context helper at Pantograph `73781c2`. It supports source
+and goal input, preserves the original source prefix/target, and independently
+compiles/audits candidate proofs before a `certified` search result. Its text
+profile rejects unsupported universes; model calls, nodes, depth and top-k have
+separate provider-owned ceilings.
+
+This is a distinct implementation from the main-derived profile in the table.
+Deployments are marked unavailable if the configured accepted backend cannot
+serve their profile; the service does not silently substitute one pipeline for
+the other. Replay reports explicit native `verification_cost.sorry_detected`
+evidence. Both profiles use the shared lifecycle and durable-attempt ownership.

@@ -58,7 +58,9 @@
         "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
         "model": {
           "tactic_model_artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        }
+        },
+        "proposal_mode": "sample",
+        "seed": 42
       },
       "budget": {
         "requested_max_steps": 100,

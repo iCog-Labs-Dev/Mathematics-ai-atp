@@ -2,6 +2,11 @@
 
 This is the contract between persistent-atp (the caller) and the
 Mathematics-ai-atp provider for bounded formal proof attempts.
+
+This consolidated package includes PR94's durable-attempt semantics and the
+frozen GNN/default-selection integration. `MathsAIHTTPFormalATP` is the paired
+persistent-atp adapter. The previous seven-schema snapshot is superseded; use
+this package's manifest and nine runtime schemas together.
 - **What it holds:** JSON Schemas for every request and response, worked
   examples of every call and outcome, the rules for resolving artifacts and
   computing hashes, and what each backend supports.

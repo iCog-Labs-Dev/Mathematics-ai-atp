@@ -122,9 +122,8 @@ class MctsFormalBackend:
         return bool(self.service.readiness()["ready"])
 
     async def quiesce(self) -> None:
-        # run_formal now awaits cleanup of its exact queued/active operation
-        # before returning cancellation. Never wait on another run's _step.
-        return
+        """Wait for native cleanup, not an unrelated operation's dispatcher slot."""
+        await self.service.supervisor.settled()
 
     async def retire(self) -> None:
         # Retire this backend if its operation cannot establish termination.
@@ -190,7 +189,7 @@ class MctsFormalBackend:
         except (BackendFailure, AdmissionRejected) as exc:
             return VerifyOutcome("inconclusive", f"verification could not run: {exc}", None, None)
         return VerifyOutcome(
-            result["status"], result.get("reason"), None, result.get("formal_environment"),
+            result["status"], result.get("reason"), result.get("steps_used"), result.get("formal_environment"),
             result.get("verification") or {},
         )
 
@@ -240,6 +239,10 @@ def certificate_source(statement: dict[str, Any], trace: dict[str, Any], imports
 class AcceptedFormalBackend:
     name = ACCEPTED_BACKEND
     supports_universes = False
+
+    def validate_deployment(self, deployment, profile):
+        if profile.name == "frozen-best-first" or "source" in deployment.inputs:
+            raise ValueError("main-derived accepted backend cannot serve the frozen/source profile")
 
     def __init__(self, service, *, project_path: Path, imports: list[str]) -> None:
         self.service = service

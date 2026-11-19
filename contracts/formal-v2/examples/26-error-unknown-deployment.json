@@ -45,7 +45,7 @@
     "body": {
       "protocol_version": 2,
       "category": "unknown-deployment",
-      "detail": "No deployment 'nope'."
+      "detail": "No deployment 'nope'; configure a default or select one."
     },
     "schema": "formal-error.v2"
   }

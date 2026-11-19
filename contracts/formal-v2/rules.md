@@ -6,6 +6,15 @@ the code disagree, the code is the bug: report it.
 
 ## 1. Canonical JSON and content addresses
 
+### Deployment selection
+
+`backend` and `deployment_id` may be omitted. The registry's `default` selects
+the deployment and profile; admission resolves proposal mode/seed once and
+persists that selection. Explicit selections override the default and must
+match the deployment. Retry reuses the persisted selection, not a later default.
+`/formal-capabilities` exposes the default and exact `schema_hashes` so the caller
+can verify the full package revision before submitting work.
+
 - A **content address** is `sha256:` followed by the lowercase hex SHA-256 of
   the exact bytes it names (pattern `^sha256:[0-9a-f]{64}$`).
 - **Canonical JSON** is UTF-8 with:

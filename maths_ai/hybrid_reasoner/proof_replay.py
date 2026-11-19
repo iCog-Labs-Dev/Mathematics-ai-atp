@@ -583,6 +583,7 @@ async def reverify(
     retire_session,
     max_heartbeats: Optional[int] = None,
     max_tactic_steps: Optional[int] = None,
+    allowance: Optional[TacticAllowance] = None,
 ) -> CertificationResult:
     """Replay ``artifact`` in ``scope`` from its statement and certify it again.
 
@@ -602,9 +603,16 @@ async def reverify(
         local_names=tuple(statement["local_names"]),
         universe_levels=tuple(statement["universe_levels"]),
     )
+    if allowance is None and max_tactic_steps is not None:
+        allowance = TacticAllowance(max_tactic_steps)
+    elif allowance is not None and max_tactic_steps is not None and allowance.limit != max_tactic_steps:
+        raise ValueError("verification counter differs from the requested allowance")
     registry = SnapshotRegistry(scope, retire_session=retire_session)
     try:
-        state = await materialize_replay(scope, spec)
+        try:
+            state = await materialize_replay(scope, spec, allowance=allowance)
+        except TacticBudgetExhausted as exc:
+            raise ReplayBudgetExhausted(exc.limit) from exc
         lease = registry.adopt_root(state, "artifact")
         (root,) = state.goals
         goal = execution_goal_to_goal(root)
@@ -612,8 +620,7 @@ async def reverify(
             ObligationKey.root(): (root.goal_name, root_declarations(goal), goal)
         }
         executor = RetainedTacticExecutor()
-        if max_tactic_steps is not None:
-            executor.allowance = TacticAllowance(max_tactic_steps)
+        executor.allowance = allowance
         for step in artifact.steps:
             if step.obligation not in open_obligations:
                 raise ArtifactMismatch(f"Step {step.attempt} names an unknown obligation.")

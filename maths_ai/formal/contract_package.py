@@ -312,6 +312,13 @@ def build(out: Path) -> None:
     index = record_examples(out)
     (out / "examples" / "index.json").write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
     validate(out)
+    write_manifest(out)
+
+
+def write_manifest(out: Path) -> None:
+    """Refresh package fingerprints without rerunning recorded HTTP exchanges."""
+    out = Path(out)
+    schemas = json_schemas()
     files = sorted(p for p in out.rglob("*") if p.is_file() and p.name != "manifest.json")
     manifest = {
         "package": "maths-ai-formal-contract",

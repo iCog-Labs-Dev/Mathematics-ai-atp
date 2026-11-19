@@ -448,5 +448,25 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
             assert not (root / entry["path"]).exists(), entry["path"]
         else:
             expected[entry["path"]] = entry["sha256"]
+    formal = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "formal_v2_release/source_manifest.json").read_text()
+    )
+    assert formal["upstream_protocol_commit"] == "516b8a184fec056d26d29cc73ef513e21202c4dc"
+    # The original feature snapshot is historical. The consolidated stage is
+    # now based on PR94's updated source/attempt contract; do not rewrite either
+    # parent's evidence to make its hashes look like the merged implementation.
+    consolidated = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "formal_v2_consolidation/source_manifest.json").read_text()
+    )
+    assert consolidated["upstream_protocol_commit"] == "947a98a30eb30b869009d130e5d7bf7fecbb7644"
+    for entry in consolidated["sources"]:
+        assert entry["target_base_sha256"] == expected.get(entry["path"]), entry["path"]
+        expected[entry["path"]] = entry["sha256"]
+    package = root / "contracts/formal-v2"
+    raw = (package / "manifest.json").read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == consolidated["contract_manifest_sha256"]
+    for name, digest in json.loads(raw)["files_sha256"].items():
+        expected[f"contracts/formal-v2/{name}"] = digest.removeprefix("sha256:")
+    expected["contracts/formal-v2/manifest.json"] = consolidated["contract_manifest_sha256"]
     for path, digest in expected.items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path

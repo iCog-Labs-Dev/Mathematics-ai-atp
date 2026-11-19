@@ -41,8 +41,8 @@
     "status": 422,
     "body": {
       "protocol_version": 2,
-      "category": "unsupported-input",
-      "detail": "Deployment accepted-example admits ['goal'] inputs, not 'source'."
+      "category": "unsupported-proposal",
+      "detail": "The accepted backend is greedy and does not use a seed."
     },
     "schema": "formal-error.v2"
   }

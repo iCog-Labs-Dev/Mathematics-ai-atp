@@ -13,8 +13,8 @@
       "status": "finished",
       "request_digest": "sha256:4e44bd66763562be5bd7f891ed5fcb55f3fab4405ef9fd697f994481baff2163",
       "input_kind": "goal",
-      "input_artifact_hash": "sha256:858cacc89460e8bdcb87fb85b613852b26652e8767812d8ca7d6c9306360156e",
-      "source_artifact_hash": "sha256:ba3d44c477d51270d4082708123e254ab4d36db8b09f267c36b488131f1e6665",
+      "input_artifact_hash": "sha256:14ecf971a75e823bd0c647daf3a27be44d66de54ed87f7b8d7252b538128df61",
+      "source_artifact_hash": "sha256:146d92ff655d069d9cbd962fc808795bcf98996fb3782f0557dd6e625262c438",
       "source_origin": "generated-from-text",
       "resolved": {
         "deployment_id": "mcts-example",
@@ -25,7 +25,9 @@
         "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
         "model": {
           "tactic_model_artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        }
+        },
+        "proposal_mode": "sample",
+        "seed": 42
       },
       "budget": {
         "requested_max_steps": 100,
@@ -48,11 +50,11 @@
         "artifacts": [
           {
             "role": "admitted-input",
-            "sha256": "sha256:858cacc89460e8bdcb87fb85b613852b26652e8767812d8ca7d6c9306360156e"
+            "sha256": "sha256:14ecf971a75e823bd0c647daf3a27be44d66de54ed87f7b8d7252b538128df61"
           },
           {
             "role": "generated-source",
-            "sha256": "sha256:ba3d44c477d51270d4082708123e254ab4d36db8b09f267c36b488131f1e6665"
+            "sha256": "sha256:146d92ff655d069d9cbd962fc808795bcf98996fb3782f0557dd6e625262c438"
           }
         ],
         "attempts": 1,
@@ -73,7 +75,7 @@
             "reserved_steps": 60,
             "tactic_steps": 60,
             "tactic_steps_exact": false,
-            "wall_clock_ms": 516
+            "wall_clock_ms": 505
           },
           "tactic_steps": 60,
           "tactic_steps_exact": false
@@ -87,7 +89,7 @@
         "declaration_id": "example/fd-1",
         "disposition": "cancelled",
         "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
-        "input_artifact_hash": "sha256:858cacc89460e8bdcb87fb85b613852b26652e8767812d8ca7d6c9306360156e",
+        "input_artifact_hash": "sha256:14ecf971a75e823bd0c647daf3a27be44d66de54ed87f7b8d7252b538128df61",
         "input_kind": "goal",
         "obstructions": [],
         "proof_id": "example",
@@ -95,11 +97,11 @@
         "request_digest": "sha256:4e44bd66763562be5bd7f891ed5fcb55f3fab4405ef9fd697f994481baff2163",
         "root_state_id": "example/fr-5/attempt-1/fs-1",
         "run_id": "example/fr-5",
-        "source_artifact_hash": "sha256:ba3d44c477d51270d4082708123e254ab4d36db8b09f267c36b488131f1e6665",
+        "source_artifact_hash": "sha256:146d92ff655d069d9cbd962fc808795bcf98996fb3782f0557dd6e625262c438",
         "source_origin": "generated-from-text",
         "states": [
           {
-            "exact_state_hash": "sha256:1331b1277445b6d65b0d2008ad4ad7b76c0b58a874bb17360964a7c1d7f20d58",
+            "exact_state_hash": "sha256:a3804ad6660e55f8d747ac3c22460bd6a879421fbb9a6e5325cb68ca295ada43",
             "goal_text": "sleep:5",
             "kind": "goal",
             "semantic_signature": "sha256:c28a07c53f97ae92ad4c22cd2b78c7d9c4e17d6213eaebf9760b45096ff644c5",

@@ -1,0 +1,38 @@
+{
+  "lagrange": {
+    "title": "Lagrange's six-variable identity",
+    "description": "Express the three-dimensional Gram determinant as a sum of three squares.",
+    "input": {
+      "kind": "goal",
+      "goal_text": "(a^2 + b^2 + c^2) * (x^2 + y^2 + z^2) - (a*x + b*y + c*z)^2 = (a*y - b*x)^2 + (a*z - c*x)^2 + (b*z - c*y)^2",
+      "hypotheses": ["a : ℝ", "b : ℝ", "c : ℝ", "x : ℝ", "y : ℝ", "z : ℝ"],
+      "universe_levels": []
+    },
+    "reference_declaration": "FormalV2Examples.lagrange_identity",
+    "model_search": "Observed: both trained backends found ring and passed independent native replay."
+  },
+  "cauchy-schwarz": {
+    "title": "Three-dimensional Cauchy–Schwarz inequality",
+    "description": "Bound the square of a dot product by the product of squared norms.",
+    "input": {
+      "kind": "goal",
+      "goal_text": "(a*x + b*y + c*z)^2 ≤ (a^2 + b^2 + c^2) * (x^2 + y^2 + z^2)",
+      "hypotheses": ["a : ℝ", "b : ℝ", "c : ℝ", "x : ℝ", "y : ℝ", "z : ℝ"],
+      "universe_levels": []
+    },
+    "reference_declaration": "FormalV2Examples.cauchy_schwarz_three",
+    "model_search": "Reference proof supplied; bounded model search is a challenge, not a recorded success."
+  },
+  "crt": {
+    "title": "Bounded Chinese remainder problem",
+    "description": "Show that the natural number below 105 with remainders 2, 3 and 2 modulo 3, 5 and 7 is 23.",
+    "input": {
+      "kind": "goal",
+      "goal_text": "n = 23",
+      "hypotheses": ["n : ℕ", "h3 : n % 3 = 2", "h5 : n % 5 = 3", "h7 : n % 7 = 2", "hbound : n < 105"],
+      "universe_levels": []
+    },
+    "reference_declaration": "FormalV2Examples.chinese_remainder_bounded",
+    "model_search": "Observed: MCTS exhausted its bounded search; no model-discovered proof is claimed."
+  }
+}

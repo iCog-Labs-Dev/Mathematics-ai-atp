@@ -51,8 +51,10 @@ from .contract import (
     FormalReplayRequest,
     Capabilities,
     FormalSearchRequest,
+    BackendSelection,
     ReplayAttestation,
     RunView,
+    json_schemas,
 )
 from .deployments import Deployment, DeploymentRegistry, Profile
 from .results import DISPOSITIONS, build_result
@@ -136,9 +138,16 @@ class FormalService:
         deployments = {}
         for deployment in self.registry.deployments.values():
             backend = self.backends.get(deployment.backend)
+            available = backend is not None and backend.ready()
+            if available and hasattr(backend, "validate_deployment"):
+                try:
+                    for profile in deployment.profiles.values():
+                        backend.validate_deployment(deployment, profile)
+                except ValueError:
+                    available = False
             deployments[deployment.deployment_id] = {
                 **deployment.as_dict(),
-                "available": backend is not None and backend.ready() and deployment.backend not in self._blocked_backends,
+                "available": available and deployment.backend not in self._blocked_backends,
                 "environment_hash": self._environment(deployment),
                 "profile_config_hashes": {
                     name: deployment.profile_config_hash(profile)
@@ -147,6 +156,9 @@ class FormalService:
             }
         capabilities = {
             "protocol_versions": [PROTOCOL_VERSION],
+            "schema_hashes": {f"{name}.schema.json": object_ref(schema)
+                              for name, schema in json_schemas().items()},
+            "default": dict(self.registry.default) if self.registry.default is not None else None,
             "registry_hash": self.registry.registry_hash,
             "deployments": deployments,
             "tactic_step": "one tactic command sent to Lean, including rejected commands "
@@ -184,6 +196,8 @@ class FormalService:
                 "environment_id": record.environment_id,
                 "environment_hash": record.environment_hash,
                 "model": record.model,
+                "proposal_mode": (record.backend_selection or record.request.get("backend") or {}).get("proposal_mode"),
+                "seed": (record.backend_selection or record.request.get("backend") or {}).get("seed"),
             },
             "budget": {
                 "requested_max_steps": record.requested_max_steps,
@@ -205,20 +219,41 @@ class FormalService:
         }
         return Admission.model_validate(ack).model_dump(mode="json")
 
-    def _resolve(self, request: FormalSearchRequest) -> tuple[Deployment, Profile, Any, str]:
-        deployment = self.registry.deployments.get(request.deployment_id)
+    def _selection(self, request: FormalSearchRequest):
+        default = self.registry.default or {}
+        deployment_id = request.deployment_id or default.get("deployment_id")
+        deployment = self.registry.deployments.get(deployment_id)
         if deployment is None:
-            raise FormalError(422, "unknown-deployment", f"No deployment {request.deployment_id!r}.")
-        if request.backend.name != deployment.backend:
+            raise FormalError(422, "unknown-deployment", f"No deployment {deployment_id!r}; configure a default or select one.")
+        selection = request.backend
+        if selection is None:
+            if default.get("deployment_id") == deployment_id:
+                selected = {key: value for key, value in default.items() if key != "deployment_id"}
+            elif len(deployment.profiles) == 1:
+                selected = {"profile": next(iter(deployment.profiles))}
+            else:
+                raise FormalError(422, "profile-required", "Select a profile for this non-default deployment.")
+            selection = BackendSelection(name=deployment.backend, **selected)
+        if selection.name != deployment.backend:
             raise FormalError(
                 422, "backend-mismatch",
-                f"Deployment {deployment.deployment_id} serves {deployment.backend}, not {request.backend.name}.",
+                f"Deployment {deployment.deployment_id} serves {deployment.backend}, not {selection.name}.",
             )
-        profile = deployment.profiles.get(request.backend.profile)
+        if deployment.backend == "accepted-gnn":
+            if selection.proposal_mode not in (None, "greedy") or selection.seed is not None:
+                raise FormalError(422, "unsupported-proposal", "The accepted backend is greedy and does not use a seed.")
+            selection = selection.model_copy(update={"proposal_mode": "greedy"})
+        else:
+            selection = selection.model_copy(update={"proposal_mode": selection.proposal_mode or "sample", "seed": selection.seed if selection.seed is not None else 0})
+        return deployment, selection
+
+    def _resolve(self, request: FormalSearchRequest):
+        deployment, selection = self._selection(request)
+        profile = deployment.profiles.get(selection.profile)
         if profile is None:
             raise FormalError(
                 422, "unknown-profile",
-                f"Deployment {deployment.deployment_id} has no profile {request.backend.profile!r}.",
+                f"Deployment {deployment.deployment_id} has no profile {selection.profile!r}.",
             )
         if request.input.kind not in deployment.inputs:
             raise FormalError(
@@ -229,6 +264,12 @@ class FormalService:
         backend = self.backends.get(deployment.backend)
         if backend is None or not backend.ready() or deployment.backend in self._blocked_backends:
             raise FormalError(503, "backend-unavailable", f"{deployment.backend} is not available.")
+        validate = getattr(backend, "validate_deployment", None)
+        if validate is not None:
+            try:
+                validate(deployment, profile)
+            except ValueError as exc:
+                raise FormalError(409, "deployment-mismatch", str(exc)) from exc
         if request.environment_id != deployment.environment_id:
             raise FormalError(
                 409, "environment-mismatch",
@@ -254,15 +295,16 @@ class FormalService:
                     409, "model-mismatch",
                     f"Deployment {deployment.deployment_id} does not use {key} {value}.",
                 )
-        return deployment, profile, backend, actual
+        return deployment, profile, backend, actual, selection
 
     async def start(self, request: FormalSearchRequest) -> tuple[dict[str, Any], bool]:
+        admitted_at = time.monotonic()
         payload = request.model_dump(mode="json")
         digest = request_digest(request)
         existing = self.runs.get(request.run_id)
         if existing is not None:
             return self._reconcile(existing, digest), False
-        deployment, profile, backend, env_hash = self._resolve(request)
+        deployment, profile, backend, env_hash, selection = self._resolve(request)
         requested_wall = request.budget.wall_clock_ms
         record = RunRecord(
             run_id=request.run_id, request_digest=digest, request=payload,
@@ -279,6 +321,7 @@ class FormalService:
             status="admitting", disposition=None, termination=None, result=None,
             certificate_hash=None, attempts=0, cancel_requested=False,
             created_at=time.time(), updated_at=time.time(),
+            backend_selection=selection.model_dump(mode="json"),
         )
         if not self.runs.insert(record):
             return self._reconcile(self.runs.get(request.run_id), digest), False
@@ -329,7 +372,8 @@ class FormalService:
                     self.runs.mark_started(run_id, attempt)
                     profile = self.registry.deployments[record.deployment_id].profiles[record.profile]
                     issued = True
-                    outcome = await backend.run(task, profile=profile, selection=request.backend,
+                    selection = BackendSelection.model_validate(record.backend_selection or request.backend)
+                    outcome = await backend.run(task, profile=profile, selection=selection,
                                                 max_steps=reserved, timeout_s=remaining)
                     if time.monotonic() >= deadline:
                         outcome = AttemptOutcome("deadline", steps_used=outcome.steps_used)
@@ -414,6 +458,10 @@ class FormalService:
     def _settle(self, run_id: str, attempt: int, outcome: AttemptOutcome, admitted_at: float) -> None:
         record = self.runs.get(run_id)
         reserved = next(row["reserved_steps"] for row in self.runs.attempt_rows(run_id) if row["attempt"] == attempt)
+        if outcome.steps_used is not None and (type(outcome.steps_used) is not int or not 0 <= outcome.steps_used <= reserved):
+            outcome = AttemptOutcome("crash", steps_used=None, error="The backend reported invalid tactic accounting.")
+        if outcome.termination == "certified" and (not outcome.certified or outcome.certificate is None or outcome.trace is None):
+            outcome = AttemptOutcome("crash", steps_used=outcome.steps_used, error="The backend supplied incomplete certification evidence.")
         exact = outcome.steps_used is not None
         charged = reserved if not exact else min(int(outcome.steps_used), reserved)
         certificate_hash = None
@@ -485,6 +533,7 @@ class FormalService:
         return self.get(run_id)
 
     async def retry(self, run_id: str) -> dict[str, Any]:
+        admitted_at = time.monotonic()
         record = self.runs.get(run_id)
         if record is None:
             raise FormalError(404, "run-not-found", f"No run {run_id}.")
@@ -575,7 +624,9 @@ class FormalService:
                                ("environment_hash", record.environment_hash))
         ):
             return attest("rejected", "the certificate or input manifest is not bound to this run", {},
-                          record.environment_hash)
+                           record.environment_hash)
+        if "native_target" in manifest and certificate.get("native_target") != manifest["native_target"]:
+            return attest("rejected", "certificate changed the original native target", {}, record.environment_hash)
         if backend is None or not backend.ready() or deployment.backend in self._blocked_backends:
             raise FormalError(503, "backend-unavailable", f"{record.backend} is not available.")
         current = self._environment(deployment)

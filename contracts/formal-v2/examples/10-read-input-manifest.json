@@ -2,7 +2,7 @@
   "title": "Read the admitted-input manifest bound to the run",
   "request": {
     "method": "GET",
-    "path": "/formal-artifacts/sha256:f08e0b45be4332e8fb1d4033f0dd4eabfb2ad6607819980eac76d3d53713bffa",
+    "path": "/formal-artifacts/sha256:8495db7febd2b48e3d3879c65ebee2c3d5f8c51089f44236d38a8687d57e4b19",
     "body": null
   },
   "response": {
@@ -32,7 +32,7 @@
           "origin": "formal-goal"
         }
       },
-      "source_artifact_hash": "sha256:81b585559278b9dcbaecd365200b8a7f931669ded4012ce2aaf69791384cc8d8",
+      "source_artifact_hash": "sha256:10880359a57172ed310e1486f43714c4337f4eda68f6edcacb3568288e3ca18c",
       "source_origin": "generated-from-text",
       "statement": {
         "expression": "∀ (n : Nat), ∀ (h : n = 2), n + 1 = 3",

@@ -25,7 +25,9 @@
         "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
         "model": {
           "tactic_model_artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        }
+        },
+        "proposal_mode": "sample",
+        "seed": 42
       },
       "budget": {
         "requested_max_steps": 100,
@@ -60,7 +62,7 @@
           },
           {
             "role": "search-summary",
-            "sha256": "sha256:1784c50afd9bfcb5bb59a3bfb43282f73b967cbfaf99159cca23ef303dd12a83"
+            "sha256": "sha256:9883fd758f5d64b6adec4a898c2e228b66d302340680559250d76bf82448f467"
           }
         ],
         "attempts": 1,
@@ -81,7 +83,7 @@
             "reserved_steps": 60,
             "tactic_steps": 3,
             "tactic_steps_exact": true,
-            "wall_clock_ms": 41
+            "wall_clock_ms": 23
           },
           "tactic_steps": 3,
           "tactic_steps_exact": true

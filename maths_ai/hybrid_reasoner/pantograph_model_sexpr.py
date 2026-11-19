@@ -68,7 +68,7 @@ async def create_model_sexpr_client(env: PantographEnv) -> PantographClient:
 
 
 async def materialize_replay(
-    scope: PantographStateScope, replay: GoalReplaySpec
+    scope: PantographStateScope, replay: GoalReplaySpec, *, allowance=None
 ) -> TacticState:
     """Serialize replayed locals, then release the unmaterialized start."""
     start = await scope.start_goal(replay.expression, levels=replay.universe_levels)
@@ -76,6 +76,8 @@ async def materialize_replay(
         tactic = (
             f"intro {' '.join(replay.local_names)}" if replay.local_names else "skip"
         )
+        if allowance is not None:
+            allowance.reserve()
         return await scope.apply_tactic(start, tactic)
     finally:
         if scope.is_usable:
@@ -83,7 +85,7 @@ async def materialize_replay(
 
 
 async def materialize_seed(
-    scope: PantographStateScope, seed: LeanGoalSeed
+    scope: PantographStateScope, seed: LeanGoalSeed, *, allowance=None
 ) -> tuple[TacticState, Goal, ReplayValidation]:
     """Replay ``seed`` and check that Lean built the goal it describes.
 
@@ -95,7 +97,7 @@ async def materialize_seed(
     """
     replay = render_replay(seed)
     try:
-        state = await materialize_replay(scope, replay)
+        state = await materialize_replay(scope, replay, allowance=allowance)
     except (PantographGoalRejected, PantographTacticRejected) as exc:
         raise ReplayInputError(ReplayFailure.LEAN_REJECTED, str(exc)) from exc
     try:

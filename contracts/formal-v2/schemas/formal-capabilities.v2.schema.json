@@ -18,6 +18,19 @@
       "title": "Cancellation",
       "type": "string"
     },
+    "default": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Default"
+    },
     "deployments": {
       "additionalProperties": {
         "additionalProperties": true,
@@ -52,6 +65,14 @@
       "title": "Retry",
       "type": "string"
     },
+    "schema_hashes": {
+      "additionalProperties": {
+        "pattern": "^sha256:[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "title": "Schema Hashes",
+      "type": "object"
+    },
     "tactic_step": {
       "title": "Tactic Step",
       "type": "string"
@@ -63,6 +84,7 @@
   },
   "required": [
     "protocol_versions",
+    "schema_hashes",
     "registry_hash",
     "deployments",
     "tactic_step",

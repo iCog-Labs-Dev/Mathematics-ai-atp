@@ -540,7 +540,7 @@ def load_prepared_metadata(prepared_root: str | Path, *, splits: tuple[str, ...]
     )
 
 
-def transform_edge_index(edge_index: torch.Tensor, *, edge_mode: str) -> torch.Tensor:
+def transform_edge_index(edge_index: torch.Tensor, *, edge_mode: str, deduplicate: bool = True) -> torch.Tensor:
     if edge_mode == "forward":
         return edge_index.to(dtype=torch.long).contiguous()
     if edge_mode != "bidirectional":
@@ -551,7 +551,7 @@ def transform_edge_index(edge_index: torch.Tensor, *, edge_mode: str) -> torch.T
     forward = edge_index.to(dtype=torch.long)
     reverse = forward[[1, 0], :]
     combined = torch.cat([forward, reverse], dim=1)
-    return torch.unique(combined, dim=1).contiguous()
+    return torch.unique(combined, dim=1).contiguous() if deduplicate else combined.contiguous()
 
 
 def validate_prepared_data(data, *, path: Path, split: str, required_fields: tuple[str, ...]) -> None:

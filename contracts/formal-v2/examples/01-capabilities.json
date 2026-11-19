@@ -11,6 +11,18 @@
       "protocol_versions": [
         2
       ],
+      "schema_hashes": {
+        "formal-search-request.v2.schema.json": "sha256:54a374a753d7a5d5aff67dcae407b3f0c91860c757f40323165b9137317befce",
+        "formal-replay-request.v2.schema.json": "sha256:8f4d23f7a830fc610f1e4c3cf2aaa1dd284dba979d8e587b65256dd657ffd805",
+        "formal-admission.v2.schema.json": "sha256:4a57893f9a4a79b68149949fd826e3d8d4931fa65e8c6961ce71a3ef5cfe2d9d",
+        "formal-replay-attestation.v2.schema.json": "sha256:8c182ee28371a0e5c24109144600d6a73341c132d2b9994164b2520bee309755",
+        "formal-error.v2.schema.json": "sha256:d00b5b0147cc1050f8bbbaf327a33e7448ea0eb0baf29d55d18080aae15938a6",
+        "formal-run.v2.schema.json": "sha256:0827c4267898eb1c585afd8b5bf159f6e6a5325c276bc71c1cf3478a37e89a55",
+        "formal-result.v2.schema.json": "sha256:d0e324f1a1b8a78c39d2f48b4ca2213418cdb120066eb9550d3b03bc3765c94a",
+        "formal-capabilities.v2.schema.json": "sha256:8d9a1006c907ab232b567347468fe6d19d655a2087c9e5962e9c9198bef3b472",
+        "formal-artifact-upload.v2.schema.json": "sha256:f02efd87bbbe3a13efa5f70d78d6166a9fe475fdd38f707c5cfab78324f1fb5b"
+      },
+      "default": null,
       "registry_hash": "sha256:d9398ffa68f8b836c2a0f999e2242f0f7c02d77541ff70f04e09a28bea25aaeb",
       "deployments": {
         "mcts-example": {

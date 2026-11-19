@@ -13,8 +13,8 @@
       "status": "finished",
       "request_digest": "sha256:5a1f0cc53d527444c043b6d74367042fec3d797d14bcd8a3d7981946cb55a727",
       "input_kind": "goal",
-      "input_artifact_hash": "sha256:0d64c5225dc658bf9ac199ea85573a07d2972c997f6c1cc974cf5a30a9b041b6",
-      "source_artifact_hash": "sha256:317d17ec20d41121abc1805da99d4b2f5c191789f8d4dba7647a7c787502f878",
+      "input_artifact_hash": "sha256:495f5df87f605f911ed5a887b41bf788a16c8ff4d9cb0a72b5b4a3aa1a11f33a",
+      "source_artifact_hash": "sha256:e685376ea9dc949f62e868410c6c1c4e10cd8ab6336aea03757eabe8e81a17a3",
       "source_origin": "generated-from-text",
       "resolved": {
         "deployment_id": "mcts-example",
@@ -25,7 +25,9 @@
         "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
         "model": {
           "tactic_model_artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        }
+        },
+        "proposal_mode": "sample",
+        "seed": 42
       },
       "budget": {
         "requested_max_steps": 100,
@@ -48,15 +50,15 @@
         "artifacts": [
           {
             "role": "admitted-input",
-            "sha256": "sha256:0d64c5225dc658bf9ac199ea85573a07d2972c997f6c1cc974cf5a30a9b041b6"
+            "sha256": "sha256:495f5df87f605f911ed5a887b41bf788a16c8ff4d9cb0a72b5b4a3aa1a11f33a"
           },
           {
             "role": "generated-source",
-            "sha256": "sha256:317d17ec20d41121abc1805da99d4b2f5c191789f8d4dba7647a7c787502f878"
+            "sha256": "sha256:e685376ea9dc949f62e868410c6c1c4e10cd8ab6336aea03757eabe8e81a17a3"
           },
           {
             "role": "search-summary",
-            "sha256": "sha256:9deef0f73dca3ac4aff4939240a3aa795e2f38a410c07cc684f37221d0fc435a"
+            "sha256": "sha256:ad9b3ae7e5f032874ba052d440efd94ab1948d951faa774950ec2aad2eacd8df"
           }
         ],
         "attempts": 2,
@@ -77,7 +79,7 @@
             "reserved_steps": 20,
             "tactic_steps": 20,
             "tactic_steps_exact": true,
-            "wall_clock_ms": 4
+            "wall_clock_ms": 1
           },
           "tactic_steps": 60,
           "tactic_steps_exact": true
@@ -91,7 +93,7 @@
         "declaration_id": "example/fd-1",
         "disposition": "budget-exhausted",
         "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
-        "input_artifact_hash": "sha256:0d64c5225dc658bf9ac199ea85573a07d2972c997f6c1cc974cf5a30a9b041b6",
+        "input_artifact_hash": "sha256:495f5df87f605f911ed5a887b41bf788a16c8ff4d9cb0a72b5b4a3aa1a11f33a",
         "input_kind": "goal",
         "obstructions": [],
         "proof_id": "example",
@@ -99,11 +101,11 @@
         "request_digest": "sha256:5a1f0cc53d527444c043b6d74367042fec3d797d14bcd8a3d7981946cb55a727",
         "root_state_id": "example/fr-3/attempt-2/fs-1",
         "run_id": "example/fr-3",
-        "source_artifact_hash": "sha256:317d17ec20d41121abc1805da99d4b2f5c191789f8d4dba7647a7c787502f878",
+        "source_artifact_hash": "sha256:e685376ea9dc949f62e868410c6c1c4e10cd8ab6336aea03757eabe8e81a17a3",
         "source_origin": "generated-from-text",
         "states": [
           {
-            "exact_state_hash": "sha256:4f2931aceef5774da86aaf5a501d9e9e2776d4bfd3f7afe416c4f75792474741",
+            "exact_state_hash": "sha256:e59c7c79ec03c359348e8471f9f3e7e71a75fadf5d5da7ba38f565969e586d1c",
             "goal_text": "uses:40",
             "kind": "goal",
             "semantic_signature": "sha256:8dc4204e221dacb2c91897c61bd85b38e7f0da2499ba933d37f2ea0a1448a58a",

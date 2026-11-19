@@ -365,6 +365,8 @@ class ProvingService:
                 owned_step.cancel()
                 await asyncio.shield(asyncio.gather(owned_step, return_exceptions=True))
             proof.future.cancel()
+            if formal:
+                await self._settle_formal_work(proof)
             raise DeadlineExceeded("The request deadline expired")
         except asyncio.CancelledError:
             # The client went away: drop a queued proof, cancel a running one.
@@ -375,9 +377,22 @@ class ProvingService:
                 owned_step.cancel()
                 await asyncio.shield(asyncio.gather(owned_step, return_exceptions=True))
             proof.future.cancel()
+            if formal:
+                await self._settle_formal_work(proof)
             raise
         finally:
             proof.queue_timer.cancel()
+
+    async def _settle_formal_work(self, proof: _Proof) -> None:
+        """Await this operation and its native cleanup before settling its run."""
+        step = self._step
+        if step is not None and getattr(step, "proof", None) is proof:
+            try:
+                await asyncio.shield(step)
+            except asyncio.CancelledError:
+                if not step.done():
+                    raise  # This waiter was cancelled again; work has not stopped.
+        await self.supervisor.settled()
 
     async def _run_proof(self, proof: _Proof) -> None:
         proof.started = True

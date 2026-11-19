@@ -42,6 +42,8 @@ class SourceCandidates:
     lemma_ids: tuple[int, ...]
     lemma_vectors: Tensor  # Frozen text-index vectors, before projection.
     lemma_scores: Tensor   # Frozen retrieval cosine scores.
+    local_type_signal: Tensor | None = None
+    local_type_bonus: float = 0.0
 
     def __post_init__(self) -> None:
         if (
@@ -53,6 +55,11 @@ class SourceCandidates:
             or len(self.lemma_ids) != self.lemma_scores.numel()
             or len(set(self.local_ids)) != len(self.local_ids)
             or len(set(self.lemma_ids)) != len(self.lemma_ids)
+            or not math.isfinite(self.local_type_bonus)
+            or self.local_type_bonus < 0
+            or (self.local_type_signal is not None and (
+                self.local_type_signal.shape != (len(self.local_ids),)
+                or not bool(torch.isfinite(self.local_type_signal).all())))
         ):
             raise ValueError("candidate IDs, vectors, and text scores must align uniquely")
 
@@ -111,7 +118,7 @@ def score_library_candidates(
 
 
 def source_logits(
-    policy: "JointSourcePolicy", hidden: Tensor, candidates: SourceCandidates
+    policy: "JointSourcePolicy", hidden: Tensor, candidates: SourceCandidates, *, step: int = 0
 ) -> Tensor:
     """Pick between sources using in-pool evidence, not text scores alone.
 
@@ -141,6 +148,8 @@ def source_logits(
         logits = logits.masked_fill(torch.tensor([True, False], device=logits.device), float("-inf"))
     if not candidates.lemma_ids:
         logits = logits.masked_fill(torch.tensor([False, True], device=logits.device), float("-inf"))
+    if step == 0 and candidates.local_type_signal is not None and candidates.local_type_bonus:
+        local_scores = local_scores + candidates.local_type_bonus * candidates.local_type_signal.to(local_scores)
     return logits, local_scores, library_scores, adapted
 
 
@@ -165,8 +174,8 @@ def decode_action(
     count = int(argument_count_logits(policy, hidden).argmax().item())
     arguments: list[DecodedArgument] = []
     complete = True
-    for _ in range(count):
-        logits, local_scores, library_scores, adapted = source_logits(policy, hidden, candidates)
+    for step in range(count):
+        logits, local_scores, library_scores, adapted = source_logits(policy, hidden, candidates, step=step)
         if not torch.isfinite(logits).any():
             complete = False
             break
@@ -223,3 +232,42 @@ def goal_first_text(state_text: str) -> str:
     if not context.strip():
         return f"Goal: {goal.strip()}"
     return f"Goal: {goal.strip()}\nContext: {context.strip()}"
+
+
+def local_type_signals(candidates, node_labels, id_to_label, *, tactic_name, goal_sexp, hyp_sexps):
+    """Accepted 1315dca soft cues, preserving its trained-vocabulary OOV behavior."""
+    import re
+    from maths_ai.lean_replay.sexp import parse_sexp_string
+    values = candidates.local_vectors.new_zeros(len(candidates.local_ids))
+    if tactic_name not in {"exact", "rw", "simp", "subst"}:
+        return values
+    hypotheses = {f"FV{int(h['context_index'])}": h for h in hyp_sexps}
+    goal = parse_sexp_string(goal_sexp) if tactic_name != "exact" else None
+
+    def contains(tree, expression):
+        pending = [tree]
+        while pending:
+            current = pending.pop()
+            if current == expression:
+                return True
+            if isinstance(current, list):
+                pending.extend(current)
+        return False
+
+    for position, node_id in enumerate(candidates.local_ids):
+        label = id_to_label.get(int(node_labels[node_id]), "")
+        hypothesis = hypotheses.get(label) if re.fullmatch(r"FV\d+", label) else None
+        if hypothesis is None or not isinstance(hypothesis.get("sexp"), str):
+            continue
+        if tactic_name == "exact":
+            values[position] = float(hypothesis["sexp"] == goal_sexp)
+            continue
+        relation = parse_sexp_string(hypothesis["sexp"])
+        if (not isinstance(relation, list) or len(relation) < 4 or relation[0] != ":app"
+                or relation[1] not in ([":c", "Eq"], [":c", "Iff"], [":c", "HEq"])):
+            continue
+        explicit = [item[3] for item in relation[2:] if isinstance(item, list) and len(item) == 4
+                    and item[0] == ":arg" and item[1] == ":explicit"]
+        if len(explicit) >= 2 and any(contains(goal, side) for side in explicit[-2:]):
+            values[position] = 1.0
+    return values

@@ -564,6 +564,34 @@
           "pattern": "^sha256:[0-9a-f]{64}$",
           "title": "Profile Config Hash",
           "type": "string"
+        },
+        "proposal_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "sample",
+                "greedy"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proposal Mode"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed"
         }
       },
       "required": [
