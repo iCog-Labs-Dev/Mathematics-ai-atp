@@ -3,6 +3,11 @@
   "purpose": "Bound startup tests and preserve early failures without changing production protocol validation.",
   "sources": [
     {
+      "path": ".github/workflows/ci.yml",
+      "target_base_sha256": "43c2ecf990f897b298dea6b47a9d4e89fea9c6b85823a830ec32c301d1585270",
+      "sha256": "60a690b2ccaac76244ae5d9721c2666a2b5292d183b01d497a4c84e95f2154c7"
+    },
+    {
       "path": "maths_ai/gnn_inference/tests/pantograph_fake.py",
       "target_base_sha256": "23853ed6c9cd21989c9732896c494354990d5f1a9b8ac1efefc79c04b2947896",
       "sha256": "fe424eae304b10e6cac395ad431797aca17a9fc97e429385d463232b2f9edda4"

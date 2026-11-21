@@ -31,7 +31,7 @@ The checked-out source branch was fast-forwarded from `3b1c50f889d85429b3ad1d635
 
 ## Local validation
 
-- Clean PR head plus the CI-only patch: **1,022 passed, 70 skipped, 35 subtests passed** in the inference suite, using the installed pinned client. The original factory tests and new startup-failure/interpreter regressions pass.
+- The original local validation snapshot produced **1,022 passed, 70 skipped, 35 subtests passed**, but omitted the changed workflow. It therefore did not validate the complete patch; the follow-up below corrects that limitation.
 - Source-lineage checks: **8 passed** after appending the new adaptation record.
 - Workflow YAML parsing and `git diff --check` passed.
 - The broader working tree, including existing uncommitted measurement work, produced **1,062 passed, 70 skipped**, and one source-lineage failure for its pre-existing `rl_training_driver.py` changes. Those changes were not reverted or included in the CI adaptation hashes. They need their own lineage record if committed separately.
@@ -41,3 +41,13 @@ This validation does not reproduce the complete GitHub runner environment or est
 ## Remaining release gate
 
 Push the reviewed patch and rerun GitHub CI. A fresh run must establish whether the original two startup tests now pass. If either still fails, the fail-fast traceback and retained diagnostics are needed to identify its cause. This local repair is not evidence that PR #96 is already green or ready to merge.
+
+## Follow-up: workflow lineage mismatch
+
+[Run 44890029659](https://github.com/iCog-Labs-Dev/Mathematics-ai-atp/actions/runs/44890029659), after commit `7c660bd0656d7138ed4462ff51cd3d331a25afce`, stopped after 647 passed and 51 skipped cases. Its first failure was the source-lineage assertion for `.github/workflows/ci.yml`: the actual hash was `60a690b2ccaac76244ae5d9721c2666a2b5292d183b01d497a4c84e95f2154c7`, while the last recorded hash was `43c2ecf990f897b298dea6b47a9d4e89fea9c6b85823a830ec32c301d1585270`.
+
+The previous patch registered its changed test files but omitted the workflow from the new lineage stage. Its local validation snapshot also omitted the workflow change. This was a validation mistake, not an unexplained runner difference. The correction adds the workflow's prior and current hashes to that same adaptation stage without changing earlier records or disabling the check.
+
+Follow-up verification uses a fresh archive of the exact pushed commit, reproduces the mismatch, and then applies only the manifest correction. All tracked files changed by the original CI commit must be present in that validation snapshot.
+
+Result: the exact pushed snapshot reproduced the workflow mismatch before correction. With only the manifest correction applied, the inference suite completed with **1,022 passed, 70 skipped, and 35 subtests passed**. All seven other files from the original patch were verified unchanged against the pushed commit. `git diff --check` passed. A new GitHub run is still required, including the factory tests that this fail-fast run did not reach.
