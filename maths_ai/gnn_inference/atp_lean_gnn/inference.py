@@ -1,19 +1,26 @@
 """Inference pipeline for end-to-end tactic prediction.
 
-This module provides the ``InferencePipeline`` which integrates graph conversion,
-tactic prediction, premise retrieval, and candidate scoring to produce a final
-tactic string.
+The pipeline prepares explicitly owned observations asynchronously, then decodes
+complete ranked actions synchronously. Unsupported rendering is recorded per
+action so a valid alternative can still reach the reasoner.
 """
 
 from __future__ import annotations
 
+import math
 import logging
 import re
+from dataclasses import dataclass
+from enum import Enum
+
 import torch
-from torch_geometric.data import Batch
+from torch_geometric.data import Batch, Data
+from maths_ai.data_models.proof_components import Goal
 
 from .argument_selector import TacticWithArgsClassifier
-from .graph import DAGBuilder, GraphNode, proof_state_to_dag
+from .actor_critic import ActorCriticWithArgsClassifier
+from .policy_actions import CandidatePoolSnapshot, fingerprint
+from .graph import DAGBuilder, GraphNode, model_goal_to_dag, proof_state_to_dag
 from .labels import get_tactic_arity
 from .lemma_corpus import LemmaRecord
 from .lemma_index import LemmaIndex
@@ -31,25 +38,103 @@ _FRESH_NAME_TACTICS = frozenset({"intro", "rintro", "introV2"})
 # Local only: accept only local context nodes, reject library lemmas
 _LOCAL_ONLY_TACTICS = frozenset({"cases", "rcases", "rcases_pattern", "obtain"})
 # No arguments needed
-_NO_ARGS_TACTICS = frozenset({"constructor", "assumption", "trivial", "omega", "decide", "rfl", "sorry"})
+_NO_ARGS_TACTICS = frozenset(
+    {"constructor", "assumption", "trivial", "omega", "decide", "rfl", "sorry"}
+)
 # Everything else (exact, apply, refine, rw, simp, ...): accept unified pool
 
 
-def _resolve_local_node_name(node: GraphNode, dag: DAGBuilder) -> str:
-    """Attempt to extract a readable hypothesis or variable name from a node."""
-    if node.label == "Hyp" and node.children:
-        name_node = dag.nodes[node.children[0]]
-        return name_node.label
-    return node.label
+_FV_LABEL_RE = re.compile(r"^FV(\d+)$")
+
+
+def _is_playable_local_name(value: str) -> bool:
+    if value == "_" or _FV_LABEL_RE.match(value):
+        return False
+    core = value.rstrip("'!?")
+    return bool(core) and core.isidentifier()
+
+
+def local_declarations(goal) -> dict[str, str]:
+    """Each local's model context label (``FVk``) mapped to its live Lean name.
+
+    The label is the declaration's identity in the graph: context indices are
+    unique in a goal, while display names need not be (a shadowed source name
+    and a new local can share one).
+    """
+    return {
+        f"FV{local.context_index}": local.execution_or_live_name
+        for local in goal.locals or []
+    }
+
+
+def local_declaration_ids(goal) -> dict[str, str]:
+    """Each local's model context label (``FVk``) mapped to its live Lean ID."""
+    return {
+        f"FV{local.context_index}": local.internal_name
+        for local in goal.locals or []
+        if local.internal_name
+    }
+
+
+def local_node_label(node: GraphNode, dag: DAGBuilder) -> str | None:
+    """The context label of a selected structured local, or ``None`` for text graphs."""
+    if node.label == "Hyp" and len(node.children) == 4:
+        return dag.nodes[node.children[0]].label
+    if _FV_LABEL_RE.match(node.label):
+        return node.label
+    return None
+
+
+def _resolve_local_node_name(
+    node: GraphNode,
+    dag: DAGBuilder,
+    declarations: dict[str, str] | None = None,
+) -> str:
+    """Resolve a selected local to the name Lean knows that declaration by.
+
+    A structured local (a four-child ``Hyp`` or its ``FVk`` node) is looked up
+    by its context label in ``declarations``, never by its display name. A
+    graph built from printed text has no context identity; there the
+    declaration's own name node is the name.
+    """
+    if node.label == "Hyp" and len(node.children) == 4:
+        label = dag.nodes[node.children[0]].label
+    elif _FV_LABEL_RE.match(node.label):
+        label = node.label
+    elif node.label == "Hyp" and node.children:
+        label = None
+    else:
+        raise ValueError(
+            f"Selected node {node.label!r} is not a structured local declaration."
+        )
+    if label is None:
+        result = dag.nodes[node.children[0]].label
+    elif declarations is None or label not in declarations:
+        raise ValueError(f"Selected local {label} has no live declaration.")
+    else:
+        result = declarations[label]
+    if not _is_playable_local_name(result):
+        raise ValueError(
+            f"Selected local {result!r} is not a playable Lean identifier."
+        )
+    return result
 
 
 def _extract_fresh_names_from_dag(dag: DAGBuilder) -> list[str]:
-    """Walk the DAG and collect fresh variable names from ∀-bound leaf nodes."""
+    """Walk the DAG and collect fresh variable names from ∀-bound leaf nodes.
+
+    Only returns variables at binder_depth == 1 (the outermost forall),
+    excluding variables nested inside type annotations like ``Set α``.
+    """
     from .graph import BINDER_KIND_FORALL
+
     return [
-        node.label for node in dag.nodes
-        if node.is_bound == 1 and node.binder_kind == BINDER_KIND_FORALL
-        and not node.children  # leaf variable node
+        node.label
+        for node in dag.nodes
+        if node.is_bound == 1
+        and node.binder_kind == BINDER_KIND_FORALL
+        and node.binder_depth == 1
+        and not node.children
     ]
 
 
@@ -82,7 +167,9 @@ def _top_tactic_candidates(
 
     topk = torch.topk(tactic_probs, k=top_k, dim=-1)
     candidates: list[dict[str, object]] = []
-    for tactic_id, probability in zip(topk.indices.tolist(), topk.values.tolist(), strict=False):
+    for tactic_id, probability in zip(
+        topk.indices.tolist(), topk.values.tolist(), strict=False
+    ):
         candidates.append(
             {
                 "tactic_id": int(tactic_id),
@@ -112,12 +199,30 @@ class ArgumentPrediction:
         return f"ArgumentPrediction(source={self.source!r}, candidate_id={self.candidate_id}, label={self.label!r}, score={self.score:.4f})"
 
 
+class ActionRendering(str, Enum):
+    RENDERED = "rendered"
+    UNSUPPORTED = "unsupported"
+
+
+@dataclass(frozen=True, eq=False)
+class PreparedObservation:
+    """Explicitly owned model input, bound to one preparing pipeline."""
+
+    owner: object
+    goal: Goal
+    dag: DAGBuilder
+    data: Data
+    graph_fingerprint: str
+    query: str
+    pool: CandidatePoolSnapshot
+
+
 class InferenceResult:
     """Structured inference result for tactic and argument prediction."""
 
     def __init__(
         self,
-        predicted_tactic: str,
+        predicted_tactic: str | None,
         tactic_name: str,
         tactic_id: int,
         tactic_probabilities: list[tuple[str, float]],
@@ -126,6 +231,11 @@ class InferenceResult:
         *,
         top_tactic_predictions: list[dict[str, object]] | None = None,
     ) -> None:
+        self.rendering_status = (
+            ActionRendering.RENDERED
+            if predicted_tactic is not None
+            else ActionRendering.UNSUPPORTED
+        )
         self.predicted_tactic = predicted_tactic
         self.tactic_name = tactic_name
         self.tactic_id = tactic_id
@@ -136,281 +246,137 @@ class InferenceResult:
 
 
 class InferencePipeline:
-    """End-to-end tactic prediction pipeline."""
+    """Live candidate preparation followed by the shared complete-action policy."""
 
-    def __init__(
-        self,
-        model: TacticWithArgsClassifier,
-        scorer: PremiseScorer,
-        lemma_index: LemmaIndex,
-        node_vocab: dict[str, int],
-        tactic_vocab: dict[str, int],
-        device: torch.device,
-        k: int = 500,
-        lemma_corpus: dict[int, LemmaRecord] | None = None,
-    ) -> None:
-        self.model = model
-        self.scorer = scorer
-        self.lemma_index = lemma_index
-        self.node_vocab = node_vocab
-        self.tactic_vocab = tactic_vocab
-        self.device = device
-        self.k = k
-        self.lemma_corpus = lemma_corpus
-        self.filtered_candidate_count = 0
-        self.filtered_negative_id_count = 0
-        self.filtered_missing_corpus_count = 0
-        self.filtered_arity_count = 0
-
-        # Invert tactic vocab for decoding
-        self.id_to_tactic = {idx: name for name, idx in tactic_vocab.items()}
-
-        self.model.eval()
-        self.scorer.eval()
-
-    @torch.no_grad()
-    def predict_tactic(self, state_str: str) -> str:
-        """Predict a full tactic string given a Lean proof state."""
-        return self.predict_tactic_result(state_str).predicted_tactic
-
-    @torch.no_grad()
-    def predict_tactic_result(self, state_str: str, *, top_k: int = 1) -> InferenceResult:
-        """Predict tactics and return detailed inference information for the top-k candidates."""
-        state = parse_state(state_str)
-        
-        # 1. Graph construction
-        dag = proof_state_to_dag(state)
-        data = dag_to_pyg(dag, self.node_vocab)
-        
-        try:
-            state_idx = next(i for i, n in enumerate(dag.nodes) if n.label == "State")
-        except StopIteration:
-            state_idx = 0
-        data.state_node_index = torch.tensor([state_idx], dtype=torch.long)
-        
-        premise_mask = build_premise_mask(dag)
-        data.premise_mask = torch.tensor(premise_mask, dtype=torch.bool)
-        
-        data = data.to(self.device)
-        data.state_node_index = data.state_node_index.to(self.device)
-        data.premise_mask = data.premise_mask.to(self.device)
-        # Apply bidirectional edges to match training edge_mode
-        data.edge_index = transform_edge_index(data.edge_index, edge_mode="bidirectional")
-        batch = Batch.from_data_list([data])
-
-        node_embeddings = self.model.backbone.encode_nodes(batch)
-        state_emb = self.model.backbone.readout(node_embeddings, batch)
-        
-        tactic_logits = self.model.backbone.classifier(state_emb)
-        tactic_probs = torch.softmax(tactic_logits.squeeze(0), dim=-1)
-        top_candidates = _top_tactic_candidates(tactic_probs, self.id_to_tactic, top_k=top_k)
-
-        tactic_distribution = [
-            (item["tactic_name"], float(item["probability"]))
-            for item in top_candidates
-        ]
-
-        pools = build_unified_pools(
-            state_emb,
-            node_embeddings,
-            batch.premise_mask,
-            batch.batch,
-            lemma_index=self.lemma_index,
-            k=self.k,
+    def __init__(self, model, candidate_provider, node_vocab, tactic_vocab, device):
+        self.model, self.candidate_provider = model, candidate_provider
+        self.node_vocab, self.tactic_vocab, self.device = (
+            node_vocab,
+            tactic_vocab,
+            device,
         )
-        pool = pools[0]
+        self.id_to_tactic = {v: k for k, v in tactic_vocab.items()}
+        self._preparation_owner = object()
 
-        top_tactic_predictions: list[dict[str, object]] = []
-        filtered_candidate_count = 0
-        filtered_negative_id_count = pool.filtered_negative_id_count
-        filtered_missing_corpus_count = 0
-        filtered_arity_count = 0
-        for candidate in top_candidates:
-            tactic_id = int(candidate["tactic_id"])
-            tactic_name = str(candidate["tactic_name"])
-            arity = get_tactic_arity(tactic_name)
+    def _graph(self, goal):
+        from .graph import dag_fingerprint
 
-            if arity == 0 or tactic_name in _NO_ARGS_TACTICS:
-                top_tactic_predictions.append(
-                    {
-                        "tactic_id": tactic_id,
-                        "tactic_name": tactic_name,
-                        "probability": float(candidate["probability"]),
-                        "selected_arguments": [],
-                        "selected_argument_details": [],
-                    }
-                )
-                continue
+        dag = model_goal_to_dag(goal.require_model_state())
+        data = dag_to_pyg(dag, self.node_vocab, add_reverse_edges=True)
+        data.state_node_index = torch.tensor([dag.state_root_id])
+        data.premise_mask = torch.tensor(build_premise_mask(dag), dtype=torch.bool)
+        return dag, data, dag_fingerprint(dag)
 
-            tactic_id_tensor = torch.tensor([tactic_id], dtype=torch.long, device=self.device)
-            tactic_emb = self.model.tactic_embedding(tactic_id_tensor)
+    async def prepare_goal(self, goal, *, excluded=()):
+        from .retrieval_artifacts import goal_query
 
-            # ── Tactic-aware argument filtering ──────────────────────────
-            if tactic_name in _FRESH_NAME_TACTICS:
-                fresh_names = _extract_fresh_names_from_dag(dag)
-                fresh_arguments = _fresh_arguments_for_tactic(tactic_name, fresh_names, arity)
-                if fresh_arguments is None:
-                    filtered_candidate_count += 1
-                    filtered_arity_count += 1
-                    continue
-                top_tactic_predictions.append(
-                    {
-                        "tactic_id": tactic_id,
-                        "tactic_name": tactic_name,
-                        "probability": float(candidate["probability"]),
-                        "selected_arguments": fresh_arguments,
-                        "selected_argument_details": [
-                            ArgumentPrediction(source="fresh", candidate_id=0, label=name, score=0.0)
-                            for name in fresh_arguments
-                        ],
-                    }
-                )
-                continue
+        dag, data, identity = self._graph(goal)
+        pool = await self.candidate_provider.retrieve(
+            goal,
+            data.premise_mask.nonzero().flatten().tolist(),
+            identity,
+            excluded=excluded,
+        )
+        if self.model.decoder.local_type_bonus_strength:
+            from .policy_actions import with_type_signals
 
-            if not pool.candidate_ids:
-                filtered_candidate_count += 1
-                filtered_arity_count += 1
-                continue
+            pool = with_type_signals(pool, goal, dag, self.tactic_vocab)
+        return PreparedObservation(
+            self._preparation_owner, goal, dag, data, identity, goal_query(goal), pool
+        )
 
-            if tactic_name in _LOCAL_ONLY_TACTICS:
-                local_mask = torch.tensor(
-                    [src == "local" for src in pool.candidate_sources], device=self.device
-                )
-                if local_mask.any():
-                    local_vectors = pool.candidate_vectors[local_mask]
-                    local_scores = self.scorer.score(
-                        state_emb.squeeze(0), tactic_emb.squeeze(0), local_vectors
+    @torch.no_grad()
+    def predict_from_goal(self, prepared: PreparedObservation, *, top_k=1):
+        from .retrieval_artifacts import goal_query
+        from maths_ai.data_models.proof_components import TacticCandidate
+        from maths_ai.data_models.tactic_commands import render_tactic_command
+
+        if (
+            not isinstance(prepared, PreparedObservation)
+            or prepared.owner is not self._preparation_owner
+        ):
+            raise ValueError("Prepared observation belongs to a different pipeline.")
+        if type(top_k) is not int or top_k < 1:
+            raise ValueError("top_k must be a positive integer.")
+        goal = prepared.goal
+        dag, data, identity = self._graph(goal)
+        if identity != prepared.graph_fingerprint or goal_query(goal) != prepared.query:
+            raise ValueError("Prepared observation changed before prediction.")
+        pool = prepared.pool
+        if pool.graph_fingerprint != identity:
+            raise ValueError("Prepared candidate pool belongs to a different graph.")
+        if pool.query_fingerprint != fingerprint(prepared.query):
+            raise ValueError("Prepared candidate pool belongs to a different query.")
+        batch = Batch.from_data_list([data]).to(self.device)
+        self.model._validate_pools(batch, (pool,))
+        nodes, states, logits, _ = self.model.encode(batch)
+        top = _top_tactic_candidates(
+            logits.softmax(-1)[0], self.id_to_tactic, top_k=top_k
+        )
+        declarations = local_declarations(goal)
+        declaration_ids = local_declaration_ids(goal)
+        predictions = []
+        for candidate in top:
+            tid = torch.tensor(candidate["tactic_id"], device=self.device)
+            decoded = self.model.decoder.run(states[0], nodes, tid, pool, greedy=True)
+            args = []
+            details = []
+            refs = []
+            for ref in decoded.arguments:
+                if ref.source == "local":
+                    node = dag.nodes[ref.identity]
+                    name = _resolve_local_node_name(node, dag, declarations)
+                    internal = declaration_ids.get(local_node_label(node, dag) or "")
+                    refs.append(
+                        ("local", name, internal) if internal is not None else None
                     )
-                    local_sorted = local_scores.argsort(descending=True)[:arity]
-                    local_indices = torch.where(local_mask)[0][local_sorted]
                 else:
-                    local_indices = torch.tensor([], dtype=torch.long, device=self.device)
-
-                if len(local_indices) < arity:
-                    filtered_candidate_count += 1
-                    filtered_arity_count += 1
-                    continue
-
-                arguments: list[str] = []
-                selected_argument_details: list[ArgumentPrediction] = []
-                for rank, idx in enumerate(local_indices.tolist()):
-                    idx = int(idx)
-                    cid = pool.candidate_ids[idx]
-                    node = dag.nodes[cid]
-                    arg_str = _resolve_local_node_name(node, dag)
-                    arguments.append(arg_str)
-                    score_val = float(local_scores[local_sorted[rank]].item()) if len(local_indices) > 0 else 0.0
-                    selected_argument_details.append(
-                        ArgumentPrediction(
-                            source="local",
-                            candidate_id=cid,
-                            label=arg_str,
-                            score=score_val,
-                        )
-                    )
-
-                top_tactic_predictions.append(
-                    {
-                        "tactic_id": tactic_id,
-                        "tactic_name": tactic_name,
-                        "probability": float(candidate["probability"]),
-                        "selected_arguments": arguments,
-                        "selected_argument_details": selected_argument_details,
-                    }
+                    name = pool.library.name(ref.identity)
+                    refs.append(("global", name, None))
+                args.append(name)
+                details.append(ArgumentPrediction(ref.source, ref.identity, name, 0.0))
+            # The complete action's exact log-probability under the policy:
+            # the tactic, then the greedy argument count, sources and identities.
+            log_prior = float(logits.log_softmax(-1)[0, tid] + decoded.logp)
+            command = render_tactic_command(
+                TacticCandidate(
+                    tactic_name=candidate["tactic_name"],
+                    arguments=args,
+                    probability=float(math.exp(log_prior)),
                 )
-                continue
-
-            # ── Default: unified pool scoring (exact, apply, rw, simp, ...) ──
-            scores = self.scorer.score(state_emb.squeeze(0), tactic_emb.squeeze(0), pool.candidate_vectors)
-            sorted_indices = scores.argsort(descending=True)
-            valid_indices = [
-                int(idx)
-                for idx in sorted_indices.tolist()
-                if self._is_resolvable_argument(pool.candidate_sources[int(idx)], pool.candidate_ids[int(idx)])
-            ]
-            filtered_negative_id_count += sum(
-                1
-                for idx in sorted_indices.tolist()
-                if pool.candidate_sources[int(idx)] == "lemma" and pool.candidate_ids[int(idx)] < 0
             )
-            filtered_missing_corpus_count += sum(
-                1
-                for idx in sorted_indices.tolist()
-                if pool.candidate_sources[int(idx)]
-                == "lemma"
-                and pool.candidate_ids[int(idx)] >= 0
-                and (self.lemma_corpus is None or pool.candidate_ids[int(idx)] not in self.lemma_corpus)
-            )
-            if len(valid_indices) < arity:
-                filtered_candidate_count += 1
-                filtered_arity_count += 1
-                continue
-            top_indices = valid_indices[:arity]
-
-            arguments = []
-            selected_argument_details = []
-            for idx in top_indices:
-                source = pool.candidate_sources[idx]
-                cid = pool.candidate_ids[idx]
-                score_value = float(scores[idx].item())
-
-                if source == "local":
-                    node = dag.nodes[cid]
-                    arg_str = _resolve_local_node_name(node, dag)
-                else:
-                    # Library arguments were validated above; do not synthesize
-                    # tokens for missing corpus entries.
-                    if self.lemma_corpus is None:
-                        raise RuntimeError("library argument selected without a lemma corpus")
-                    arg_str = self.lemma_corpus[cid].name
-
-                arguments.append(arg_str)
-                selected_argument_details.append(
-                    ArgumentPrediction(
-                        source=source,
-                        candidate_id=cid,
-                        label=arg_str,
-                        score=score_value,
-                    )
+            predictions.append(
+                dict(
+                    command=command,
+                    rendering_status=(
+                        ActionRendering.RENDERED
+                        if command is not None
+                        else ActionRendering.UNSUPPORTED
+                    ),
+                    tactic_id=int(tid),
+                    tactic_name=candidate["tactic_name"],
+                    probability=float(math.exp(log_prior)),
+                    selected_arguments=args,
+                    selected_argument_details=details,
+                    action_log_prior=log_prior,
+                    raw_action_id=(
+                        int(tid),
+                        tuple((ref.source, ref.identity) for ref in decoded.arguments),
+                    ),
+                    argument_refs=None if any(r is None for r in refs) else refs,
                 )
-
-            top_tactic_predictions.append(
-                {
-                    "tactic_id": tactic_id,
-                    "tactic_name": tactic_name,
-                    "probability": float(candidate["probability"]),
-                    "selected_arguments": arguments,
-                    "selected_argument_details": selected_argument_details,
-                }
             )
-
-        self.filtered_candidate_count += filtered_candidate_count
-        self.filtered_negative_id_count += filtered_negative_id_count
-        self.filtered_missing_corpus_count += filtered_missing_corpus_count
-        self.filtered_arity_count += filtered_arity_count
-        if filtered_candidate_count or filtered_negative_id_count or filtered_missing_corpus_count:
-            logger.warning(
-                "Filtered %d GNN tactic candidate(s): %d negative lemma IDs, "
-                "%d corpus-missing lemma IDs, %d insufficient-arity candidates.",
-                filtered_candidate_count,
-                filtered_negative_id_count,
-                filtered_missing_corpus_count,
-                filtered_arity_count,
-            )
-
-        top1 = top_tactic_predictions[0] if top_tactic_predictions else None
-        predicted_tactic = str(top1["tactic_name"]) if top1 else "<UNK>"
-        if top1 and top1["selected_arguments"]:
-            predicted_tactic = f"{predicted_tactic} {' '.join(str(item) for item in top1['selected_arguments'])}"
-
+        predictions.sort(key=lambda item: -item["probability"])
+        first = predictions[0]
+        command = first["command"]
         return InferenceResult(
-            predicted_tactic=predicted_tactic,
-            tactic_name=str(top1["tactic_name"]) if top1 else "<UNK>",
-            tactic_id=int(top1["tactic_id"]) if top1 else -1,
-            tactic_probabilities=tactic_distribution,
-            selected_arguments=list(top1["selected_arguments"]) if top1 else [],
-            selected_argument_details=list(top1["selected_argument_details"]) if top1 else [],
-            top_tactic_predictions=top_tactic_predictions,
+            command,
+            first["tactic_name"],
+            first["tactic_id"],
+            [(x["tactic_name"], x["probability"]) for x in predictions],
+            first["selected_arguments"],
+            first["selected_argument_details"],
+            top_tactic_predictions=predictions,
         )
 
     def _is_resolvable_argument(self, source: str, candidate_id: int) -> bool:

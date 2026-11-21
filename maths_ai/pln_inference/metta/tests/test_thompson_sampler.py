@@ -6,14 +6,21 @@ import json
 import os
 import tempfile
 import unittest
+from pathlib import Path
 
-from runner import DynamicThompsonSampler, ThompsonSampler, parse_and_rank_logs
+from maths_ai.pln_inference.metta.translator.translator_modules.runner import (
+    DynamicThompsonSampler,
+    parse_and_rank_logs,
+)
+from maths_ai.pln_inference.compiler import TRANSLATION_VERSION
 
 
 def _write_manifest(tmp_dir: str, items: list[dict]) -> str:
     path = os.path.join(tmp_dir, "manifest.json")
     with open(path, "w") as f:
-        json.dump({"generated_items": items}, f)
+        json.dump(
+            {"generated_items": items, "translation_version": TRANSLATION_VERSION}, f
+        )
     return path
 
 
@@ -21,6 +28,7 @@ def _write_log(tmp_dir: str, name: str, content: str) -> str:
     path = os.path.join(tmp_dir, f"{name}.log")
     with open(path, "w") as f:
         f.write(content)
+    Path(path + ".exitcode").write_text("0")
     return path
 
 
@@ -55,7 +63,7 @@ class TestDynamicThompsonSamplerCore(unittest.TestCase):
 
     def test_score_clamped_outside_0_1(self):
         ts = DynamicThompsonSampler()
-        ts.record_observation("k", 5.0)   # clamped to 1.0
+        ts.record_observation("k", 5.0)  # clamped to 1.0
         self.assertEqual(ts.alpha("k"), 2.0)
         ts2 = DynamicThompsonSampler()
         ts2.record_observation("k2", -3.0)  # clamped to 0.0
@@ -63,6 +71,7 @@ class TestDynamicThompsonSamplerCore(unittest.TestCase):
 
     def test_sample_returns_value_in_0_1(self):
         import random
+
         ts = DynamicThompsonSampler()
         rng = random.Random(42)
         for _ in range(100):
@@ -72,7 +81,10 @@ class TestDynamicThompsonSamplerCore(unittest.TestCase):
 
     def test_subgoal_key_format(self):
         item = {"test_name": "modus_ponens", "goal_index": 2}
-        self.assertEqual(ThompsonSampler.subgoal_key(item), "modus_ponens_goal_2")
+        self.assertEqual(
+            DynamicThompsonSampler.subgoal_key(item),
+            f"{TRANSLATION_VERSION}:modus_ponens_goal_2",
+        )
 
     def test_state_dict_roundtrip(self):
         ts = DynamicThompsonSampler()
@@ -98,6 +110,7 @@ class TestParseAndRankLogsThompson(unittest.TestCase):
 
     def tearDown(self):
         import shutil
+
         shutil.rmtree(self.tmp)
 
     def _item(self, name: str, goal: int, log_content: str) -> dict:
@@ -107,30 +120,44 @@ class TestParseAndRankLogsThompson(unittest.TestCase):
             "goal_index": goal,
             "metta_path": f"/fake/{name}_{goal}.metta",
             "log_path": log,
+            "exit_code_path": log + ".exitcode",
+            "target_formula": "(P)",
         }
 
     def test_stv_found_updates_sampler_alpha(self):
         """When STV is present, record_observation should push alpha up."""
-        item = self._item("t", 0, "(STV 0.9 0.9)")
+        item = self._item("t", 0, "(: (rule-proof fixture premise) (P) (STV 0.9 0.9))")
         manifest = _write_manifest(self.tmp, [item])
         ts = DynamicThompsonSampler()
-        ranked = parse_and_rank_logs(manifest, fallback_strategy="thompson", thompson_sampler=ts)
+        ranked = parse_and_rank_logs(
+            manifest, fallback_strategy="thompson", thompson_sampler=ts
+        )
         self.assertEqual(ranked[0]["status"], "ok")
-        self.assertGreater(ts.alpha("t_goal_0"), ts.beta("t_goal_0"))
+        self.assertGreater(
+            ts.alpha(f"{TRANSLATION_VERSION}:t_goal_0"),
+            ts.beta(f"{TRANSLATION_VERSION}:t_goal_0"),
+        )
 
     def test_no_stv_updates_sampler_beta(self):
         """When no STV, record_failure should push beta up."""
         item = self._item("t", 0, "no proof here")
         manifest = _write_manifest(self.tmp, [item])
         ts = DynamicThompsonSampler()
-        ranked = parse_and_rank_logs(manifest, fallback_strategy="thompson", thompson_sampler=ts)
-        self.assertGreater(ts.beta("t_goal_0"), ts.alpha("t_goal_0"))
+        ranked = parse_and_rank_logs(
+            manifest, fallback_strategy="thompson", thompson_sampler=ts
+        )
+        self.assertGreater(
+            ts.beta(f"{TRANSLATION_VERSION}:t_goal_0"),
+            ts.alpha(f"{TRANSLATION_VERSION}:t_goal_0"),
+        )
 
     def test_thompson_fallback_scores_assigned_when_no_stv_globally(self):
         """All logs have no STV → fallback scoring uses thompson posterior."""
         items = [self._item("t", i, "nothing") for i in range(3)]
         manifest = _write_manifest(self.tmp, items)
-        ranked = parse_and_rank_logs(manifest, fallback_strategy="thompson", random_seed=42)
+        ranked = parse_and_rank_logs(
+            manifest, fallback_strategy="thompson", random_seed=42
+        )
         for r in ranked:
             self.assertEqual(r["status"], "thompson_fallback_no_stv_global")
             self.assertGreater(r["score"], 0.0)
@@ -145,7 +172,7 @@ class TestParseAndRankLogsThompson(unittest.TestCase):
     def test_mixed_stv_and_no_stv_no_fallback_applied(self):
         """If at least one subgoal has an STV, fallback block is skipped entirely."""
         items = [
-            self._item("t", 0, "(STV 0.8 0.9)"),
+            self._item("t", 0, "(: (rule-proof fixture premise) (P) (STV 0.8 0.9))"),
             self._item("t", 1, "nothing"),
         ]
         manifest = _write_manifest(self.tmp, items)
@@ -158,7 +185,7 @@ class TestParseAndRankLogsThompson(unittest.TestCase):
     def test_ranking_sorted_by_score_descending(self):
         items = [
             self._item("t", 0, "(STV 0.3 0.5)"),
-            self._item("t", 1, "(STV 0.9 0.9)"),
+            self._item("t", 1, "(: (rule-proof fixture premise) (P) (STV 0.9 0.9))"),
             self._item("t", 2, "(STV 0.1 0.2)"),
         ]
         manifest = _write_manifest(self.tmp, items)
@@ -178,27 +205,41 @@ class TestParseAndRankLogsThompson(unittest.TestCase):
         self.assertTrue(os.path.exists(state_path))
         with open(state_path) as f:
             state = json.load(f)
-        self.assertIn("t_goal_0", state)
+        self.assertIn(f"{TRANSLATION_VERSION}:t_goal_0", state)
 
     def test_state_reloaded_carries_over_across_calls(self):
         """Sampler passed between calls retains learning."""
         ts = DynamicThompsonSampler()
         for i in range(5):
-            item = self._item("t", i, "(STV 0.9 0.9)")
+            item = self._item(
+                "t", i, "(: (rule-proof fixture premise) (P) (STV 0.9 0.9))"
+            )
             manifest = _write_manifest(self.tmp, [item])
-            parse_and_rank_logs(manifest, fallback_strategy="thompson", thompson_sampler=ts)
+            parse_and_rank_logs(
+                manifest, fallback_strategy="thompson", thompson_sampler=ts
+            )
 
         # After 5 successes alpha should be well above beta for those keys
         for i in range(5):
-            self.assertGreater(ts.alpha(f"t_goal_{i}"), ts.beta(f"t_goal_{i}"))
+            self.assertGreater(
+                ts.alpha(f"{TRANSLATION_VERSION}:t_goal_{i}"),
+                ts.beta(f"{TRANSLATION_VERSION}:t_goal_{i}"),
+            )
 
     def test_missing_log_skipped_in_fallback(self):
         items = [
-            {"test_name": "t", "goal_index": 0, "metta_path": "/fake.metta", "log_path": "/nonexistent.log"},
+            {
+                "test_name": "t",
+                "goal_index": 0,
+                "metta_path": "/fake.metta",
+                "log_path": "/nonexistent.log",
+            },
             self._item("t", 1, "nothing"),
         ]
         manifest = _write_manifest(self.tmp, items)
-        ranked = parse_and_rank_logs(manifest, fallback_strategy="thompson", random_seed=0)
+        ranked = parse_and_rank_logs(
+            manifest, fallback_strategy="thompson", random_seed=0
+        )
         status_map = {r["goal_index"]: r["status"] for r in ranked}
         self.assertEqual(status_map[0], "missing_log")
         self.assertEqual(status_map[1], "thompson_fallback_no_stv_global")

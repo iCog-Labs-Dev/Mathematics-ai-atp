@@ -1,142 +1,68 @@
-# Mathematics AI ATP - Docker Compose Configuration
+# Proving service: MCTS actor-critic and accepted-GNN backends in one API.
 #
-# Architecture:
-#   - asset-fetch: init service that downloads model+corpus from HF Hub once
-#   - api: HTTP API server (FastAPI/uvicorn) serving /health, /prove, /gnn/predict_tactic, /pln/evaluate
-#   - core: batch joint-prover (profile: batch) for one-off CLI runs
-#   - experimental: on-demand sandbox for experiments/ (profile: experimental)
-#   - training: batch job service for training (profile: training)
+#   docker compose up --build api                         # CPU
+#   docker compose --profile gpu up --build api-gpu       # one NVIDIA GPU
+#   docker compose --profile batch run --rm prove --goal_statement '...'
 #
-# Usage:
-#   docker compose up                                   # fetch assets, then start the API server
-#   docker compose up api                               # start only the API server
-#   curl http://localhost:${MATHS_AI_API_HOST_PORT:-8000}/health
-#   curl -X POST http://localhost:${MATHS_AI_API_HOST_PORT:-8000}/prove -H 'Content-Type: application/json' -d '{"goal": "..."}'
-#   docker compose --profile experimental up experimental
-#   docker compose --profile batch run --rm core --goal_statement '...'
+# The MCTS backend is enabled by the service config mounted at ./docker/config
+# (or MATHS_AI_CONFIG) and reads its trained checkpoint and prepared root from
+# ./artifacts (or MATHS_AI_ARTIFACTS). The accepted-GNN backend is enabled by
+# MATHS_AI_ACCEPTED_GNN=1; its pinned v2 bundle is fetched into the
+# models-cache volume on first start. /prove requires an explicit "backend".
 #
-# Volume layout:
-#   - models-corpus-cache: shared volume for model+corpus (read-only for core/experimental)
-#   - training-output: separate volume for training outputs
+# The service chooses the MCTS device (MATHS_AI_DEVICE: cpu, or cuda:N for the
+# GPU service); it overrides the devices in the mounted rl.json. The port is
+# bound to loopback only: the service has no authentication. Job, formal-run
+# and DTS state live in the state volume.
+
+x-api: &api
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    target: runtime
+  image: maths-ai-api
+  init: false  # tini is the image's entrypoint
+  ports:
+    - "127.0.0.1:${MATHS_AI_API_PORT:-8000}:8000"
+  volumes:
+    - mcts-state:/state
+    - models-cache:/data
+    - ${MATHS_AI_CONFIG:-./docker/config}:/config:ro
+    - ${MATHS_AI_ARTIFACTS:-./artifacts}:/artifacts:ro
+  environment:
+    - HF_TOKEN=${HF_TOKEN:-}
+    - MATHS_AI_DEVICE=${MATHS_AI_DEVICE:-cpu}
+    - MATHS_AI_ACCEPTED_GNN=${MATHS_AI_ACCEPTED_GNN:-0}
+    - MATHS_AI_FORMAL_DEPLOYMENTS=${MATHS_AI_FORMAL_DEPLOYMENTS:-}
+    - MATHS_AI_FORMAL_STATE_DIR=/state/formal
+  healthcheck:
+    # Readiness, not liveness: a failed or recovering backend is unhealthy.
+    test: ["CMD", "python", "-m", "maths_ai.healthcheck"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 900s
+  stop_grace_period: 90s
+  restart: unless-stopped
 
 services:
-  # Asset fetch service - runs once, downloads model+corpus from HuggingFace Hub
-  asset-fetch:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-      target: core
-    container_name: maths_ai-asset-fetch
-    user: "0:0"
-    volumes:
-      - models-corpus-cache:/data
-    environment:
-      - MATHS_AI_DATA_ROOT=/data
-      - MATHS_AI_MODEL_CONFIG=/workspace/maths_ai/config/models/pointer_gnn.yaml
-      # Required while the HF repos are private; read from the host environment.
-      - HF_TOKEN=${HF_TOKEN:-}
-    entrypoint: ["python", "scripts/fetch_assets.py"]
-    networks:
-      - maths_ai_network
-
-  # API service - serves proof/inference requests over HTTP
   api:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-      target: core
-    container_name: maths_ai-api
-    depends_on:
-      asset-fetch:
-        condition: service_completed_successfully
-    ports:
-      - "${MATHS_AI_API_HOST_PORT:-8000}:8000"
-    volumes:
-      - models-corpus-cache:/data:ro
-      - formal-state:/state
-    environment:
-      - MATHS_AI_DATA_ROOT=/data
-      - MATHS_AI_MODEL_CONFIG=/workspace/maths_ai/config/models/pointer_gnn.yaml
-      - MATHS_AI_LEAN_PROJECT=/opt/lean_project
-      - MATHS_AI_API_HOST=0.0.0.0
-      - MATHS_AI_API_PORT=8000
-      - MATHS_AI_FORMAL_RUNS_DIR=/state/formal_runs
-      - MATHS_AI_DTS_STATE_FILE=/state/dts/thompson_sampler_state.json
-      - PETTA_BIN=/opt/venv/bin/petta
-      - PETTA_CHAINER_DIR=/opt/pettachainer/pettachainer/metta
-      - PETTA_WORKSPACE=/tmp/petta_workspace
-    healthcheck:
-      test: ["CMD", "python", "-m", "maths_ai.healthcheck"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    restart: unless-stopped
-    networks:
-      - maths_ai_network
+    <<: *api
+    container_name: maths-ai-api
 
-  # Core service - batch joint prover (for one-off proof runs)
-  core:
+  api-gpu:
+    <<: *api
     build:
       context: .
       dockerfile: docker/Dockerfile
-      target: core
-    container_name: maths_ai-core
-    depends_on:
-      asset-fetch:
-        condition: service_completed_successfully
-    volumes:
-      - models-corpus-cache:/data:ro
-    environment:
-      - MATHS_AI_DATA_ROOT=/data
-      - MATHS_AI_MODEL_CONFIG=/workspace/maths_ai/config/models/pointer_gnn.yaml
-      - MATHS_AI_LEAN_PROJECT=/opt/lean_project
-      - PETTA_BIN=/opt/venv/bin/petta
-      - PETTA_CHAINER_DIR=/opt/pettachainer/pettachainer/metta
-      - PETTA_WORKSPACE=/tmp/petta_workspace
-    # Override CMD to run batch prover instead of API
-    command: ["python", "-m", "maths_ai.hybrid_reasoner.joint_inference"]
-    profiles:
-      - batch
-    networks:
-      - maths_ai_network
-
-  # Experimental service - sandbox for experiments/, on demand
-  experimental:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-      target: experimental
-    container_name: maths_ai-experimental
-    profiles:
-      - experimental
-    volumes:
-      - models-corpus-cache:/data:ro
-    environment:
-      - MATHS_AI_DATA_ROOT=/data
-      - MATHS_AI_MODEL_CONFIG=/workspace/maths_ai/config/models/pointer_gnn.yaml
-      - MATHS_AI_LEAN_PROJECT=/opt/lean_project
-    networks:
-      - maths_ai_network
-
-  # Training service - batch job, GPU-optional
-  training:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-      target: training
-    container_name: maths_ai-training
-    profiles:
-      - training
-    volumes:
-      - models-corpus-cache:/data:ro
-      - training-output:/output
-    environment:
-      - MATHS_AI_DATA_ROOT=/data
-      - MATHS_AI_MODEL_CONFIG=/workspace/maths_ai/config/models/premise_gnn.yaml
-      - MATHS_AI_CORPUS_CONFIG=/workspace/maths_ai/config/corpus/lemma_corpus_v1.yaml
-      - MATHS_AI_LEAN_PROJECT=/opt/lean_project
-      - MATHS_AI_OUTPUT_DIR=/output
+      target: runtime
+      args:
+        TORCH_VARIANT: gpu
+    image: maths-ai-api-gpu
+    container_name: maths-ai-api-gpu
+    profiles: ["gpu"]
+    # Request one NVIDIA GPU (needs the NVIDIA Container Toolkit on the host);
+    # MATHS_AI_DEVICE below selects it inside the container.
     deploy:
       resources:
         reservations:
@@ -144,17 +70,27 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    networks:
-      - maths_ai_network
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - MATHS_AI_DEVICE=${MATHS_AI_DEVICE:-cuda:0}
+      - MATHS_AI_ACCEPTED_GNN=${MATHS_AI_ACCEPTED_GNN:-0}
+
+  # One-off accepted-GNN best-first proof run (no HTTP).
+  prove:
+    <<: *api
+    container_name: maths-ai-prove
+    profiles: ["batch"]
+    ports: []
+    healthcheck:
+      disable: true
+    restart: "no"
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - MATHS_AI_ACCEPTED_GNN=1
+    command: ["prove.sh"]
 
 volumes:
-  models-corpus-cache:
-    name: maths_ai-models-corpus-cache
-  training-output:
-    name: maths_ai-training-output
-  formal-state:
-    name: maths_ai-formal-state
-
-networks:
-  maths_ai_network:
-    driver: bridge
+  mcts-state:
+    name: maths-ai-mcts-state
+  models-cache:
+    name: maths-ai-models-cache

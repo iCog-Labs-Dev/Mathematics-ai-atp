@@ -1,0 +1,9 @@
+{
+  "dataset": "jajostrains/Mathlib-Normalized-Sexpr",
+  "revision": "f44841f98193c09b20c6092198a22e98ff2cd7a8",
+  "rows": "train[0:500]",
+  "compared": 319,
+  "identical": 319,
+  "identical_without_mapping": 31,
+  "different_rows": []
+}

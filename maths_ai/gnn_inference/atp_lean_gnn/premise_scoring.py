@@ -14,6 +14,7 @@ loss over the unified candidate pool for each sample in a batch.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import torch
@@ -159,6 +160,26 @@ class PremiseScorer(nn.Module):
             all_scores.append(scores)
 
         return all_scores
+
+
+def load_scorer_checkpoint(
+    scorer: PremiseScorer,
+    checkpoint: object,
+    *,
+    expected_encoder_fingerprint: str,
+) -> None:
+    """Strictly load a scorer bound to the active tactic encoder."""
+
+    if not isinstance(checkpoint, Mapping):
+        raise ValueError("Premise scorer checkpoint must be a checkpoint object.")
+    scorer_state = checkpoint.get("scorer_state_dict")
+    if not isinstance(scorer_state, Mapping):
+        raise ValueError("Premise scorer checkpoint is missing 'scorer_state_dict'.")
+    if checkpoint.get("encoder_fingerprint") != expected_encoder_fingerprint:
+        raise ValueError(
+            "Premise scorer encoder fingerprint does not match the active tactic model."
+        )
+    scorer.load_state_dict(scorer_state, strict=True)
 
 
 def _find_target_index_in_pool(

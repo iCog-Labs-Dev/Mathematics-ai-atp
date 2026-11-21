@@ -1,0 +1,40 @@
+{
+  "kind": "mcts-pantograph-client-live-evidence",
+  "note": "Actual-REPL evidence for MCTS-AC-branch after the port onto the standalone pantograph-async-client package. It is not AC-branch or package evidence; those results are reported separately.",
+  "report": "report.json",
+  "report_sha256": "69a12d8759dffb4ebb15973e73a108ec802e0ab2ec02ef7f87a4fd3da08358b1",
+  "command": "python -m maths_ai.gnn_inference.scripts.mcts_client_smoke --source-root <mathlib4> --pantograph-repl <Pantograph>/.lake/build/bin/repl --report report.json",
+  "target_branch": "MCTS-AC-branch",
+  "target_base_commit": "89a2417e522720d2cfe3f2e6218614e4d828c8de",
+  "application_source_commit": "72c82ce13d62f132ee1939d8e92641c100f4c418",
+  "tested_revision": "65d32de4ce6c6cd5d3967d3cc694cf65d6480f7e",
+  "worktree_clean": true,
+  "client": {
+    "distribution": "pantograph-async-client",
+    "version": "0.1.0",
+    "repository": "https://github.com/123nol/Pantograph-Client",
+    "commit": "664bcaa10578cb933afc618b8e8cb20a1b751106",
+    "installed_location": "/home/leul/Icog/Maths AI/.venv-mcts-port/lib/python3.11/site-packages/pantograph_async",
+    "direct_url": {
+      "url": "https://github.com/123nol/Pantograph-Client",
+      "vcs_info": {
+        "vcs": "git",
+        "commit_id": "664bcaa10578cb933afc618b8e8cb20a1b751106",
+        "requested_revision": "664bcaa10578cb933afc618b8e8cb20a1b751106"
+      }
+    }
+  },
+  "executable": {
+    "source_url": "https://github.com/jajos12/Pantograph.git",
+    "base_commit": "0dd5d2225e2d093f66a4b6231c1aa35004f2c8f3",
+    "patch": "pantograph_async/resources/repository_client_contract.patch (installed package)",
+    "patch_sha256": "ca9921913281f0c53f11cdde59afe15cf38f70a08f59068cd7b96f3ab1f2d021",
+    "build": "lake build repl",
+    "toolchain": "leanprover/lean4:v4.10.0-rc1",
+    "repl_sha256": "ffc2a91985137f9183c4cc1571c08ece182996484feecf44b5e5d22d932d7dc0",
+    "note": "Built from the pinned base and patch, and the patched sources pass the installed package's digest check. Native Lean builds are not bit-reproducible, so this digest differs from the AC reference executable."
+  },
+  "mathlib_commit": "29dcec074de168ac2bf835a77ef68bbe069194c5",
+  "mathlib_build": "lake exe cache get",
+  "complete_theorem_certification": false
+}

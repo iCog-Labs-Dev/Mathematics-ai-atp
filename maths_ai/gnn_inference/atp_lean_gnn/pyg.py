@@ -14,9 +14,9 @@ NODE_TYPE_TO_ID = {
     "meta": 5,
     "binder": 6,
     "const": 7,
-    "sconst": 8,
-    "sbinder": 9,
-    "sapp": 10,
+    "sconst": 8,   # S-expression constant (:c, :fv, :sort, :lit)
+    "sbinder": 9,  # S-expression binder (:forall, :lambda, :let)
+    "sapp": 10,    # S-expression application node
 }
 
 

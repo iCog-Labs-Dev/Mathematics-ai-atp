@@ -1,282 +1,127 @@
-"""Request/response schemas for the maths_ai HTTP API.
+"""Request and response models of the MCTS proving service."""
 
-The response models deliberately re-export the domain models already used
-across the pipeline (``TacticCandidate``, ``STV``, ``RankedSubgoal``) instead
-of duplicating them: API consumers see exactly the shapes the inference
-components exchange internally.
-"""
+from __future__ import annotations
 
-from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, StrictStr
 
-from maths_ai.data_models.proof_components import STV, TacticCandidate
+ProposalMode = Literal["sample", "greedy"]
 
 
-class ProofTerminationReason(str, Enum):
-    """Explicit termination reason for a proof search."""
-    
-    SOLVED = "solved"              # Proof found successfully
-    EXHAUSTED = "exhausted"        # All branches exhausted, no solution
-    BUDGET_EXHAUSTED = "budget_exhausted"  # Hit max_nodes limit
-    DEPTH_EXHAUSTED = "depth_exhausted"  # Hit max_depth limit
-    TIMEOUT = "timeout"            # Per-request timeout exceeded
-    OPEN = "open"                  # Search incomplete, frontier not empty
+class _Strict(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
-def _strip_or_raise(value: str, field_name: str) -> str:
-    stripped = value.strip()
-    if not stripped:
-        raise ValueError(f"{field_name} must be a non-empty string")
-    return stripped
+MCTS_BACKEND = "mcts-actor-critic"
+ACCEPTED_BACKEND = "accepted-gnn"
 
 
-class ProveRequest(BaseModel):
-    """Request body for ``POST /prove``."""
+class ProveRequest(_Strict):
+    """One goal with its ordered local declarations, searched under a server profile."""
 
-    goal: str = Field(
-        description="Lean goal expression to prove (the text after `⊢`).",
-        examples=["forall (p q : Prop), Or p q -> Or q p"],
-    )
-    hypotheses: List[str] = Field(
-        default_factory=list,
-        description="Local context entries, each rendered as `name : type`.",
-        examples=[["h : p ∨ q"]],
-    )
-    max_depth: Optional[int] = Field(
-        default=None,
-        ge=1,
-        description="Per-request override of the search branch-depth bound.",
-    )
-    max_nodes: Optional[int] = Field(
-        default=None,
-        ge=1,
-        description="Per-request override of the total hypergraph-size bound.",
-    )
-    timeout: Optional[float] = Field(
-        default=None,
-        ge=0.001,
-        le=3600,
-        description="Per-request timeout in seconds. If not provided, uses the service default timeout.",
-    )
-
-    @field_validator("goal", mode="after")
-    @classmethod
-    def _validate_goal(cls, value: str) -> str:
-        return _strip_or_raise(value, "goal")
-
-    @field_validator("hypotheses", mode="after")
-    @classmethod
-    def _validate_hypotheses(cls, value: List[str]) -> List[str]:
-        return [_strip_or_raise(hypothesis, "hypotheses") for hypothesis in value]
+    backend: Literal["mcts-actor-critic"]
+    goal: StrictStr = Field(min_length=1)
+    hypotheses: list[StrictStr] = Field(default_factory=list)
+    search_profile: Optional[StrictStr] = None
+    proposal_mode: Optional[ProposalMode] = None
+    seed: Optional[StrictInt] = Field(default=None, ge=0)
+    top_k_tactics: Optional[StrictInt] = Field(default=None, ge=1)
+    max_depth: Optional[StrictInt] = Field(default=None, ge=1)
+    max_nodes: Optional[StrictInt] = Field(default=None, ge=1)
+    num_simulations: Optional[StrictInt] = Field(default=None, ge=1)
+    timeout_s: Optional[StrictFloat | StrictInt] = Field(default=None, gt=0)
+    queue_timeout_s: Optional[StrictFloat | StrictInt] = Field(default=None, gt=0)
 
 
-class ProofTraceNode(BaseModel):
-    """One step of a witnessing proof, as a tree.
-
-    Mirrors ``ProofHypergraph.proof_trace()``: each node carries the goal it
-    closes and the tactic (with arguments) that closed it; ``subgoals`` holds
-    one fully-recursed entry per remaining proof obligation (empty ⇒ the
-    tactic fully discharged the goal). The flattened pre-order sequence of
-    ``tactic + arguments`` replays as a Lean tactic block, which is what makes
-    the trace independently verifiable.
-    """
-
-    goal: str
-    tactic: str
-    arguments: List[str] = Field(default_factory=list)
-    subgoals: List["ProofTraceNode"] = Field(default_factory=list)
+class Proposal(BaseModel):
+    mode: str
+    seed: int
+    derivation: str
 
 
-ProofTraceNode.model_rebuild()
+class ResourceFailure(_Strict):
+    command: str
+    kind: Literal["heartbeats", "recursion-depth"]
+    phase: Literal["execute", "validate", "observe", "serialize"]
+    limit: StrictInt = Field(gt=0)
+    recovery: Literal["command-rolled-back", "session-unusable"]
 
 
 class ProveResponse(BaseModel):
-    """Response body for ``POST /prove``.
+    """A finished search. ``certified`` is true only for a kernel-certified root.
 
-    ``proof_trace`` is ``None`` unless ``solved`` is true; ``summary``
-    carries the full hypergraph dump (nodes/edges with statuses, ranks and
-    STVs) for inspection when the search ended unsolved or hit its budget.
-    
-    ``termination_reason`` provides an explicit, authoritative reason for why
-    the search stopped, distinct from the inferred ``solved``/``exhausted``
-    flags. This is especially important for distinguishing between different
-    failure modes (e.g., timeout vs. budget exhaustion vs. open frontier).
+    ``candidate`` reports graph readiness, which is not a proof. ``proof_trace``
+    keeps the replayed commands, nested obligations and discharged entries.
     """
 
-    solved: bool
-    exhausted: bool
-    termination_reason: ProofTerminationReason
-    proof_trace: Optional[ProofTraceNode] = None
-    summary: Dict[str, Any]
+    model_config = ConfigDict(extra="allow")
 
-    @classmethod
-    def from_graph(
-        cls, 
-        graph: Any, 
-        timeout: bool = False,
-    ) -> "ProveResponse":
-        """Construct a ProveResponse from a proof graph.
-        
-        Args:
-            graph: The ProofHypergraph from the search.
-            timeout: Whether the search was terminated due to a timeout.
-        
-        Returns:
-            A ProveResponse with appropriate termination reason.
-        """
-        trace = graph.proof_trace()
-        solved = graph.is_solved()
-        exhausted = graph.is_exhausted()
-        
-        # Determine termination reason
-        if timeout:
-            termination_reason = ProofTerminationReason.TIMEOUT
-        elif solved:
-            termination_reason = ProofTerminationReason.SOLVED
-        elif (
-            getattr(graph, "budget_exhausted", False)
-            or getattr(graph, "_budget_exhausted", False)
-            or getattr(graph, "termination_reason", None) in (ProofTerminationReason.BUDGET_EXHAUSTED, "budget_exhausted")
-        ):
-            termination_reason = ProofTerminationReason.BUDGET_EXHAUSTED
-            exhausted = True
-        elif exhausted:
-            termination_reason = ProofTerminationReason.EXHAUSTED
-        else:
-            # Search stopped with open frontier (not exhausted, not solved)
-            termination_reason = ProofTerminationReason.OPEN
-        
-        return cls(
-            solved=solved,
-            exhausted=exhausted,
-            termination_reason=termination_reason,
-            proof_trace=ProofTraceNode.model_validate(trace) if trace is not None else None,
-            summary=graph.summary(),
-        )
+    certified: bool = False
+    candidate: bool = False
+    outcome: str
+    end_reason: Optional[str] = None
+    proof_trace: Optional[dict[str, Any]] = None
+    certificate: Optional[dict[str, Any]] = None
+    resource: Optional[ResourceFailure] = None
+    artifact: Optional[dict[str, Any]] = None
+    search_profile: str
+    search_settings: Optional[dict[str, Any]] = None
+    proposal: Optional[Proposal] = None
+    input_identity: Optional[str] = None
+    execution: Optional[dict[str, Any]] = None
+    search: Optional[dict[str, Any]] = None
+    timing: dict[str, float]
+    runtime: dict[str, Any]
 
 
-class PredictTacticRequest(BaseModel):
-    """Request body for ``POST /gnn/predict_tactic``."""
+class EvaluationRequest(_Strict):
+    """An evaluation of an allowlisted dataset profile under a search profile."""
 
-    goal: str = Field(description="Lean goal expression to predict tactics for.")
-    hypotheses: List[str] = Field(
-        default_factory=list,
-        description="Local context entries, each rendered as `name : type`.",
-    )
-    top_k: int = Field(default=3, ge=1, le=20)
-
-    @field_validator("goal", mode="after")
-    @classmethod
-    def _validate_goal(cls, value: str) -> str:
-        return _strip_or_raise(value, "goal")
-
-    @field_validator("hypotheses", mode="after")
-    @classmethod
-    def _validate_hypotheses(cls, value: List[str]) -> List[str]:
-        return [_strip_or_raise(hypothesis, "hypotheses") for hypothesis in value]
+    dataset_profile: StrictStr
+    search_profile: Optional[StrictStr] = None
+    proposal_mode: Optional[ProposalMode] = None
+    seed: Optional[StrictInt] = Field(default=None, ge=0)
+    repeats: Optional[StrictInt] = Field(default=None, ge=1)
+    top_k_tactics: Optional[StrictInt] = Field(default=None, ge=1)
+    max_depth: Optional[StrictInt] = Field(default=None, ge=1)
+    max_nodes: Optional[StrictInt] = Field(default=None, ge=1)
+    num_simulations: Optional[StrictInt] = Field(default=None, ge=1)
+    timeout_s: Optional[StrictFloat | StrictInt] = Field(default=None, gt=0)
+    deadline_s: Optional[StrictFloat | StrictInt] = Field(default=None, gt=0)
 
 
-class PredictTacticResponse(BaseModel):
-    """Up to ``top_k`` ranked tactic candidates from the GNN engine.
+class Job(BaseModel):
+    """Persisted state of an evaluation job."""
 
-    An empty ``candidates`` list means the GNN found no viable tactic for the
-    goal — callers must treat that goal as a dead branch, mirroring
-    ``HybridReasoner.predict_next_tactic``'s contract.
-    """
-
-    goal: str
-    candidates: List[TacticCandidate]
-
-
-class EvaluateRequest(BaseModel):
-    """Request body for ``POST /pln/evaluate``."""
-
-    expression: str = Field(description="Lean target formula to score.")
-    hypotheses: List[str] = Field(
-        default_factory=list,
-        description="Local-context formulas asserted into the PLN knowledge base.",
-    )
-
-    @field_validator("expression", mode="after")
-    @classmethod
-    def _validate_expression(cls, value: str) -> str:
-        return _strip_or_raise(value, "expression")
+    id: str
+    state: str
+    phase: Optional[str]
+    created_at: str
+    updated_at: str
+    finished_at: Optional[str]
+    settings: dict[str, Any]
+    progress: dict[str, Any]
+    provenance: Optional[dict[str, Any]]
+    error_category: Optional[str]
+    error_detail: Optional[str]
+    result_partial: Optional[bool]
 
 
-class EvaluateResponse(BaseModel):
-    """STV score for one expression, from PeTTaChainer/PLN.
-
-    ``score`` is strength × confidence. ``is_fallback`` marks scores that are
-    *not* real PLN results (exploration samples) — they must not be read as
-    evidence of provability.
-    """
-
-    expression: str
-    stv: STV
-    score: float
-    status: str
-    is_fallback: bool
+class Health(BaseModel):
+    status: Literal["ok"] = "ok"
 
 
-class HealthResponse(BaseModel):
-    """Liveness/readiness payload for ``GET /health``."""
-
-    status: str
+class Readiness(BaseModel):
     ready: bool
-    error: Optional[str] = None
-    petta_available: Optional[bool] = None
+    runtime: str
+    generation: int
+    error: Optional[str]
+    status: dict[str, Any]
+    provenance: Optional[dict[str, Any]]
+    queue: dict[str, int]
 
 
-class FormalEnvironment(BaseModel):
-    """Execution environment recorded with a persistent search."""
-
-    model_config = ConfigDict(extra="forbid")
-    lean_version: Optional[str] = None
-    project: Optional[str] = None
-    variables: Dict[str, str] = Field(default_factory=dict)
-
-
-class FormalBudget(BaseModel):
-    """Bounds accepted by the persistent ATP contract."""
-
-    model_config = ConfigDict(extra="forbid")
-    max_depth: Optional[int] = Field(default=None, ge=1)
-    max_nodes: Optional[int] = Field(default=None, ge=1)
-    timeout: Optional[float] = Field(default=None, gt=0, le=3600)
-
-
-class FormalProblem(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    goal: str
-    hypotheses: List[str] = Field(default_factory=list)
-
-    @field_validator("goal", mode="after")
-    @classmethod
-    def _validate_goal(cls, value: str) -> str:
-        return _strip_or_raise(value, "problem.goal")
-
-    @field_validator("hypotheses", mode="after")
-    @classmethod
-    def _validate_hypotheses(cls, value: List[str]) -> List[str]:
-        return [_strip_or_raise(item, "problem.hypotheses") for item in value]
-
-
-class FormalSearchRequest(BaseModel):
-    """Typed envelope accepted by ``POST /formal-search/start``."""
-
-    model_config = ConfigDict(extra="forbid")
-    run_id: Optional[str] = None
-    problem: FormalProblem
-    environment: FormalEnvironment = Field(default_factory=FormalEnvironment)
-    budget: FormalBudget = Field(default_factory=FormalBudget)
-
-
-class FormalReplayRequest(BaseModel):
-    """Typed independent Lean replay request."""
-
-    model_config = ConfigDict(extra="forbid")
-    run_id: Optional[str] = None
-    problem: FormalProblem
-    proof_trace: ProofTraceNode
+class ErrorBody(BaseModel):
+    category: str
+    detail: str

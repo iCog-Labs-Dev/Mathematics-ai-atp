@@ -1,684 +1,816 @@
-"""Service layer for the maths_ai HTTP API.
+"""The service coordinator: bounded fair scheduling, deadlines and job state.
 
-``InferenceService`` wraps a fully-constructed ``HybridReasoner`` (GNN engine,
-PLN chainer and Pantograph executor all loaded once at startup) and adds the
-concurrency machinery the HTTP surface needs:
-
-* a single shared Pantograph ``Server`` process — proof searches are
-  serialized behind a proof/runtime asyncio lock because the server's goal-state
-  handles and the DTS sampler are stateful and not safe to interleave;
-* separate GNN and PLN locks for component-scoped synchronization, allowing
-  standalone GNN/PLN calls to proceed concurrently with proof searches;
-* concurrency-safe access to the DTS state file: every persist/load goes
-  through its own lock, so concurrent ``/prove`` requests can't corrupt it.
-
-The heavy imports (torch, pantograph) live inside ``build_default_service``
-so the rest of the package stays importable on machines without them (tests
-inject fakes; docs generation imports the app).
+One coordinator owns all proof and evaluation admission. It counts queued and
+active work toward explicit bounds and runs one runtime operation at a time:
+an interactive proof, or one bounded step of the resident evaluation job (an
+admission step or one evaluation chunk). Up to ``interactive_per_chunk``
+waiting proofs run before one waiting evaluation step, so neither starves
+the other. A proof's clock starts at admission; its queue wait is capped
+separately and its search gets the time that remains.
 """
 
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import json
+import fcntl
 import logging
-import re
-import subprocess
-import tempfile
-import uuid
+import os
+import time
+from dataclasses import asdict
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from maths_ai.core.config import settings
-from maths_ai.data_models.proof_components import (
-    Goal,
-    TacticCandidate,
-    filter_executable_tactic_candidates,
+from maths_ai.gnn_inference.atp_lean_gnn.evaluation_runtime import (
+    EVAL_METRIC_VERSION,
+    EvaluationSettings,
+    merge_stats,
+    repeat_row_for_seeds,
+    summarize_rows,
 )
-from maths_ai.gnn_inference.atp_lean_gnn.joint_bundle import load_joint_source_bundle
-from maths_ai.hybrid_reasoner.pantograph_adapter import (
-    all_capabilities_verified,
-    probe_live_capabilities,
-    structured_goal_from_text,
+from maths_ai.lean_replay import ReplayInputError, seed_from_text
+
+from .config import ServiceConfig
+from .job_store import (
+    ACTIVE_STATES,
+    ADMITTING,
+    CANCELLED,
+    CANCELLING,
+    COMPLETED,
+    FAILED,
+    INTERRUPTED,
+    QUEUED,
+    RUNNING,
+    TERMINAL_STATES,
+    JobStore,
+    JobCapacityError,
+    ResultStorageError,
 )
-from maths_ai.pln_inference.model import PLNInference, PLNResult
+from .runtime_supervisor import (
+    OperationFailed,
+    OperationInterrupted,
+    OperationTimeout,
+    RuntimeSupervisor,
+    RuntimeUnavailable,
+)
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("maths_ai.api.service")
 
-_V2_REVISION = "8aba62625dfeb833e4591498700f351f3bc60af9"
-
-
-def _validate_v2_bundle_readiness(bundle_path: Path) -> None:
-    """Validate the pinned artifact before starting the deployment's runtime."""
-    load_joint_source_bundle(
-        bundle_path,
-        expected_revision=_V2_REVISION,
-    )
+SERVICE_RESULT_VERSION = "mcts-service-result-v1"
 
 
-async def _verify_v2_runtime(server: Any) -> None:
-    """Gate readiness on the connected runtime, not an immutable artifact flag."""
-    results = await probe_live_capabilities(server)
-    if not all_capabilities_verified(results):
-        failures = "; ".join(
-            f"{name}: {result.detail or 'capability not verified'}"
-            for name, result in results.items() if not result.ok
-        )
-        raise RuntimeError(
-            "Mathlib-Sexpr-GNN v2 live runtime verification failed: "
-            + (failures or "no capability results")
-        )
-    logger.info("verified live lean-model-sexp-v2 capabilities: %s", ", ".join(results))
+class ServiceError(RuntimeError):
+    """A request the service refuses, with the HTTP status it maps to."""
+
+    status = 500
+    category = "internal"
+
+    def __init__(self, detail: str, *, category: str | None = None) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        if category is not None:
+            self.category = category
+
+
+class InputRejected(ServiceError):
+    status, category = 422, "input"
+
+
+class QueueFull(ServiceError):
+    status, category = 429, "queue-full"
+
+
+class Unavailable(ServiceError):
+    status, category = 503, "unavailable"
+
+
+class DeadlineExceeded(ServiceError):
+    status, category = 504, "deadline"
+
+
+class UnknownJob(ServiceError):
+    status, category = 404, "unknown-job"
+
+
+class NotFinished(ServiceError):
+    status, category = 409, "not-finished"
+
+
+class StateOwnershipError(RuntimeError):
+    """Another service process owns this state directory."""
 
 
 @dataclass
-class InferenceService:
-    """Owns the loaded inference components plus the API-level locks.
-    
-    Concurrency contract:
-    - ``proof_lock``: held start-to-finish around each ``/prove`` call, including
-      all GNN/PLN search iterations and DTS persistence. Protects the shared
-      Pantograph Server and DTS sampler state.
-    - ``gnn_lock``: serializes standalone GNN predictions. V2 predictions also
-      hold ``proof_lock`` while extracting their state and running inference.
-    - ``pln_lock``: protects PLN inference; acquired by standalone ``/pln/evaluate``
-      and by proof search when calling PLN.
-    - ``dts_lock``: protects atomic DTS state file writes.
-    
-    V2 predictions, proof searches and replays share the same runtime lock.
-    Text-only legacy predictions and standalone PLN calls use component locks.
-    """
-
-    reasoner: Any  # HybridReasoner; typed loosely so fakes can stand in
-    dts_state_path: Path = field(default_factory=lambda: settings.dts_state_file)
-    proof_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    gnn_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    pln_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    dts_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-
-    @property
-    def petta_available(self) -> Optional[bool]:
-        """Expose PeTTa startup state to the readiness endpoint."""
-        petta = getattr(self.reasoner, "petta_chainer", None)
-        available = getattr(petta, "is_available", None)
-        return available if isinstance(available, bool) else None
-
-    async def prove(
-        self,
-        goal: str,
-        hypotheses: Optional[List[str]] = None,
-        max_depth: Optional[int] = None,
-        max_nodes: Optional[int] = None,
-        timeout: Optional[float] = None,
-    ):
-        """Run one full hybrid proof search, serially.
-
-        Per-request depth/node-budget overrides are applied inside the lock
-        and restored afterwards — safe because searches never overlap.
-        
-        The proof_lock is held for the entire duration, including GNN/PLN
-        calls and DTS persistence, because the shared Pantograph Server and
-        DTS sampler are stateful and cannot be safely interleaved.
-        
-        Args:
-            goal: Lean goal expression to prove.
-            hypotheses: Optional list of hypothesis strings.
-            max_depth: Per-request override of the search branch-depth bound.
-            max_nodes: Per-request override of the total hypergraph-size bound.
-            timeout: Optional per-request timeout in seconds. If provided,
-                the proof search will be cancelled if it exceeds this duration.
-                Note: this is cooperative - in-flight thread operations will
-                complete before cancellation takes effect.
-        
-        Returns:
-            ProofHypergraph with the search results.
-        
-        Raises:
-            asyncio.TimeoutError: If the proof search exceeds the timeout.
-        """
-        if timeout is not None and timeout <= 0:
-            raise ValueError("timeout must be positive")
-        
-        async with self.proof_lock:
-            saved = (self.reasoner.max_depth, self.reasoner.max_nodes)
-            try:
-                if max_depth is not None:
-                    self.reasoner.max_depth = max_depth
-                if max_nodes is not None:
-                    self.reasoner.max_nodes = max_nodes
-                
-                if timeout is not None:
-                    graph = await asyncio.wait_for(
-                        self.reasoner.prove(goal, hypotheses=hypotheses),
-                        timeout=timeout,
-                    )
-                else:
-                    graph = await self.reasoner.prove(goal, hypotheses=hypotheses)
-            finally:
-                self.reasoner.max_depth, self.reasoner.max_nodes = saved
-        await self.persist_dts_state()
-        return graph
-
-    async def replay(self, goal: str, proof_trace: Dict[str, Any],
-                     hypotheses: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Replay a proof trace against the live Lean/Pantograph server."""
-        reasoner = self.reasoner
-        executor = getattr(reasoner, "executor", None)
-        start_state = getattr(reasoner, "_start_state", None)
-        if executor is None or start_state is None:
-            raise RuntimeError("Lean replay is unavailable for this service")
-
-        async with self.proof_lock:
-            async def visit(node: Dict[str, Any], state: Any) -> Any:
-                if not state.goals:
-                    raise ValueError("proof trace contains a tactic after all goals were closed")
-
-                pending_goals = len(state.goals) - 1
-                tactic_cmd = self._render_tactic(node)
-                try:
-                    next_state = await executor.server.goal_tactic_async(state, 0, tactic_cmd)
-                except Exception as exc:
-                    raise ValueError(str(exc)) from exc
-
-                children = list(node.get("subgoals", []))
-                produced_goals = len(next_state.goals) - pending_goals
-                if produced_goals != len(children):
-                    raise ValueError("proof trace subgoals do not match Lean")
-
-                for child in children:
-                    next_state = await visit(child, next_state)
-
-                if len(next_state.goals) != pending_goals:
-                    raise ValueError("proof trace did not close all generated subgoals")
-                return next_state
-
-            root_state = await reasoner._start_state(
-                Goal(expression=goal, hypotheses=hypotheses or [])
-            )
-            final_state = await visit(proof_trace, root_state)
-            if final_state.goals:
-                raise ValueError("proof left unresolved Lean goals")
-
-            # The pinned Pantograph protocol does not expose hasSorry/hasUnsafe.
-            # Compile the same declaration with warnings-as-errors so verification
-            # fails closed rather than accepting a goal closed by `sorry`.
-            await asyncio.to_thread(
-                self._verify_declaration_sync,
-                goal,
-                proof_trace,
-                hypotheses or [],
-            )
-        return {"verified": True, "status": "verified"}
-
-    @staticmethod
-    def _render_tactic(node: Dict[str, Any]) -> str:
-        arguments = " ".join(str(arg).rstrip(":") for arg in node.get("arguments", []))
-        return " ".join([str(node["tactic"]), arguments]).strip()
-
-    @classmethod
-    def _render_proof_script(
-        cls,
-        node: Dict[str, Any],
-        *,
-        indent: int = 2,
-        bullet: bool = False,
-    ) -> List[str]:
-        prefix = " " * indent + ("· " if bullet else "")
-        lines = [prefix + cls._render_tactic(node)]
-        child_indent = indent + 2 if bullet else indent
-        for child in node.get("subgoals", []):
-            lines.extend(cls._render_proof_script(child, indent=child_indent, bullet=True))
-        return lines
-
-    @classmethod
-    def _verify_declaration_sync(
-        cls,
-        goal: str,
-        proof_trace: Dict[str, Any],
-        hypotheses: List[str],
-    ) -> None:
-        binders = " ".join(f"({hypothesis})" for hypothesis in hypotheses)
-        theorem_head = "theorem replay_candidate"
-        if binders:
-            theorem_head += f" {binders}"
-        source = "\n".join([
-            "import Init",
-            "set_option warningAsError true",
-            f"{theorem_head} : {goal} := by",
-            *cls._render_proof_script(proof_trace),
-            "",
-        ])
-
-        path: Optional[Path] = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".lean", encoding="utf-8", delete=False
-            ) as handle:
-                handle.write(source)
-                path = Path(handle.name)
-            completed = subprocess.run(
-                ["lake", "env", "lean", str(path)],
-                cwd=settings.lean_project_path,
-                capture_output=True,
-                text=True,
-                timeout=120,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError("Lean verification timed out") from exc
-        except OSError as exc:
-            raise RuntimeError(f"Lean verification is unavailable: {exc}") from exc
-        finally:
-            if path is not None:
-                path.unlink(missing_ok=True)
-
-        if completed.returncode != 0:
-            error = (completed.stderr or completed.stdout).strip()
-            raise ValueError(error[-4000:] or "Lean rejected the proof declaration")
-
-    async def _structured_goal_for_prediction(
-        self,
-        goal: str,
-        hypotheses: Optional[List[str]],
-    ) -> Goal:
-        """Obtain the structured live state the v2 policy requires.
-
-        The GNN cannot consume printed goal text losslessly, so the state is
-        extracted from the shared Pantograph server through its raw wire
-        protocol (the pinned client strips v2 fields from parsed states).
-        """
-        server = getattr(self.reasoner, "server", None)
-        if server is None:
-            raise RuntimeError(
-                "The Mathlib-Sexpr-GNN v2 policy requires a structured live state, "
-                "but no Pantograph server is available to extract one."
-            )
-        return await structured_goal_from_text(server, goal, hypotheses)
-
-    async def predict_tactics(
-        self,
-        goal: str,
-        top_k: int,
-        *,
-        hypotheses: Optional[List[str]] = None,
-    ) -> List[TacticCandidate]:
-        """Predict tactics for a goal using the GNN engine."""
-        engine = self.reasoner.gnn_engine
-        if getattr(engine, "_is_joint_v2", False):
-            # Pantograph has one untagged response stream. Use the same lock
-            # as proof search/replay; component locks alone cannot protect it.
-            async with self.proof_lock:
-                async with self.gnn_lock:
-                    structured_goal = await self._structured_goal_for_prediction(goal, hypotheses)
-                    candidates = await asyncio.to_thread(
-                        engine.inference,
-                        goal,
-                        top_k=top_k,
-                        structured_goal=structured_goal,
-                    )
-        else:
-            async with self.gnn_lock:
-                if hypotheses:
-                    candidates = await asyncio.to_thread(
-                        engine.inference, goal, top_k=top_k, hypotheses=hypotheses,
-                    )
-                else:
-                    candidates = await asyncio.to_thread(engine.inference, goal, top_k=top_k)
-        filtered = filter_executable_tactic_candidates(candidates)
-        if len(filtered) != len(candidates):
-            logger.warning(
-                "Filtered %d GNN candidate(s) containing unresolved lemma placeholders.",
-                len(candidates) - len(filtered),
-            )
-        return filtered
-
-    async def evaluate(self, expression: str, hypotheses: Optional[List[str]] = None) -> PLNResult:
-        """Evaluate an expression using PLN inference."""
-        async with self.pln_lock:
-            return await asyncio.to_thread(
-                self.reasoner.petta_chainer.evaluate, expression, hypotheses=hypotheses
-            )
-
-    async def persist_dts_state(self) -> None:
-        """Persist the DTS sampler under the state-file lock."""
-        sampler = getattr(self.reasoner, "dts_sampler", None)
-        if sampler is None:
-            return
-        async with self.dts_lock:
-            try:
-                await asyncio.to_thread(self._save_dts_sync)
-            except Exception:
-                logger.exception("failed to persist DTS state to %s", self.dts_state_path)
-
-    def _save_dts_sync(self) -> None:
-        self.dts_state_path.parent.mkdir(parents=True, exist_ok=True)
-        self.reasoner.dts_sampler.save_to(str(self.dts_state_path))
-
-    async def shutdown(self) -> None:
-        """Flush DTS state and close the Pantograph server process."""
-        await self.persist_dts_state()
-        server = getattr(self.reasoner, "server", None)
-        close = getattr(server, "_close", None)
-        if close is not None:
-            await asyncio.to_thread(close)
+class _Proof:
+    payload: dict[str, Any]
+    admitted_at: float
+    deadline: float
+    queue_deadline: float
+    future: asyncio.Future
+    started: bool = False
+    queue_timer: Any = None
+    # The runtime operation; formal operations get the runtime's raw result.
+    operation: str = "prove"
+    formal: bool = False
 
 
 @dataclass
-class FormalRun:
-    """Durable state for one persistent-atp formal search."""
+class _ActiveJob:
+    job_id: str
+    settings: dict[str, Any]
+    phase: str = ADMITTING
+    repeat: int = 0
+    start: int = 0
+    subset_size: int = 0
+    subset_sha256: str | None = None
+    seeds: list[str] = field(default_factory=list)
+    admission: dict[str, Any] | None = None
+    repeat_stats: dict[int, dict[str, float]] = field(default_factory=dict)
+    cancel_requested: bool = False
+    deadline: float = 0.0
+    attempts_done: int = 0
+    expired: bool = False
+    input_records: list = field(default_factory=list)
+    proposal_records: list = field(default_factory=list)
 
-    run_id: str
-    envelope: Dict[str, Any]
-    status: str = "queued"
-    result: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    task: Optional[asyncio.Task] = field(default=None, repr=False)
+
+def _map_failure(exc: OperationFailed) -> ServiceError:
+    if exc.category.startswith("input:"):
+        return InputRejected(exc.detail, category=exc.category)
+    if exc.category in ("busy", "state"):
+        return Unavailable(exc.detail, category=exc.category)
+    return ServiceError(exc.detail, category=exc.category)
 
 
-class FormalSearchManager:
-    """Manage asynchronous formal-search runs and their checkpoints."""
+class ProvingService:
+    def __init__(self, config: ServiceConfig, config_path: Path, *, backend: str | None = None) -> None:
+        self.config = config
+        self.limits = config.limits
+        self.store = JobStore(config.state_dir)
+        self.supervisor = RuntimeSupervisor(
+            config, config_path, backend=backend, on_restart=self._runtime_restarted
+        )
+        self._proofs: deque[_Proof] = deque()
+        self._jobs: deque[str] = deque()
+        self._active: _ActiveJob | None = None
+        self._active_proofs = 0
+        self._served_since_chunk = 0
+        self._wakeup = asyncio.Event()
+        self._dispatcher: asyncio.Task | None = None
+        self._step: asyncio.Task | None = None
+        self._lock_file = None
+        self._stopping = False
+        self._submissions: set[asyncio.Task] = set()
+        self._job_timers: dict[str, asyncio.TimerHandle] = {}
 
-    _RUN_ID_RE = re.compile(
-        r"^[A-Za-z0-9][A-Za-z0-9_.-]*(?:/[A-Za-z0-9][A-Za-z0-9_.-]*)*$"
-    )
-    _LEGACY_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+    # Lifecycle -----------------------------------------------------------
 
-    def __init__(self, service: InferenceService, state_dir: Optional[Path] = None):
-        self.service = service
-        self.state_dir = state_dir or settings.formal_runs_dir
-        self.runs: Dict[str, FormalRun] = {}
-        self.lock = asyncio.Lock()
-        self._recover_interrupted()
+    async def start(self) -> None:
+        self._own_state_directory()
+        interrupted = await self.store.open()
+        if interrupted:
+            logger.warning("interrupted %d unfinished jobs from a previous service run", len(interrupted))
+        self.supervisor.start()
+        self._dispatcher = asyncio.create_task(self._dispatch(), name="service-dispatcher")
 
-    @classmethod
-    def validate_run_id(cls, run_id: str) -> str:
-        if len(run_id) > 256 or not cls._RUN_ID_RE.fullmatch(run_id):
-            raise ValueError(
-                "run_id must be at most 256 characters and contain slash-separated "
-                "segments using only letters, digits, '_', '-' or '.'"
-            )
-        return run_id
-
-    def _recover_interrupted(self) -> None:
-        """Mark in-flight jobs interrupted after a process restart."""
-        if not self.state_dir.exists():
-            return
-        for path in self.state_dir.glob("*.json"):
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                if data.get("status") in {"queued", "running", "cancelling"}:
-                    data["status"] = "interrupted"
-                    path.write_text(json.dumps(data), encoding="utf-8")
-            except (OSError, ValueError, TypeError):
-                logger.exception("failed to recover formal run state from %s", path)
-
-    def _path(self, run_id: str) -> Path:
-        self.validate_run_id(run_id)
-        digest = hashlib.sha256(run_id.encode("utf-8")).hexdigest()
-        return self.state_dir / f"{digest}.json"
-
-    def _legacy_path(self, run_id: str) -> Optional[Path]:
-        """Return the pre-hash path only for IDs that were already filesystem-safe."""
-        if self._LEGACY_RUN_ID_RE.fullmatch(run_id):
-            return self.state_dir / f"{run_id}.json"
-        return None
-
-    def _save(self, run: FormalRun) -> None:
-        self.state_dir.mkdir(parents=True, exist_ok=True)
-        data = {"run_id": run.run_id, "envelope": run.envelope, "status": run.status,
-                "result": run.result, "error": run.error}
-        self._path(run.run_id).write_text(json.dumps(data), encoding="utf-8")
-
-    def _load(self, run_id: str) -> Optional[FormalRun]:
-        path = self._path(run_id)
-        if not path.exists():
-            legacy_path = self._legacy_path(run_id)
-            if legacy_path is None or not legacy_path.exists():
-                return None
-            path = legacy_path
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if data.get("run_id") != run_id:
-            raise ValueError("stored formal run ID does not match the requested run ID")
-        run = FormalRun(run_id=run_id, envelope=data["envelope"], status=data["status"],
-                        result=data.get("result"), error=data.get("error"))
-        self.runs[run_id] = run
-        return run
-
-    @staticmethod
-    def _request_args(envelope: Dict[str, Any]) -> Dict[str, Any]:
-        problem = envelope.get("problem", envelope)
-        budget = envelope.get("budget", {})
-        goal = problem.get("goal") or problem.get("target")
-        if not isinstance(goal, str) or not goal.strip():
-            raise ValueError("formal-search request requires problem.goal")
-        return {
-            "goal": goal,
-            "hypotheses": problem.get("hypotheses", []),
-            "max_depth": budget.get("max_depth", envelope.get("max_depth")),
-            "max_nodes": budget.get("max_nodes", envelope.get("max_nodes")),
-            "timeout": budget.get("timeout", envelope.get("timeout")),
-        }
-
-    def _snapshot(self, run: FormalRun) -> Dict[str, Any]:
-        return {
-            "run_id": run.run_id, "status": run.status,
-            "result": run.result, "error": run.error,
-            "environment": run.envelope.get("environment"),
-            "budget": run.envelope.get("budget"),
-            "request": run.envelope,
-        }
-
-    async def _execute(self, run: FormalRun) -> None:
-        run.status = "running"
-        self._save(run)
+    def _own_state_directory(self) -> None:
+        state = Path(self.config.state_dir)
+        state.mkdir(parents=True, exist_ok=True)
+        handle = open(state / "service.lock", "w")
         try:
-            args = self._request_args(run.envelope)
-            graph = await self.service.prove(**args)
-            from maths_ai.api.schemas import ProveResponse
-            response = ProveResponse.from_graph(graph)
-            run.result = response.model_dump(mode="json")
-            if response.solved and response.proof_trace is not None:
-                run.status = "found"
-            elif response.exhausted:
-                run.status = "exhausted"
-            else:
-                run.status = "unsolved"
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            handle.close()
+            raise StateOwnershipError(
+                f"Another service process owns {state}; run exactly one service per state directory."
+            ) from exc
+        handle.write(str(os.getpid()))
+        handle.flush()
+        self._lock_file = handle
+
+    async def stop(self) -> None:
+        self._stopping = True
+        await asyncio.gather(*self._submissions, return_exceptions=True)
+        for timer in self._job_timers.values():
+            timer.cancel()
+        active_step = self._step
+        if self._dispatcher is not None:
+            self._dispatcher.cancel()
+            await asyncio.gather(self._dispatcher, return_exceptions=True)
+        if active_step is not None:
+            active_step.cancel()
+            await asyncio.gather(active_step, return_exceptions=True)
+        for proof in self._proofs:
+            proof.queue_timer.cancel()
+            if not proof.future.done():
+                proof.future.set_exception(Unavailable("The service is shutting down"))
+        await self.supervisor.stop()
+        if self._lock_file is not None:
+            self._lock_file.close()
+            self._lock_file = None
+
+    def readiness(self) -> dict[str, Any]:
+        supervisor = self.supervisor
+        status = supervisor.status or {}
+        ready = supervisor.ready and status.get("usable_workers", 1) > 0
+        return {
+            "ready": ready,
+            "runtime": supervisor.state,
+            "generation": supervisor.generation,
+            "error": supervisor.error,
+            "status": status,
+            "provenance": supervisor.provenance,
+            "queue": {
+                "pending_proofs": len(self._proofs) + self._active_proofs,
+                "max_pending_proofs": self.limits.max_pending_proofs,
+                "pending_jobs": len(self._jobs) + (self._active is not None),
+                "max_pending_jobs": self.limits.max_pending_jobs,
+            },
+        }
+
+    # Proofs --------------------------------------------------------------
+
+    def resolve_prove(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Validate a proof request into the payload the runtime runs."""
+        limits = self.limits
+        if len(request["goal"]) > limits.max_goal_chars:
+            raise InputRejected(f"goal exceeds {limits.max_goal_chars} characters", category="input:too-large")
+        hypotheses = list(request.get("hypotheses") or [])
+        if len(hypotheses) > limits.max_hypotheses:
+            raise InputRejected(f"more than {limits.max_hypotheses} hypotheses", category="input:too-large")
+        if any(len(h) > limits.max_hypothesis_chars for h in hypotheses):
+            raise InputRejected(
+                f"a hypothesis exceeds {limits.max_hypothesis_chars} characters", category="input:too-large"
+            )
+        try:
+            seed_from_text(goal=request["goal"], hypotheses=hypotheses)
+        except ReplayInputError as exc:
+            raise InputRejected(str(exc), category=f"input:{exc.reason.value}") from exc
+        except ValueError as exc:
+            raise InputRejected(str(exc), category="input:malformed-text") from exc
+        profile = self._profile(request.get("search_profile"), request)
+        timeout = request.get("timeout_s") or limits.default_timeout_s
+        queue_timeout = request.get("queue_timeout_s") or min(limits.default_queue_timeout_s, timeout)
+        if timeout > limits.max_timeout_s:
+            raise InputRejected(f"timeout_s exceeds {limits.max_timeout_s}", category="input:budget")
+        if queue_timeout > limits.max_queue_timeout_s or queue_timeout > timeout:
+            raise InputRejected("queue_timeout_s exceeds its limit or the request timeout",
+                                category="input:budget")
+        return {
+            "goal": request["goal"],
+            "hypotheses": hypotheses,
+            "search_profile": profile[0],
+            "profile": profile[1],
+            "proposal_mode": request.get("proposal_mode") or "sample",
+            "seed": int(request.get("seed") or 0),
+            "timeout_s": float(timeout),
+            "queue_timeout_s": float(queue_timeout),
+        }
+
+    def _profile(self, name: str | None, request: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        name = name or self.config.default_search_profile
+        base = self.config.search_profiles.get(name)
+        if base is None:
+            raise InputRejected(f"unknown search profile {name!r}", category="input:profile")
+        overrides = {key: request.get(key) for key in ("top_k_tactics", "max_depth", "max_nodes", "num_simulations")}
+        try:
+            resolved = base.with_overrides(overrides)
+        except ValueError as exc:
+            raise InputRejected(str(exc), category="input:budget") from exc
+        return name, {key: getattr(resolved, key) for key in resolved.__dataclass_fields__}
+
+    async def prove(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Admit, queue and run one proof; raises a ``ServiceError`` on refusal."""
+        admitted_at = time.monotonic()
+        payload = self.resolve_prove(request)
+        return await self._enqueue(payload, admitted_at)
+
+    def resolve_formal_prove(
+        self,
+        *,
+        seed_spec: dict[str, Any],
+        display_goal: str,
+        search_profile: str,
+        settings: dict[str, Any],
+        proposal_mode: str | None,
+        seed: int | None,
+        max_tactic_steps: int,
+        timeout_s: float,
+    ) -> dict[str, Any]:
+        """The runtime payload of one formal attempt on an admitted seed.
+
+        The formal service has already admitted the input and resolved the
+        deployment profile; ``settings`` are that profile's backend settings
+        (node, depth and simulation limits), applied over the named service
+        search profile.
+        """
+        profile = self._profile(search_profile, settings)
+        return {
+            "goal": display_goal,
+            "hypotheses": [],
+            "seed_spec": seed_spec,
+            "search_profile": profile[0],
+            "profile": profile[1],
+            "proposal_mode": proposal_mode or "sample",
+            "seed": int(seed or 0),
+            "timeout_s": float(timeout_s),
+            "queue_timeout_s": float(timeout_s),
+            "max_tactic_steps": int(max_tactic_steps),
+        }
+
+    async def run_formal(self, operation: str, payload: dict[str, Any], *, timeout_s: float) -> dict[str, Any]:
+        """Queue one formal runtime operation and return its raw result.
+
+        ``operation`` is ``prove`` (an admitted seed under a step allowance),
+        ``admit_source`` or ``verify``. The deadline covers queueing, as the
+        formal wall-clock budget does; a cancelled caller cancels the work.
+        """
+        if operation not in ("prove", "admit_source", "verify"):
+            raise ValueError(f"Unknown formal operation {operation!r}.")
+        payload = {**payload, "timeout_s": float(timeout_s), "queue_timeout_s": float(timeout_s)}
+        return await self._enqueue(payload, time.monotonic(), operation=operation, formal=True)
+
+    async def _enqueue(
+        self, payload: dict[str, Any], admitted_at: float, *, operation: str = "prove", formal: bool = False
+    ) -> dict[str, Any]:
+        if not self.supervisor.ready:
+            raise Unavailable(self.supervisor.error or f"runtime is {self.supervisor.state}")
+        if len(self._proofs) + self._active_proofs >= self.limits.max_pending_proofs:
+            raise QueueFull("The proof queue is full; retry later")
+        proof = _Proof(
+            payload=payload,
+            admitted_at=admitted_at,
+            deadline=admitted_at + payload["timeout_s"],
+            queue_deadline=admitted_at + payload["queue_timeout_s"],
+            future=asyncio.get_running_loop().create_future(),
+            operation=operation,
+            formal=formal,
+        )
+        def expire_queue():
+            if not proof.started and proof in self._proofs:
+                self._proofs.remove(proof)
+                self._fail(proof, DeadlineExceeded("The queue deadline expired", category="queue-timeout"))
+        proof.queue_timer = asyncio.get_running_loop().call_at(proof.queue_deadline, expire_queue)
+        self._proofs.append(proof)
+        self._wakeup.set()
+        try:
+            async with asyncio.timeout_at(proof.deadline):
+                return await asyncio.shield(proof.future)
+        except TimeoutError:
+            if not proof.started and proof in self._proofs:
+                self._proofs.remove(proof)
+            elif self._step is not None and getattr(self._step, "proof", None) is proof:
+                owned_step = self._step
+                owned_step.cancel()
+                await asyncio.shield(asyncio.gather(owned_step, return_exceptions=True))
+            proof.future.cancel()
+            if formal:
+                await self._settle_formal_work(proof)
+            raise DeadlineExceeded("The request deadline expired")
         except asyncio.CancelledError:
-            run.status = "cancelled"
-            self._save(run)
+            # The client went away: drop a queued proof, cancel a running one.
+            if not proof.started and proof in self._proofs:
+                self._proofs.remove(proof)
+            elif self._step is not None and getattr(self._step, "proof", None) is proof:
+                owned_step = self._step
+                owned_step.cancel()
+                await asyncio.shield(asyncio.gather(owned_step, return_exceptions=True))
+            proof.future.cancel()
+            if formal:
+                await self._settle_formal_work(proof)
+            raise
+        finally:
+            proof.queue_timer.cancel()
+
+    async def _settle_formal_work(self, proof: _Proof) -> None:
+        """Await this operation and its native cleanup before settling its run."""
+        step = self._step
+        if step is not None and getattr(step, "proof", None) is proof:
+            try:
+                await asyncio.shield(step)
+            except asyncio.CancelledError:
+                if not step.done():
+                    raise  # This waiter was cancelled again; work has not stopped.
+        await self.supervisor.settled()
+
+    async def _run_proof(self, proof: _Proof) -> None:
+        proof.started = True
+        proof.queue_timer.cancel()
+        now = time.monotonic()
+        try:
+            queue_wait = now - proof.admitted_at
+            remaining = proof.deadline - now
+            payload = dict(proof.payload)
+            # The search stops cooperatively before the response deadline, so
+            # replay, certification and the reply fit inside it.
+            if remaining <= 0:
+                raise DeadlineExceeded("The request deadline expired before dispatch")
+            payload["timeout_s"] = remaining * 0.8
+            started = time.monotonic()
+            result = await self.supervisor.run(proof.operation, payload, timeout=remaining)
+            if proof.formal:
+                # Formal callers classify every outcome themselves.
+                result = {
+                    **result,
+                    "timing": {
+                        "queue_wait_s": queue_wait,
+                        "execution_s": time.monotonic() - started,
+                        "total_s": time.monotonic() - proof.admitted_at,
+                    },
+                    "runtime": {"generation": self.supervisor.generation, "provenance": self.supervisor.provenance},
+                }
+                if not proof.future.done():
+                    proof.future.set_result(result)
+                return
+            outcome = result.get("outcome")
+            if outcome == "inadmissible":
+                raise InputRejected(
+                    "Lean could not admit the goal and its declarations",
+                    category=f"input:{result.get('exception_category') or 'lean-rejected'}",
+                )
+            if outcome == "hard_timeout":
+                raise DeadlineExceeded(
+                    "The search did not stop by its deadline; its worker was replaced",
+                    category="hard-timeout",
+                )
+            if outcome == "error":
+                raise Unavailable(
+                    f"The search failed in the runtime ({result.get('exception_category')})",
+                    category="search-infrastructure",
+                )
+            result = {
+                **result,
+                "search_profile": payload["search_profile"],
+                "timing": {
+                    "queue_wait_s": queue_wait,
+                    "execution_s": time.monotonic() - started,
+                    "total_s": time.monotonic() - proof.admitted_at,
+                },
+                "runtime": {"generation": self.supervisor.generation, "provenance": self.supervisor.provenance},
+            }
+            if not proof.future.done():
+                proof.future.set_result(result)
+        except ServiceError as exc:
+            self._fail(proof, exc)
+        except OperationTimeout as exc:
+            self._fail(proof, DeadlineExceeded(str(exc)))
+        except OperationFailed as exc:
+            self._fail(proof, _map_failure(exc))
+        except (RuntimeUnavailable, OperationInterrupted) as exc:
+            self._fail(proof, Unavailable(str(exc), category="runtime-interrupted"))
+        except asyncio.CancelledError:
+            self._fail(proof, DeadlineExceeded("The request was cancelled", category="cancelled"))
             raise
         except Exception as exc:
-            run.status, run.error = "failed", str(exc)
-        finally:
-            run.task = None
-            self._save(run)
+            logger.exception("proof operation failed")
+            self._fail(proof, ServiceError(str(exc), category="internal"))
 
-    async def start(self, envelope: Dict[str, Any]) -> Dict[str, Any]:
-        run_id = str(envelope.get("run_id") or envelope.get("id") or uuid.uuid4())
-        self.validate_run_id(run_id)
-        async with self.lock:
-            legacy_path = self._legacy_path(run_id)
-            if (
-                run_id in self.runs
-                or self._path(run_id).exists()
-                or (legacy_path is not None and legacy_path.exists())
-            ):
-                raise ValueError(f"run_id already exists: {run_id}")
-            normalized_envelope = dict(envelope)
-            normalized_envelope["run_id"] = run_id
-            run = FormalRun(run_id=run_id, envelope=normalized_envelope)
-            self.runs[run_id] = run
-            self._save(run)
-            run.task = asyncio.create_task(self._execute(run))
-            return self._snapshot(run)
+    @staticmethod
+    def _fail(proof: _Proof, error: ServiceError) -> None:
+        if not proof.future.done():
+            proof.future.set_exception(error)
 
-    async def get(self, run_id: str) -> Optional[Dict[str, Any]]:
-        self.validate_run_id(run_id)
-        async with self.lock:
-            run = self.runs.get(run_id) or self._load(run_id)
-            return self._snapshot(run) if run else None
+    # Evaluation jobs -----------------------------------------------------
 
-    async def retry(self, run_id: str) -> Dict[str, Any]:
-        """Retry an interrupted/failed search; this is not checkpoint resume."""
-        self.validate_run_id(run_id)
-        async with self.lock:
-            run = self.runs.get(run_id) or self._load(run_id)
-            if run is None:
-                raise KeyError(run_id)
-            if run.task is not None and not run.task.done():
-                raise RuntimeError("run is already active")
-            if run.status not in {"interrupted", "failed", "cancelled"}:
-                raise RuntimeError("only interrupted, failed, or cancelled runs can be retried")
-            run.status, run.error, run.result = "queued", None, None
-            self._save(run)
-            run.task = asyncio.create_task(self._execute(run))
-            return self._snapshot(run)
+    async def submit_evaluation(self, request: dict[str, Any]) -> dict[str, Any]:
+        # Once admitted, a dataset job is independent of the submitting connection.
+        if len(self._submissions) >= self.limits.max_pending_jobs:
+            raise QueueFull("The evaluation admission queue is full")
+        task = asyncio.create_task(self._submit_evaluation(request))
+        self._submissions.add(task)
+        task.add_done_callback(self._submissions.discard)
+        task.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+        return await asyncio.shield(task)
 
-    async def cancel(self, run_id: str) -> Dict[str, Any]:
-        self.validate_run_id(run_id)
-        async with self.lock:
-            run = self.runs.get(run_id) or self._load(run_id)
-            if run is None:
-                raise KeyError(run_id)
-            if run.task is not None and not run.task.done():
-                run.task.cancel()
-                run.status = "cancelling"
-                self._save(run)
-            elif run.status in {"queued", "running"}:
-                run.status = "cancelled"
-                self._save(run)
-            return self._snapshot(run)
-
-    async def mark_verified(self, run_id: str) -> None:
-        self.validate_run_id(run_id)
-        async with self.lock:
-            run = self.runs.get(run_id) or self._load(run_id)
-            if run is None:
-                raise KeyError(run_id)
-            if run.status != "found":
-                raise RuntimeError("only a found proof can be verified")
-            run.status = "verified"
-            self._save(run)
-
-    async def validate_replay(
-        self,
-        run_id: str,
-        problem: Dict[str, Any],
-        proof_trace: Dict[str, Any],
-    ) -> None:
-        """Ensure replay input is exactly the candidate stored for this run."""
-        self.validate_run_id(run_id)
-        async with self.lock:
-            run = self.runs.get(run_id) or self._load(run_id)
-            if run is None:
-                raise KeyError(run_id)
-            if run.status != "found":
-                raise RuntimeError("only a found proof can be replayed")
-            if not run.result or not run.result.get("solved") or not run.result.get("proof_trace"):
-                raise RuntimeError("run has no solved proof trace")
-
-            stored_problem = run.envelope.get("problem", {})
-            normalized_stored_problem = {
-                "goal": stored_problem.get("goal"),
-                "hypotheses": stored_problem.get("hypotheses", []),
-            }
-            normalized_problem = {
-                "goal": problem.get("goal"),
-                "hypotheses": problem.get("hypotheses", []),
-            }
-            if normalized_problem != normalized_stored_problem:
-                raise ValueError("replay problem does not match the stored run")
-            if proof_trace != run.result["proof_trace"]:
-                raise ValueError("replay proof trace does not match the stored run")
-
-async def build_default_service(
-    *,
-    config_path: Optional[Path] = None,
-    tactic_model_path: Optional[Path] = None,
-    argument_model_path: Optional[Path] = None,
-    bundle_path: Optional[Path] = None,
-    index_path: Optional[Path] = None,
-    corpus_path: Optional[Path] = None,
-    top_k_tactics: int = 3,
-    top_k_subgoals: int = 3,
-    max_depth: Optional[int] = None,
-    max_nodes: int = 500,
-    dts_c: Optional[float] = None,
-    dts_random_seed: Optional[int] = None,
-) -> InferenceService:
-    """Construct the real service from configured model paths.
-
-    Loads the GNN checkpoints once, starts one Pantograph/Lean server process
-    once, and restores any existing DTS state — everything the batch CLI
-    ``joint_inference.main`` does, minus the argparse/goal plumbing.
-    Paths default to the env-configurable settings so Docker/deployments can
-    redirect them without code changes.
-    """
-    from pantograph.server import Server
-
-    from maths_ai.hybrid_reasoner.joint_inference import HybridReasoner, PantographExecutor
-    from maths_ai.hybrid_reasoner.pantograph_adapter import model_state_options
-    from maths_ai.pln_inference.metta.translator.translator_modules.runner import DynamicThompsonSampler
-
-    config_path = config_path or settings.gnn_config_path
-    tactic_model_path = tactic_model_path or settings.tactic_model_path
-    argument_model_path = argument_model_path or settings.argument_model_path
-    index_path = index_path if index_path is not None else settings.lemma_index_path
-    corpus_path = corpus_path if corpus_path is not None else settings.lemma_corpus_path
-    bundle_path = bundle_path if bundle_path is not None else settings.gnn_bundle_path
-
-    if not bundle_path.is_dir():
-        raise FileNotFoundError(
-            "Configured v2 GNN bundle is unavailable at "
-            f"'{bundle_path}'. Fetch revision "
-            "8aba62625dfeb833e4591498700f351f3bc60af9 before starting the API; "
-            "the legacy checkpoint fallback is disabled."
+    async def _submit_evaluation(self, request: dict[str, Any]) -> dict[str, Any]:
+        limits = self.limits
+        dataset = self.config.dataset_profiles.get(request["dataset_profile"])
+        if dataset is None:
+            raise InputRejected(f"unknown dataset profile {request['dataset_profile']!r}", category="input:profile")
+        name, profile = self._profile(request.get("search_profile"), request)
+        repeats = int(request.get("repeats") or 1)
+        if repeats > limits.max_repeats:
+            raise InputRejected(f"repeats exceeds {limits.max_repeats}", category="input:budget")
+        timeout = request.get("timeout_s") or limits.default_timeout_s
+        if timeout > limits.max_timeout_s:
+            raise InputRejected(f"timeout_s exceeds {limits.max_timeout_s}", category="input:budget")
+        deadline = request.get("deadline_s") or limits.max_job_deadline_s
+        if deadline > limits.max_job_deadline_s:
+            raise InputRejected(f"deadline_s exceeds {limits.max_job_deadline_s}", category="input:budget")
+        try:
+            evaluation = EvaluationSettings(
+                mode=request.get("proposal_mode") or "sample",
+                seed=int(request.get("seed") if request.get("seed") is not None else 42),
+                repeats=repeats,
+            )
+        except ValueError as exc:
+            raise InputRejected(str(exc), category="input:budget") from exc
+        settings = {
+            "search_profile": name,
+            "profile": profile,
+            "dataset_profile": request["dataset_profile"],
+            "dataset": dataset.to_dict(),
+            "evaluation": {"mode": evaluation.mode, "seed": evaluation.seed, "repeats": evaluation.repeats},
+            "evaluation_contract": evaluation.contract(),
+            "timeout_s": float(timeout),
+            "deadline_s": float(deadline),
+            "deadline_at": time.time() + float(deadline),
+            "chunk_size": limits.eval_chunk_size,
+            "metric": EVAL_METRIC_VERSION,
+            "pln_runtime": asdict(self.config.pln) if profile["use_pln"] else None,
+        }
+        try:
+            job_id = await self.store.create(dict(request), settings, capacity=limits.max_pending_jobs)
+        except JobCapacityError as exc:
+            raise QueueFull(str(exc)) from exc
+        self._job_timers[job_id] = asyncio.get_running_loop().call_later(
+            max(settings["deadline_at"] - time.time(), 0),
+            lambda: asyncio.create_task(self._expire_job(job_id)),
         )
-    _validate_v2_bundle_readiness(bundle_path)
+        self._jobs.append(job_id)
+        self._wakeup.set()
+        return await self.store.get(job_id)
 
-    server = await Server.create(
-        imports=["Mathlib"],
-        project_path=str(settings.lean_project_path),
-        options=model_state_options(),
-    )
-    try:
-        await _verify_v2_runtime(server)
-        dts_input = settings.dts_state_file
-        dts_sampler = None
-        if dts_input.exists() and dts_input.stat().st_size > 0:
+    async def _expire_job(self, job_id):
+        job = await self.store.get(job_id)
+        if job is None or job["state"] in TERMINAL_STATES:
+            return
+        if job_id in self._jobs:
+            self._jobs.remove(job_id)
+            await self._finish(job_id, FAILED, None, error=("deadline", "The queued job expired"))
+        elif self._active is not None and self._active.job_id == job_id:
+            self._active.expired = self._active.cancel_requested = True
+            await self.store.transition(job_id, CANCELLING, phase="deadline-cleanup")
+            if self._step is not None and getattr(self._step, "job_id", None) == job_id:
+                self._step.cancel()
+        self._wakeup.set()
+
+    async def job(self, job_id: str) -> dict[str, Any]:
+        job = await self.store.get(job_id)
+        if job is None:
+            raise UnknownJob(f"no job {job_id}")
+        return job
+
+    async def job_result(self, job_id: str) -> dict[str, Any]:
+        job = await self.job(job_id)
+        if job["state"] not in TERMINAL_STATES:
+            raise NotFinished(f"job {job_id} is {job['state']}")
+        try:
+            result = await self.store.result(job_id)
+        except ResultStorageError as exc:
+            raise ServiceError(str(exc), category="result-storage") from exc
+        if result is None:
+            raise NotFinished(f"job {job_id} has no published result", category="no-result")
+        return result
+
+    async def cancel_job(self, job_id: str) -> dict[str, Any]:
+        job = await self.job(job_id)
+        if job["state"] in TERMINAL_STATES:
+            return job
+        if job_id in self._jobs:
+            self._jobs.remove(job_id)
+            return await self._finish(job_id, CANCELLED, None, error=("cancelled", "Cancelled before it ran"))
+        active = self._active
+        if active is not None and active.job_id == job_id:
+            active.cancel_requested = True
+            job = await self.store.transition(job_id, CANCELLING, phase="cancelling")
+            if self._step is not None and getattr(self._step, "job_id", None) == job_id:
+                self._step.cancel()
+            self._wakeup.set()
+        return job
+
+    # Dispatch ------------------------------------------------------------
+
+    async def _dispatch(self) -> None:
+        """Run one operation at a time, alternating fairly between proofs and jobs."""
+        while True:
+            self._expire_queued_proofs()
+            job_work = self._active is not None or bool(self._jobs)
+            proof_work = bool(self._proofs)
+            if not job_work and not proof_work:
+                self._wakeup.clear()
+                await self._wakeup.wait()
+                continue
+            await self.supervisor.settled()
+            if not self.supervisor.ready:
+                await asyncio.sleep(0.2)
+                continue
+            job_work = self._active is not None or bool(self._jobs)
+            proof_work = bool(self._proofs)
+            if not job_work and not proof_work:
+                continue
+            take_proof = proof_work and (
+                not job_work or self._served_since_chunk < self.limits.interactive_per_chunk
+            )
+            if take_proof:
+                proof = self._proofs.popleft()
+                self._served_since_chunk += 1
+                self._active_proofs += 1
+                self._step = asyncio.create_task(self._run_proof(proof))
+                self._step.proof = proof
+            else:
+                self._served_since_chunk = 0
+                self._step = asyncio.create_task(self._job_step())
+                self._step.job_id = self._active.job_id if self._active else (self._jobs[0] if self._jobs else None)
             try:
-                dts_sampler = DynamicThompsonSampler.load_from(
-                    str(dts_input), C=dts_c if dts_c is not None else settings.dts_default_c
-                )
-            except Exception as exc:
-                logger.warning("could not load DTS state from %s (%s); starting fresh", dts_input, exc)
+                await asyncio.shield(self._step)
+            except asyncio.CancelledError:
+                # The dispatcher itself is being cancelled (service stop), even
+                # if the step it was waiting on finished in the same moment.
+                if not self._step.done() or asyncio.current_task().cancelling():
+                    raise
+            except Exception:  # noqa: BLE001 — one failed step does not stop the service
+                logger.exception("service step failed")
+            finally:
+                if getattr(self._step, "proof", None) is not None:
+                    self._active_proofs -= 1
+                self._step = None
 
-        reasoner = HybridReasoner(
-            config_path=config_path,
-            tactic_model_path=tactic_model_path,
-            argument_model_path=argument_model_path,
-            bundle_path=bundle_path,
-            index_path=index_path,
-            corpus_path=corpus_path,
-            executor=PantographExecutor(server=server),
-            top_k_tactics=top_k_tactics,
-            top_k_subgoals=top_k_subgoals,
-            max_depth=max_depth if max_depth is not None else settings.proof_depth,
-            max_nodes=max_nodes,
-            dts_sampler=dts_sampler,
-            dts_c=dts_c,
-            dts_random_seed=dts_random_seed,
-        )
-        reasoner.petta_chainer.initialize()
-        logger.info(
-            "loaded GNN bundle root=%s release=v2.0.0 revision=%s profile=base",
-            bundle_path,
-            _V2_REVISION,
-        )
-    except Exception:
-        server._close()
-        raise
+    def _expire_queued_proofs(self) -> None:
+        now = time.monotonic()
+        for proof in list(self._proofs):
+            if now >= proof.queue_deadline:
+                self._proofs.remove(proof)
+                self._fail(proof, DeadlineExceeded("The request waited longer than its queue timeout",
+                                                   category="queue-timeout"))
 
-    return InferenceService(reasoner=reasoner)
+    async def _job_step(self) -> None:
+        if self._active is None:
+            job_id = self._jobs.popleft()
+            job = await self.store.get(job_id)
+            if job is None or job["state"] != QUEUED:
+                return
+            self._active = _ActiveJob(
+                job_id, job["settings"], deadline=time.monotonic() + (job["deadline_at"] - time.time())
+            )
+            if time.monotonic() >= self._active.deadline:
+                await self._close_active(FAILED, ("deadline", "The queued job expired"))
+                return
+            await self.store.transition(job_id, ADMITTING, phase="admitting",
+                                        runtime_generation=self.supervisor.generation,
+                                        provenance=self.supervisor.provenance)
+        active = self._active
+        if active.cancel_requested:
+            await self._close_active(FAILED if active.expired else CANCELLED,
+                                     ("deadline" if active.expired else "cancelled", "Execution stopped by request"))
+            return
+        if time.monotonic() >= active.deadline:
+            await self._close_active(FAILED, ("deadline", "The job exceeded its deadline"))
+            return
+        try:
+            if active.phase == ADMITTING:
+                await self._admit_step(active)
+            else:
+                await self._evaluate_step(active)
+        except asyncio.CancelledError:
+            if active.cancel_requested:
+                await self._close_active(FAILED if active.expired else CANCELLED,
+                                     ("deadline" if active.expired else "cancelled", "Execution stopped by request"))
+                return
+            raise
+        except OperationTimeout as exc:
+            await self._close_active(FAILED, ("timeout", str(exc)))
+        except OperationFailed as exc:
+            await self._close_active(FAILED, (exc.category, exc.detail))
+        except (RuntimeUnavailable, OperationInterrupted) as exc:
+            category = "service-shutdown" if self._stopping else "runtime-interrupted"
+            await self._close_active(INTERRUPTED, (category, str(exc)))
+        except Exception as exc:
+            logger.exception("evaluation operation failed")
+            await self._close_active(FAILED, ("internal", str(exc)))
+
+    async def _admit_step(self, active: _ActiveJob) -> None:
+        settings = active.settings
+        remaining = active.deadline - time.monotonic()
+        progress = await self.supervisor.run(
+            "admit",
+            {
+                "job_id": active.job_id,
+                "dataset_profile": settings["dataset"],
+                "rows": self.limits.admission_step_rows,
+                "seed": settings["evaluation"]["seed"],
+                "evaluation": settings["evaluation"],
+            },
+            timeout=min(remaining, settings["dataset"]["admission_time_budget_s"]),
+        )
+        if not progress["done"]:
+            await self.store.transition(active.job_id, ADMITTING, progress={"phase": "admitting", "admission": progress["admission"],
+                                                  "rows_seen": progress["rows_seen"], "admitted": progress["admitted"]})
+            return
+        active.subset_size = int(progress["eval_items"])
+        active.subset_sha256 = progress["eval_subset_sha256"]
+        active.seeds = list(progress["proposal_seeds_sha256"])
+        active.admission = progress.get("admission")
+        active.input_records = progress["input_records"]
+        active.proposal_records = progress["proposal_records"]
+        if active.subset_size == 0:
+            await self._close_active(FAILED, ("no-admitted-inputs", "No seed passed Lean admission"))
+            return
+        active.phase = RUNNING
+        await self.store.transition(
+            active.job_id, RUNNING, phase="evaluating",
+            progress=self._progress(active),
+        )
+
+    async def _evaluate_step(self, active: _ActiveJob) -> None:
+        settings = active.settings
+        count = min(settings["chunk_size"], active.subset_size - active.start)
+        remaining = active.deadline - time.monotonic()
+        per_search = min(settings["timeout_s"], remaining)
+        # A chunk runs its searches over the pool's workers; bound it by the job deadline.
+        result = await self.supervisor.run(
+            "evaluate",
+            {
+                "job_id": active.job_id,
+                "profile": settings["profile"],
+                "proposal_mode": settings["evaluation"]["mode"],
+                "seed": settings["evaluation"]["seed"],
+                "repeats": settings["evaluation"]["repeats"],
+                "repeat": active.repeat,
+                "start": active.start,
+                "count": count,
+                "timeout_s": per_search,
+            },
+            timeout=min(remaining, per_search * 1.25 * count + 60.0),
+        )
+        merge_stats(active.repeat_stats.setdefault(active.repeat, {}), result["stats"])
+        active.attempts_done += len(result["attempts"])
+        active.start += count
+        repeat = active.repeat
+        if active.start >= active.subset_size:
+            active.repeat += 1
+            active.start = 0
+        await self.store.record_chunk(
+            active.job_id, repeat, result["attempts"], active.repeat_stats[repeat], self._progress(active)
+        )
+        if active.repeat >= settings["evaluation"]["repeats"]:
+            await self._close_active(COMPLETED, None)
+
+    def _progress(self, active: _ActiveJob) -> dict[str, Any]:
+        repeats = active.settings["evaluation"]["repeats"]
+        return {
+            "phase": "evaluating" if active.phase == RUNNING else "admitting",
+            "subset_size": active.subset_size,
+            "proposal_seeds_sha256": active.seeds,
+            "admission": active.admission,
+            "input_records": active.input_records,
+            "proposal_records": active.proposal_records,
+            "subset_sha256": active.subset_sha256,
+            "repeats": repeats,
+            "repeats_completed": min(active.repeat, repeats),
+            "attempts_completed": active.attempts_done,
+            "attempts_total": active.subset_size * repeats,
+        }
+
+    async def _close_active(self, state: str, error: tuple[str, str] | None) -> None:
+        active, self._active = self._active, None
+        if active is None:
+            return
+        await self.supervisor.settled()
+        try:
+            if self.supervisor.ready:
+                await self.supervisor.run("release", {"job_id": active.job_id}, timeout=self.limits.cleanup_grace_s)
+        except (OperationTimeout, OperationFailed, RuntimeUnavailable, OperationInterrupted):
+            logger.warning("could not release job %s in the runtime", active.job_id)
+        await self._finish(active.job_id, state, active, error=error)
+
+    async def _finish(self, job_id: str, state: str, active: _ActiveJob | None,
+                      *, error: tuple[str, str] | None) -> dict[str, Any]:
+        job = await self.store.get(job_id)
+        if job["state"] in TERMINAL_STATES:
+            return job
+        attempts, stats = await self.store.attempts(job_id)
+        settings = job["settings"]
+        from .evaluation_results import evaluation_result
+        result = evaluation_result(job, state, attempts, stats)
+        timer = self._job_timers.pop(job_id, None)
+        if timer is not None:
+            timer.cancel()
+        fields: dict[str, Any] = {"phase": state}
+        if error is not None:
+            fields["error_category"], fields["error_detail"] = error
+        return await self.store.finish(job_id, state, result, partial=state != COMPLETED, **fields)
+
+    async def _runtime_restarted(self, generation: int) -> None:
+        """A runtime generation ended: its active job is interrupted, queued work waits."""
+        active = self._active
+        if active is not None:
+            self._active = None
+            await self._finish(active.job_id, INTERRUPTED, active,
+                               error=("runtime-restart", f"runtime generation {generation} ended"))
+
+
+__all__ = [
+    "ACTIVE_STATES",
+    "CANCELLING",
+    "DeadlineExceeded",
+    "InputRejected",
+    "NotFinished",
+    "ProvingService",
+    "QueueFull",
+    "ServiceError",
+    "StateOwnershipError",
+    "Unavailable",
+    "UnknownJob",
+]

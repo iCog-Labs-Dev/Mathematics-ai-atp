@@ -191,9 +191,12 @@ def load_joint_neural_bundle(
     resolved_device = torch.device(device)
     policy = _load_policy(artifact, resolved_device)
     tokenizer, text_encoder, lemma_encoder = _load_retriever(artifact, resolved_device)
+    # The index is pinned by content hash in bundle.json and paired with the
+    # bundle's text encoder, not with a tactic model's graph encoder.
     index = LemmaIndex.load(
         artifact.root / "retriever" / "index",
         normalize_queries=bool(artifact.retriever_config.get("normalize", False)),
+        require_encoder_fingerprint=False,
     )
     corpus = {
         record.lemma_id: record

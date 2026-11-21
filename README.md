@@ -2,6 +2,10 @@
 
 This repository is an experimental proof-search and theorem-proving project that combines machine learning, symbolic reasoning, and Lean/Pantograph tooling. The codebase is organized around the `maths_ai` package, with supporting experiments and data assets for research and prototyping.
 
+Live Lean workflows use the repository-owned async client and require an explicit
+validated custom REPL and compiled Mathlib project. See the
+[current client, notebook, and translator instructions](maths_ai/gnn_inference/docs/owned_pantograph_client.md).
+
 ## Overview
 
 The project aims to explore hybrid automated theorem proving by combining:
@@ -82,26 +86,33 @@ uv add -r requirements.txt
 
 ### Running the API server
 
+Each backend is enabled by its own configuration, and `/prove` names the one
+it wants with `backend` (`mcts-actor-critic` or `accepted-gnn`); a backend that
+is not enabled answers 503 rather than handing the request to the other.
+
 ```bash
-uv run python -m maths_ai.api
-curl http://localhost:8000/health
+# accepted-GNN backend (paths from maths_ai.core.config); needs the accepted-gnn extra
+uv sync --extra cpu --extra accepted-gnn
+uv run python -m maths_ai.api --accepted-gnn
+# MCTS backend, or both: add --config service.json
+curl http://localhost:8000/ready
 curl -X POST http://localhost:8000/prove -H 'Content-Type: application/json' \
-  -d '{"goal": "∀ (n : Nat), n + 0 = n"}'
+  -d '{"backend": "accepted-gnn", "goal": "∀ (n : Nat), n + 0 = n"}'
 ```
 
-Persistent ATP clients can use:
+Persistent ATP clients use formal protocol version 2 on either backend:
+`/formal-capabilities`, `/formal-artifacts`, `/formal-search/start`,
+`/formal-search/{run_id}` (with `/cancel` and `/retry`) and `/formal-replay`.
+The routes are served when `MATHS_AI_FORMAL_DEPLOYMENTS` names a deployment
+registry (see `docker/config/formal_deployments.json`); runs and artifacts
+persist under `MATHS_AI_FORMAL_STATE_DIR`. See
+[the version-2 provider documentation](maths_ai/gnn_inference/docs/formal_protocol_v2.md).
 
-- `POST /formal-search/start`
-- `GET /formal-search/{run_id}`
-- `POST /formal-search/{run_id}/retry` for an interrupted or failed run
-- `POST /formal-search/{run_id}/cancel`
-- `POST /formal-replay`
-
-Formal-search requests are persisted under `/data/formal_runs` by default.
-Set `MATHS_AI_FORMAL_RUNS_DIR` to a writable mounted directory in local or
-container deployments. A search result is reported as `found` until its proof
-trace is independently accepted by `/formal-replay`, after which the run is
-reported as `verified`.
+For complete, independently checkable mathematical examples and a live
+two-backend demo on port **39743**, see
+[Formal v2 proof examples](examples/formal_v2/README.md). The guide includes
+Lagrange's identity, Cauchy–Schwarz, a bounded Chinese remainder problem, observed
+model evidence, and the distinction between a reference proof and neural search.
 
 Use a different local port either with an environment variable or a
 command-line option:
@@ -109,21 +120,21 @@ command-line option:
 ```bash
 MATHS_AI_API_PORT=8001 uv run python -m maths_ai.api
 # or
-uv run python -m maths_ai.api --port 8001
-curl http://localhost:8001/health
+uv run python -m maths_ai.api --accepted-gnn --port 8001
+curl http://localhost:8001/ready
 ```
 
 ### Docker (API server)
 
 ```bash
-MATHS_AI_API_HOST_PORT=8001 docker compose up
-curl http://localhost:8001/health
+MATHS_AI_ACCEPTED_GNN=1 MATHS_AI_API_PORT=8001 docker compose up api
+curl http://localhost:8001/ready
 curl -X POST http://localhost:8001/prove -H 'Content-Type: application/json' \
-  -d '{"goal": "∀ (n : Nat), n + 0 = n"}'
+  -d '{"backend": "accepted-gnn", "goal": "∀ (n : Nat), n + 0 = n"}'
 ```
 
-`MATHS_AI_API_HOST_PORT` changes only the host port; the API continues to
-listen on port 8000 inside the container.
+`MATHS_AI_API_PORT` changes only the host port; the API continues to listen
+on port 8000 inside the container. See [docker/DOCKER.md](docker/DOCKER.md).
 
 See `docker-compose.yml` for all services and profiles.
 

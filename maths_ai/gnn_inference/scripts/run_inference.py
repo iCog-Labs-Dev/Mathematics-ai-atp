@@ -1,150 +1,95 @@
-
-"""Run tactic inference on a single proof state interactively."""
+"""Run the shared source-aware policy against a materialized live Lean goal."""
 
 import argparse
-import sys
+import asyncio
+import json
 from pathlib import Path
-
 import torch
+from pantograph_async import PantographEnv
+from maths_ai.lean_replay import seed_from_text
+from maths_ai.gnn_inference.atp_lean_gnn.checkpointing import (
+    build_model_from_checkpoint,
+)
+from maths_ai.gnn_inference.atp_lean_gnn.training import load_prepared_metadata
+from maths_ai.gnn_inference.atp_lean_gnn.retrieval_artifacts import (
+    LiveLemmaProvider,
+    RetrievalConfig,
+)
+from maths_ai.gnn_inference.atp_lean_gnn.inference import (
+    InferencePipeline,
+    ActionRendering,
+)
+from maths_ai.hybrid_reasoner.pantograph_model_sexpr import (
+    create_model_sexpr_client,
+    materialize_seed,
+)
 
-if __package__ in {None, ""}:
-    repo_root = Path(__file__).resolve().parents[1]
-    repo_root_str = str(repo_root)
-    if repo_root_str not in sys.path:
-        sys.path.insert(0, repo_root_str)
 
-from atp_lean_gnn.cli import DEMO_STATE
-from atp_lean_gnn.inference import InferencePipeline
-from atp_lean_gnn.lemma_index import LemmaIndex
-from atp_lean_gnn.training import load_prepared_metadata, load_baseline_config, build_model
-from atp_lean_gnn.premise_scoring import PremiseScorer
-from atp_lean_gnn.lemma_corpus import load_lemma_corpus
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Interactive Tactic Inference")
-    parser.add_argument("--config", type=str, required=True, help="Path to config.json (e.g. from runs/baseline_gnn/run_*/config.json)")
-    parser.add_argument("--checkpoint", type=str, required=True, help="Path to best.pt checkpoint (backbone + tactic model)")
-    parser.add_argument("--scorer-checkpoint", type=str, default=None, help="Path to a premise scorer checkpoint (best.pt from a premise_selection run). If omitted, the scorer uses random weights.")
-    parser.add_argument("--scorer-mode", type=str, default="dot", choices=["dot", "mlp"], help="Scorer mode")
-    parser.add_argument("--index-path", type=str, help="Path to FAISS index. If missing, retrieval will return nothing.")
-    parser.add_argument("--corpus-path", type=str, help="Path to lemmas.jsonl for decoding retrieved lemma IDs to names.")
-    parser.add_argument("--k", type=int, default=500, help="Number of lemmas to retrieve")
-    parser.add_argument("--state", type=str, default=DEMO_STATE, help="Raw Lean proof state string")
-    args = parser.parse_args(argv)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Loading on {device}...")
-
-    # Load baseline config and metadata
-    config_path = Path(args.config)
-    if not config_path.exists():
-        print(f"ERROR: config file not found: {config_path}")
-        return 1
-
-    config = load_baseline_config(config_path)
-    metadata = load_prepared_metadata(config.prepared_root)
-
-    # Build and load model
-    from atp_lean_gnn.argument_selector import TacticWithArgsClassifier
-    
-    model = TacticWithArgsClassifier(
-        num_node_labels=len(metadata.node_vocab),
-        num_tactics=len(metadata.tactic_vocab),
-        hidden_dim=config.model.hidden_dim,
-        num_layers=config.model.num_layers,
-        dropout=config.model.dropout,
-        use_node_type=config.use_node_type,
-        max_args=getattr(config, "max_args", 3),
+async def run(args):
+    metadata = load_prepared_metadata(args.prepared_root, splits=())
+    checkpoint = torch.load(
+        args.checkpoint, map_location=args.device, weights_only=False
     )
-    
-    ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
-    state_dict = ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt
-    
-    # Adjust state dict keys if they come from a pure baseline (GraphSAGEStateClassifier)
-    # The pure baseline keys don't have the "backbone." prefix.
-    adjusted_state_dict = {}
-    for k, v in state_dict.items():
-        if not k.startswith("backbone.") and not k.startswith("tactic_embedding.") and not k.startswith("argument_selector."):
-            adjusted_state_dict[f"backbone.{k}"] = v
-        else:
-            adjusted_state_dict[k] = v
-            
-    model.load_state_dict(adjusted_state_dict, strict=False)
-    model = model.to(device)
-
-    # Build scorer and load trained weights
-    scorer = PremiseScorer(hidden_dim=config.model.hidden_dim, mode=args.scorer_mode).to(device)
-    if args.scorer_checkpoint:
-        scorer_ckpt_path = Path(args.scorer_checkpoint)
-        if scorer_ckpt_path.exists():
-            scorer_ckpt = torch.load(scorer_ckpt_path, map_location=device, weights_only=False)
-            # Checkpoints from train_scorer save under 'scorer_state_dict'
-            if "scorer_state_dict" in scorer_ckpt:
-                scorer.load_state_dict(scorer_ckpt["scorer_state_dict"])
-                print(f"Loaded trained scorer weights from {scorer_ckpt_path}")
-            else:
-                # Fallback: the file itself may be a raw state dict
-                scorer.load_state_dict(scorer_ckpt)
-                print(f"Loaded scorer weights (raw state dict) from {scorer_ckpt_path}")
-        else:
-            print(f"WARNING: scorer checkpoint not found at {scorer_ckpt_path} — using random weights.")
-    else:
-        print("WARNING: No --scorer-checkpoint provided. PremiseScorer is using RANDOM weights.")
-    
-    # Load index if provided
-    lemma_index = None
-    if args.index_path:
-        index_path = Path(args.index_path)
-        if index_path.exists():
-            lemma_index = LemmaIndex.load(index_path)
-            print(f"Loaded index with {len(lemma_index.lemma_ids)} lemmas.")
-        else:
-            print(f"WARNING: index path {index_path} not found.")
-            
-    if lemma_index is None:
-        # Create an empty index as fallback
-        import faiss
-        import numpy as np
-        d = config.model.hidden_dim
-        lemma_index = LemmaIndex(
-            index=faiss.IndexFlatL2(d),
-            lemma_ids=[],
-            lemma_vectors=np.empty((0, d), dtype=np.float32)
-        )
-
-    lemma_corpus = None
-    if args.corpus_path:
-        corpus_path = Path(args.corpus_path)
-        if corpus_path.exists():
-            records = load_lemma_corpus(corpus_path)
-            lemma_corpus = {record.lemma_id: record for record in records}
-            print(f"Loaded corpus with {len(lemma_corpus)} lemmas.")
-        else:
-            print(f"WARNING: corpus path {corpus_path} not found.")
-
-    # Initialize Pipeline
-    pipeline = InferencePipeline(
-        model=model,
-        scorer=scorer,
-        lemma_index=lemma_index,
+    model, _, spec = build_model_from_checkpoint(
+        checkpoint,
         node_vocab=metadata.node_vocab,
         tactic_vocab=metadata.tactic_vocab,
-        device=device,
-        k=args.k,
-        lemma_corpus=lemma_corpus,
+        graph_representation=metadata.graph_representation,
     )
+    if not hasattr(model, "decoder"):
+        raise ValueError("Inference requires a source-aware action checkpoint.")
+    provider = LiveLemmaProvider(
+        RetrievalConfig(**json.loads(args.retrieval_config.read_text()))
+    )
+    try:
+        if spec.retrieval_binding != provider.library.fingerprint:
+            raise ValueError("Model and retrieval artifacts differ.")
+        pipeline = InferencePipeline(
+            model.to(args.device),
+            provider,
+            metadata.node_vocab,
+            metadata.tactic_vocab,
+            torch.device(args.device),
+        )
+        env = PantographEnv(
+            source_root=args.source_root,
+            pantograph_repl=args.pantograph_repl,
+            imports=("Init", "Mathlib"),
+        )
+        provider.verify_environment(env)
+        async with await create_model_sexpr_client(env) as client:
+            async with client.state_scope() as scope:
+                _, goal, _ = await materialize_seed(
+                    scope, seed_from_text(goal=args.state)
+                )
+                prepared = await pipeline.prepare_goal(goal)
+                result = pipeline.predict_from_goal(prepared, top_k=args.top_k)
+                if result.rendering_status is ActionRendering.UNSUPPORTED:
+                    print(
+                        f"Unsupported action: {result.tactic_name} {result.selected_arguments}"
+                    )
+                else:
+                    print(result.predicted_tactic)
+    finally:
+        await provider.aclose()
 
-    print("\n--- Input State ---")
-    print(args.state)
-    print("-------------------\n")
 
-    prediction = pipeline.predict_tactic(args.state)
-    
-    print(f"Predicted Tactic:  \033[1;32m{prediction}\033[0m")
-    
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    for field in (
+        "prepared-root",
+        "checkpoint",
+        "retrieval-config",
+        "source-root",
+        "pantograph-repl",
+    ):
+        parser.add_argument("--" + field, type=Path, required=True)
+    parser.add_argument("--state", required=True)
+    parser.add_argument("--device", default="cpu")
+    parser.add_argument("--top-k", type=int, default=3)
+    asyncio.run(run(parser.parse_args(argv)))
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

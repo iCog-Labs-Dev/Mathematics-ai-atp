@@ -1,9 +1,13 @@
 from __future__ import annotations
+import hashlib
 
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import torch
 
 import numpy as np
 
@@ -24,18 +28,29 @@ class LemmaIndex:
         lemma_ids: list[int],
         lemma_vectors: np.ndarray,
         *,
+        lemma_names: list[str] | None = None,
+        encoder_fingerprint: str | None = None,
         normalize_queries: bool = False,
     ) -> None:
         self.index = index
         self.lemma_ids = lemma_ids
         self.lemma_vectors = lemma_vectors
         self.normalize_queries = normalize_queries
+        self.lemma_names = lemma_names or []
+        self.name_to_id = {
+            name: lemma_id for name, lemma_id in zip(self.lemma_names, self.lemma_ids)
+        }
+        self.encoder_fingerprint = encoder_fingerprint
 
         if self.lemma_vectors.ndim != 2:
             raise ValueError("lemma_vectors must be 2D (num_lemmas, dim).")
         if len(self.lemma_ids) != self.lemma_vectors.shape[0]:
             raise ValueError("lemma_ids length must match lemma_vectors rows.")
-        if hasattr(self.index, "d") and int(self.index.d) != int(self.lemma_vectors.shape[1]):
+        if self.lemma_names and len(self.lemma_names) != len(self.lemma_ids):
+            raise ValueError("lemma_names length must match lemma_ids length.")
+        if hasattr(self.index, "d") and int(self.index.d) != int(
+            self.lemma_vectors.shape[1]
+        ):
             raise ValueError("FAISS index dimension does not match lemma_vectors.")
         if hasattr(self.index, "ntotal") and int(self.index.ntotal) != len(self.lemma_ids):
             raise ValueError("FAISS index size must match lemma_ids and lemma_vectors rows.")
@@ -46,7 +61,16 @@ class LemmaIndex:
         index_dir: str | Path,
         *,
         normalize_queries: bool = False,
+        require_encoder_fingerprint: bool = True,
     ) -> "LemmaIndex":
+        """Load an index directory (or its ``faiss.index`` file).
+
+        An index built from a tactic model's encoder carries that encoder's
+        fingerprint, and it is required by default. A caller whose index is
+        bound another way, such as the v2 bundle whose files are pinned by
+        content hash and whose retriever is a separate text encoder, passes
+        ``require_encoder_fingerprint=False``.
+        """
         import faiss
 
         input_path = Path(index_dir)
@@ -55,10 +79,14 @@ class LemmaIndex:
             index_path = input_path
             vectors_path = input_path.with_name("lemma_vectors.npy")
             ids_path = input_path.with_name("lemma_ids.json")
+            names_path = input_path.with_name("lemma_names.json")
+            manifest_path = input_path.with_name("manifest.json")
         else:
             index_path = input_path / "faiss.index"
             vectors_path = input_path / "lemma_vectors.npy"
             ids_path = input_path / "lemma_ids.json"
+            names_path = input_path / "lemma_names.json"
+            manifest_path = input_path / "manifest.json"
 
         if not index_path.exists():
             raise FileNotFoundError(f"FAISS index not found at '{index_path}'.")
@@ -66,19 +94,42 @@ class LemmaIndex:
             raise FileNotFoundError(f"Lemma vectors not found at '{vectors_path}'.")
         if not ids_path.exists():
             raise FileNotFoundError(f"Lemma id map not found at '{ids_path}'.")
+        if not names_path.exists():
+            raise FileNotFoundError(f"Lemma name map not found at '{names_path}'.")
+        if not manifest_path.exists():
+            raise FileNotFoundError(
+                f"Lemma index manifest not found at '{manifest_path}'."
+            )
 
         lemma_vectors = np.load(vectors_path)
         lemma_ids = json.loads(ids_path.read_text(encoding="utf-8"))
         if not isinstance(lemma_ids, list):
             raise ValueError("lemma_ids.json must contain a JSON list of ids.")
+        lemma_names = json.loads(names_path.read_text(encoding="utf-8"))
+        if not isinstance(lemma_names, list):
+            raise ValueError("lemma_names.json must contain a JSON list of names.")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        encoder_fingerprint = manifest.get("encoder_fingerprint")
+        if not isinstance(encoder_fingerprint, str) or not encoder_fingerprint:
+            if require_encoder_fingerprint or encoder_fingerprint is not None:
+                raise ValueError("Lemma index manifest is missing 'encoder_fingerprint'.")
+            encoder_fingerprint = None
 
         index = faiss.read_index(str(index_path))
         return cls(
             index,
             [int(x) for x in lemma_ids],
             lemma_vectors,
+            lemma_names=[str(x) for x in lemma_names],
+            encoder_fingerprint=encoder_fingerprint,
             normalize_queries=normalize_queries,
         )
+
+    def validate_encoder_fingerprint(self, expected: str) -> None:
+        if self.encoder_fingerprint != expected:
+            raise ValueError(
+                "Lemma index encoder fingerprint does not match the active tactic model."
+            )
 
     def search(
         self,
@@ -92,25 +143,28 @@ class LemmaIndex:
             query = _normalize_rows(query)
 
         scores, indices = self.index.search(query, k)
-        
+
         num_lemmas = len(self.lemma_ids)
         lemma_ids = [
-            [self.lemma_ids[int(idx)] if 0 <= int(idx) < num_lemmas else -1 for idx in row]
+            [
+                self.lemma_ids[int(idx)] if 0 <= int(idx) < num_lemmas else -1
+                for idx in row
+            ]
             for row in indices
         ]
-        
+
         valid_mask = (indices >= 0) & (indices < num_lemmas)
         safe_indices = np.where(valid_mask, indices, 0)
-        
+
         if num_lemmas > 0:
             lemma_vecs = self.lemma_vectors[safe_indices]
             lemma_vecs[~valid_mask] = 0.0
         else:
             lemma_vecs = np.zeros(
                 (indices.shape[0], indices.shape[1], self.lemma_vectors.shape[1]),
-                dtype=self.lemma_vectors.dtype
+                dtype=self.lemma_vectors.dtype,
             )
-            
+
         return lemma_ids, lemma_vecs, scores
 
     @staticmethod
@@ -132,3 +186,37 @@ def _normalize_rows(array: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(array, axis=1, keepdims=True)
     norms = np.clip(norms, 1e-12, None)
     return array / norms
+
+
+def _tensor_bytes(tensor: Any) -> bytes:
+    """Raw bytes of a tensor, whatever its dtype (bfloat16 has no numpy)."""
+    import torch
+
+    t = tensor.detach().cpu().contiguous()
+    try:
+        return t.numpy().tobytes()
+    except (TypeError, RuntimeError):
+        return (
+            t.view(torch.int16).numpy().tobytes()
+            if t.element_size() == 2
+            else t.view(torch.uint8).numpy().tobytes()
+        )
+
+
+def state_dict_sha256(state_dict: Any) -> str:
+    """Hash an encoder's weights, independent of file layout and key order.
+
+    The same encoder weights can sit in a bare baseline checkpoint or under
+    ``backbone.`` in a pointer checkpoint (and under ``module.`` when a run
+    used DataParallel); the index may legitimately be built from either.
+    Hashing the sorted (key, dtype, shape, bytes) sequence of the tensors
+    identifies the *encoder*, not the file it happened to be saved in.
+    """
+    digest = hashlib.sha256()
+    for key in sorted(state_dict.keys()):
+        tensor = state_dict[key]
+        digest.update(str(key).encode("utf-8"))
+        digest.update(str(tensor.dtype).encode("utf-8"))
+        digest.update(str(tuple(tensor.shape)).encode("utf-8"))
+        digest.update(_tensor_bytes(tensor))
+    return digest.hexdigest()

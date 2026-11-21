@@ -15,9 +15,9 @@ import torch.nn.functional as F
 from torch.optim import AdamW
 from torch_geometric.loader import DataLoader
 
-from .argument_selector import TacticWithArgsClassifier, compute_combined_loss
-from .labels import get_tactic_arity
+from .argument_selector import TacticWithArgsClassifier, supervised_loss
 from .reporting import console_print
+from .training_safety import require_finite_loss
 
 
 def _format_elapsed(seconds: float) -> str:
@@ -27,52 +27,14 @@ def _format_elapsed(seconds: float) -> str:
     return f"{int(minutes)}m {remaining_seconds:.0f}s"
 
 
-def _should_log_batch(batch_index: int, total_batches: int, *, log_every_batches: int) -> bool:
+def _should_log_batch(
+    batch_index: int, total_batches: int, *, log_every_batches: int
+) -> bool:
     return (
         batch_index == 1
         or batch_index == total_batches
         or batch_index % log_every_batches == 0
     )
-
-
-def _extract_tactic_names(batch) -> list[str]:
-    """Extract per-sample tactic family names from a PyG Batch."""
-    if hasattr(batch, "tactic_name"):
-        names = batch.tactic_name
-        if isinstance(names, (list, tuple)):
-            return [str(n) for n in names]
-        return [str(names)]
-    # Fallback: return empty strings (will use DEFAULT_ARITY)
-    batch_size = int(batch.y.size(0)) if hasattr(batch, "y") else 1
-    return [""] * batch_size
-
-
-def _extract_arg_targets(batch, max_args: int, device: torch.device) -> torch.Tensor:
-    """Extract ground-truth argument node indices [B, max_args], padded with -1."""
-    if not (hasattr(batch, "arg_node_indices") and hasattr(batch, "arg_count")):
-        batch_size = int(batch.y.size(0)) if hasattr(batch, "y") else 1
-        return torch.full((batch_size, max_args), -1, dtype=torch.long, device=device)
-
-    batch_size = int(batch.y.size(0))
-    all_indices = batch.arg_node_indices.to(device=device, dtype=torch.long)
-    counts = batch.arg_count.tolist()
-
-    if len(counts) != batch_size:
-        return torch.full((batch_size, max_args), -1, dtype=torch.long, device=device)
-
-    targets = torch.full((batch_size, max_args), -1, dtype=torch.long, device=device)
-    split_indices = torch.split(all_indices, counts)
-    ptr = batch.ptr.to(device=device)
-
-    for i, sample_indices in enumerate(split_indices):
-        n = min(len(sample_indices), max_args)
-        if n > 0:
-            shifted = sample_indices[:n].clone()
-            valid = shifted >= 0
-            shifted[valid] = shifted[valid] + ptr[i]
-            targets[i, :n] = shifted
-
-    return targets
 
 
 def train_one_epoch_with_args(
@@ -85,11 +47,13 @@ def train_one_epoch_with_args(
     grad_clip: float,
     unknown_tactic_id: int,
     arg_loss_weight: float,
+    candidate_provider,
     epoch: int,
     total_epochs: int,
     log_every_batches: int,
     use_amp: bool,
     pin_memory: bool,
+    amp_dtype: torch.dtype | None = None,
 ) -> dict[str, float | int]:
     """Train one epoch with combined tactic + argument loss."""
     model.train()
@@ -108,44 +72,35 @@ def train_one_epoch_with_args(
     for batch_index, batch in enumerate(loader, start=1):
         batch = batch.to(device, non_blocking=(device.type == "cuda" and pin_memory))
         targets = batch.y.view(-1)
-        tactic_names = _extract_tactic_names(batch)
-        arg_targets = _extract_arg_targets(batch, model.max_args, device)
-        tactic_arities = [get_tactic_arity(n) for n in tactic_names]
 
         optimizer.zero_grad(set_to_none=True)
-        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
-            tactic_logits, arg_logits_list = model(
+        with torch.amp.autocast(
+            device_type=device.type,
+            enabled=use_amp,
+            dtype=amp_dtype,
+        ):
+            loss, metrics, evaluated = supervised_loss(
+                model,
                 batch,
-                teacher_tactic_ids=targets,
-                tactic_names=tactic_names,
-            )
-            loss, metrics = compute_combined_loss(
-                tactic_logits,
-                arg_logits_list,
-                targets,
-                arg_targets,
-                batch.batch,
-                tactic_arity_per_sample=tactic_arities,
-                arg_loss_weight=arg_loss_weight,
+                candidate_pools=candidate_provider(batch),
                 unknown_tactic_id=unknown_tactic_id,
-                # Diagnosis fields
-                node_labels=batch.x,
-                node_types=batch.node_type
+                argument_weight=arg_loss_weight,
             )
+            tactic_logits = evaluated.tactic_logits
 
+        require_finite_loss(
+            loss,
+            architecture=model.model_spec.architecture,
+            amp_dtype=amp_dtype,
+            epoch=epoch,
+            batch_index=batch_index,
+            components=metrics,
+        )
         grad_scaler.scale(loss).backward()
-        if torch.isfinite(loss):
-            grad_scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-            grad_scaler.step(optimizer)
-            grad_scaler.update()
-        else:
-            print(f"  WARNING: Skipping batch {batch_index} due to non-finite loss: {loss.item()}")
-            # Enhanced debug info
-            with torch.no_grad():
-                print(f"    tactic_loss={metrics['tactic_loss']:.4f}, arg_loss={metrics['arg_loss']:.4f}")
-                # Check for NaNs in gradients/weights if needed, but here we just skip the step
-            optimizer.zero_grad(set_to_none=True)
+        grad_scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        grad_scaler.step(optimizer)
+        grad_scaler.update()
 
         batch_size = int(targets.numel())
         total_tactic_loss += metrics["tactic_loss"] * batch_size
@@ -153,7 +108,9 @@ def train_one_epoch_with_args(
         total_combined_loss += metrics["total_loss"] * batch_size
         total_examples += batch_size
 
-        if _should_log_batch(batch_index, total_batches, log_every_batches=log_every_batches):
+        if _should_log_batch(
+            batch_index, total_batches, log_every_batches=log_every_batches
+        ):
             elapsed = _format_elapsed(time.perf_counter() - start_time)
             console_print(
                 f"    train batch {batch_index:>5}/{total_batches} | "
@@ -180,10 +137,12 @@ def evaluate_model_with_args(
     device: torch.device,
     unknown_tactic_id: int,
     arg_loss_weight: float,
+    candidate_provider,
     split_name: str | None = None,
     log_every_batches: int | None = None,
     use_amp: bool = False,
     pin_memory: bool = False,
+    amp_dtype: torch.dtype | None = None,
 ) -> dict[str, float | int]:
     """Evaluate model with combined metrics."""
     model.eval()
@@ -197,30 +156,27 @@ def evaluate_model_with_args(
     start_time = time.perf_counter()
 
     if split_name is not None:
-        console_print(f"  Evaluating {split_name} split ({total_batches} batches, arg-aware)...")
+        console_print(
+            f"  Evaluating {split_name} split ({total_batches} batches, arg-aware)..."
+        )
 
     for batch_index, batch in enumerate(loader, start=1):
         batch = batch.to(device, non_blocking=(device.type == "cuda" and pin_memory))
         targets = batch.y.view(-1)
-        tactic_names = _extract_tactic_names(batch)
-        arg_targets = _extract_arg_targets(batch, model.max_args, device)
-        tactic_arities = [get_tactic_arity(n) for n in tactic_names]
 
-        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
-            tactic_logits, arg_logits_list = model(
+        with torch.amp.autocast(
+            device_type=device.type,
+            enabled=use_amp,
+            dtype=amp_dtype,
+        ):
+            loss, metrics, evaluated = supervised_loss(
+                model,
                 batch,
-                tactic_names=tactic_names,
-            )
-            _, metrics = compute_combined_loss(
-                tactic_logits,
-                arg_logits_list,
-                targets,
-                arg_targets,
-                batch.batch,
-                tactic_arity_per_sample=tactic_arities,
-                arg_loss_weight=arg_loss_weight,
+                candidate_pools=candidate_provider(batch),
                 unknown_tactic_id=unknown_tactic_id,
+                argument_weight=arg_loss_weight,
             )
+            tactic_logits = evaluated.tactic_logits
 
         bs = int(targets.numel())
         total_tactic_loss += metrics["tactic_loss"] * bs
@@ -239,7 +195,9 @@ def evaluate_model_with_args(
         if (
             split_name is not None
             and log_every_batches is not None
-            and _should_log_batch(batch_index, total_batches, log_every_batches=log_every_batches)
+            and _should_log_batch(
+                batch_index, total_batches, log_every_batches=log_every_batches
+            )
         ):
             elapsed = _format_elapsed(time.perf_counter() - start_time)
             console_print(

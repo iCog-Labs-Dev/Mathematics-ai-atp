@@ -1,0 +1,36 @@
+{
+  "kind": "mcts-client-safety-source-manifest",
+  "application_base_commit": "f1c3501b2c571ea6b2b25b2d9ccfb97c0e84a538",
+  "branch": "feat/mcts-pantograph-async-client",
+  "client_commit": "664bcaa10578cb933afc618b8e8cb20a1b751106",
+  "historical_source_manifest": "maths_ai/gnn_inference/tests/fixtures/pantograph/mcts_owned_client/source_manifest.json",
+  "note": "Current uncommitted application repairs. Historical port hashes remain unchanged; port_source_sha256 records lineage for formerly identical copies. GNU preflight integration awaits a public package helper and reviewed retrievable dependency revision.",
+  "sources": [
+    {
+      "path": "maths_ai/core/git_worktree.py",
+      "sha256": "64fd025b3986f048369d89de92e60d04b410fd577f3bc6bca01e5836b43103fa"
+    },
+    {
+      "path": "maths_ai/gnn_inference/scripts/setup_sexpr_environment.py",
+      "sha256": "0be02b07421dfac9376a4fa6ded616f6dd7e135f326e30d8c7d3b44d807e5b74",
+      "port_source_sha256": "340a014427c2441ec65445ce523200ef3b9b8cc3d9b2d09f4e4f0b50210eb21d"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_git_worktree.py",
+      "sha256": "a49b4b1f9535274f15d0ca276e30115bed30c2f0fed9dca29c3a796ac4e75a31"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_setup_sexpr_environment.py",
+      "sha256": "ee46754597e1993ea99b18c3ba477430247b8aa8794cf61b12546ce2c5d46763",
+      "port_source_sha256": "8eaff4197be898a44de039baeb994135e62fec284f669992c9cfa413a9f0237f"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
+      "sha256": "6d9c13e91bde84978b27bbcef2e2b1011d9d6b40cf3c50034ef5aed892746a80"
+    },
+    {
+      "path": "maths_ai/hybrid_reasoner/mcts_diagnostics.py",
+      "sha256": "c18725bd8fcf10ccbd0c2a723d96a7e72dd4605b75d45f8a2a4cdef4535fac52"
+    }
+  ]
+}

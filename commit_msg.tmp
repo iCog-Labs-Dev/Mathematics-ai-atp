@@ -1,0 +1,36 @@
+feat: use_pln kill switch for HTPS RL search
+
+Add `use_pln: bool = True` to `HybridReasoner.__init__` and thread it through
+`RLTrainingConfig` and both `RLHybridReasoner` construction sites.
+
+When `use_pln=False`:
+- `PLNInference()` is never constructed; `petta_chainer` and `dts_sampler` are
+  both `None` — no petta subprocess ever spawns.
+- `_execute_and_link` skips `rank_subgoals` and links subgoals in executor
+  (Lean) order, capped at `top_k_subgoals`, with `stv=None` on every child node.
+- The PLN-fallback block (fabricated `PLN_fallback` QED edge) is skipped; a
+  node whose every tactic is rejected goes straight to `mark_node_exhausted`.
+- `rank_subgoals` raises `RuntimeError` with a named message on any direct call.
+
+No changes to `pln_reward.py`: `potential()` already returns 0.0 when
+`node.stv is None`, so `edge_shaped_reward` equals `edge_terminal_reward`
+automatically, and `ProofNode.local_score` already falls back to
+`gnn_probability * 1.0` — the shaping sum vanishes and frontier ranking
+degrades to GNN probability with no changes to either module.
+
+The single gate is in `_execute_and_link`, the shared execution stage for both
+the legacy best-first loop (`_expand`) and the HTPS batched loop
+(`_expand_leaves`), so `use_pln=False` disables PLN across both search modes.
+
+hypergraph.py: widen add_edge type annotation from List[Tuple[Goal, STV]] to
+List[Tuple[Goal, Optional[STV]]] to reflect that stv=None is now a first-class
+value.
+
+rl_actor_critic.json: add "use_pln": true.
+
+Tests: new PLNDisabledTests class (5 tests) in test_rl_reasoner.py:
+no-PLN-objects, stv=None + executor order + cap, no-fallback-edge on total
+rejection, terminal-only reward assertion, rank_subgoals guard. Two new tests
+in test_rl_training_driver.py: config roundtrip and factory threading.
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>

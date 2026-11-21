@@ -1,0 +1,189 @@
+{
+  "target": {
+    "target_branch": "MCTS-AC-branch",
+    "target_base_commit": "89a2417e522720d2cfe3f2e6218614e4d828c8de",
+    "application_source_commit": "72c82ce13d62f132ee1939d8e92641c100f4c418",
+    "client": {
+      "repository": "https://github.com/123nol/Pantograph-Client",
+      "commit": "664bcaa10578cb933afc618b8e8cb20a1b751106"
+    },
+    "repository_revision": "65d32de4ce6c6cd5d3967d3cc694cf65d6480f7e",
+    "worktree_clean": true,
+    "dirty_sha256": {},
+    "search_sources_sha256": {
+      "maths_ai/hybrid_reasoner/joint_inference.py": "f43c5ca80762054ae2689f671205e99c9e587548cbfdfdc8d8e0adab966f953b",
+      "maths_ai/hybrid_reasoner/hypergraph.py": "a625425b0d0aff5cbc39db0298cac6e536117663fc72e9b73e69104e80fdac16",
+      "maths_ai/hybrid_reasoner/mcts_diagnostics.py": "e49e7a496dd192eac37b994c582ed728dcd14fb4e198ea273a5e9c3575e6486b",
+      "maths_ai/hybrid_reasoner/selection_policy.py": "11b43c60d96eff04ddf7a5dc8d7beeff76732969fe492252956997c00efb4c7d",
+      "maths_ai/gnn_inference/atp_lean_gnn/rl_reasoner.py": "ade298c49f05eb37f78570d4e32980ea219bc46ee90f0d7e511fdf4cf002d916",
+      "maths_ai/gnn_inference/atp_lean_gnn/rl_live_collection.py": "74b7ad599fc4a609ec9cf42a446dd83c9d3a394f548a95fb23f13fcb1be2a323",
+      "maths_ai/gnn_inference/atp_lean_gnn/rl_training_driver.py": "dddd08ba9a208f67519d4424e15a88fdf38599c26d85d61b87f828e3664315bd",
+      "maths_ai/gnn_inference/atp_lean_gnn/pln_rl_training.py": "57b521a18f1631b0bef519ed8ae6c3edf1b1d97c41908690f693ce518ba255e8",
+      "maths_ai/hybrid_reasoner/pantograph_adapter.py": "0a61b2f081ad2c90ede922baa3d7fb73c5e0bc7c278a98e8acd7ca8bede8e080",
+      "maths_ai/hybrid_reasoner/pantograph_model_sexpr.py": "5a0d6be3be275912a74ce65faeb4d0e105e06defe14a06807fe49528bd319f93",
+      "maths_ai/hybrid_reasoner/pantograph_diagnostics.py": "5ab942b3aa75b662f8342e16b95098c1b43b86a35828f4192a6f7748667e8c87"
+    }
+  },
+  "configuration": {
+    "imports": [
+      "Mathlib"
+    ],
+    "request_timeout_s": 120,
+    "server_start_timeout_s": 120.0,
+    "worker_shutdown_timeout_s": 10.0,
+    "source_root_revision": "29dcec074de168ac2bf835a77ef68bbe069194c5",
+    "scoped_proofs": 100,
+    "repeated_searches": 20,
+    "search": {
+      "selection_policy": "puct",
+      "num_simulations": 8,
+      "sim_batch_size": 2,
+      "max_depth": 4,
+      "max_nodes": 20
+    },
+    "device": "cpu"
+  },
+  "unavailable_resources": {
+    "gpu": "not used; this is a CPU ownership gate, not GPU deployment evidence",
+    "checkpoint": "not used; proposals are scripted or from a fresh small model",
+    "petta": "not used; searches run with use_pln=False",
+    "complete_theorem_certification": false
+  },
+  "client": {
+    "python": "/home/leul/Icog/Maths AI/.venv-mcts-port/bin/python",
+    "python_version": "3.11.17 (main, Oct 14 2026, 01:05:33) [Clang 23.1.3 ]",
+    "client_version": "0.1.0",
+    "client_source": {
+      "url": "https://github.com/123nol/Pantograph-Client",
+      "vcs_info": {
+        "vcs": "git",
+        "commit_id": "664bcaa10578cb933afc618b8e8cb20a1b751106",
+        "requested_revision": "664bcaa10578cb933afc618b8e8cb20a1b751106"
+      }
+    },
+    "client_location": "/home/leul/Icog/Maths AI/.venv-mcts-port/lib/python3.11/site-packages/pantograph_async",
+    "python_sources_sha256": {
+      "__init__.py": "43f928a8dd9a40fe492ce4ef8c14ccbe53a28bfd1e322908d0a0738d567dc15b",
+      "cli.py": "286c6a3f9c0ef173d618a48e5ed8291c0a1c7e4487b15d8cb2ce5f83289f67cb",
+      "client.py": "4c3ed12c285d926b5eddad8d122704e44976657121f456c83fdc616e8b87816a",
+      "compatibility.py": "77147f957ffe89e15134bc02aaa0388f2835e54e07f9d3cafa6f92c652fcca76",
+      "diagnostics.py": "ea6e1eee93be0a1d20dc7790d25b809ad3b4cabdb542eb3237c9d89e835c1000",
+      "environment.py": "2b3ab222d89d033aed6e6a5fe08d24787ba9cc552f7f3a9603e2bad084aa1473",
+      "launch.py": "70b9df05bd79eccfe8f1827454c89c4b48497575c0876cbacce4fce317426241",
+      "probes.py": "dc84d395312054503432b8b3be15c6aaf543246297965c56a4b6e601229c4697",
+      "protocol.py": "b171eca2dfdad73e5104e4f634ff2c941bbf56bfa40c21f0287cc442c6237a8b"
+    },
+    "repl": "/home/leul/lean-env/Pantograph/.lake/build/bin/repl",
+    "repl_sha256": "ffc2a91985137f9183c4cc1571c08ece182996484feecf44b5e5d22d932d7dc0",
+    "source_root": "/home/leul/lean-env/mathlib4",
+    "toolchain": "leanprover/lean4:v4.10.0-rc1",
+    "imports": [
+      "Mathlib"
+    ],
+    "options": {
+      "automaticMode": true,
+      "noRepeat": false,
+      "printAuxDecls": false,
+      "printDependentMVars": false,
+      "printExprAST": true,
+      "printExprModelAST": true,
+      "printExprPretty": true,
+      "printImplementationDetailHyps": false,
+      "printJsonPretty": false
+    },
+    "descriptor": {
+      "protocol": "maths-ai-pantograph",
+      "protocolVersion": 1,
+      "modelSexpVersion": 1,
+      "transitionValidationVersion": 1,
+      "messageVersion": 1,
+      "goalSelection": "explicit-focused-v1",
+      "tacticErrorsFormat": "string-array-v1"
+    },
+    "compatibility": {
+      "model_sexp_version": 1,
+      "contract_revision": 2,
+      "source_url": "https://github.com/jajos12/Pantograph.git",
+      "base_commit": "0dd5d2225e2d093f66a4b6231c1aa35004f2c8f3",
+      "patch_sha256": "ca9921913281f0c53f11cdde59afe15cf38f70a08f59068cd7b96f3ab1f2d021",
+      "toolchain": "leanprover/lean4:v4.10.0-rc1",
+      "mathlib_expected_pin": "29dcec074de168ac2bf835a77ef68bbe069194c5"
+    },
+    "checks": [
+      "instance-let-valid-and-admission-probes",
+      "identity_intro",
+      "conjunction_split",
+      "instance_intro",
+      "let_intro",
+      "parent-deletion-and-independent-alternatives",
+      "focus-and-sibling-resumption",
+      "failure-recovery",
+      "diagnostics-multiline",
+      "positive-unsafe-rejection",
+      "repeated-scoped-proofs",
+      "canonical-graph-identity_intro",
+      "canonical-graph-conjunction_split",
+      "canonical-graph-instance_intro",
+      "canonical-graph-let_intro",
+      "constant-and-dependent-let-replay"
+    ],
+    "skipped_checks": {},
+    "scoped_proofs": 100,
+    "initial_states": 0,
+    "final_states": 0,
+    "pid": 116952,
+    "complete_theorem_certification": false,
+    "phase": "CLOSED",
+    "stderr_tail": "",
+    "subprocess_reaped": true,
+    "application": {
+      "repository_revision": "65d32de4ce6c6cd5d3967d3cc694cf65d6480f7e",
+      "python_sources_sha256": {
+        "pantograph_adapter.py": "0a61b2f081ad2c90ede922baa3d7fb73c5e0bc7c278a98e8acd7ca8bede8e080",
+        "pantograph_model_sexpr.py": "5a0d6be3be275912a74ce65faeb4d0e105e06defe14a06807fe49528bd319f93",
+        "pantograph_diagnostics.py": "5ab942b3aa75b662f8342e16b95098c1b43b86a35828f4192a6f7748667e8c87"
+      },
+      "initial_states": 0,
+      "final_states": 0,
+      "phase": "CLOSED",
+      "subprocess_reaped": true
+    }
+  },
+  "search": {
+    "checks": [
+      "puct-multi-leaf-batch",
+      "checked-rejection-of-alternatives",
+      "puct-graph-equivalence",
+      "best-first-graph-equivalence",
+      "cooperative-deadline-scope-closure",
+      "repeated-searches-20",
+      "two-workers-one-model-device"
+    ],
+    "initial_states": 0,
+    "final_states": 0,
+    "phase": "CLOSED",
+    "subprocess_reaped": true
+  },
+  "learning": {
+    "htps_disabled": {
+      "solved": true,
+      "edge_actions": 5,
+      "failure_actions": 0,
+      "imitation_samples": 3,
+      "critic_samples": 3,
+      "onpolicy_optimizer_steps": 1,
+      "htps_optimizer_steps": 0,
+      "model_generation": 1
+    },
+    "htps_enabled": {
+      "solved": true,
+      "edge_actions": 5,
+      "failure_actions": 0,
+      "imitation_samples": 3,
+      "critic_samples": 3,
+      "onpolicy_optimizer_steps": 1,
+      "htps_optimizer_steps": 1,
+      "model_generation": 2
+    }
+  }
+}

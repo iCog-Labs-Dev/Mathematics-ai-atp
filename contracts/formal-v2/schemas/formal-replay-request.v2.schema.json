@@ -1,0 +1,80 @@
+{
+  "$defs": {
+    "VerificationBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "max_steps": {
+          "minimum": 1,
+          "title": "Max Steps",
+          "type": "integer"
+        },
+        "wall_clock_ms": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wall Clock Ms"
+        }
+      },
+      "required": [
+        "max_steps"
+      ],
+      "title": "VerificationBudget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Independent replay of a run's stored certificate, bound to its evidence.",
+  "properties": {
+    "budget": {
+      "$ref": "#/$defs/VerificationBudget"
+    },
+    "certificate_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Certificate Hash",
+      "type": "string"
+    },
+    "environment_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Environment Hash",
+      "type": "string"
+    },
+    "input_artifact_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Input Artifact Hash",
+      "type": "string"
+    },
+    "protocol_version": {
+      "const": 2,
+      "title": "Protocol Version",
+      "type": "integer"
+    },
+    "run_id": {
+      "pattern": "^[^/]+/fr-[1-9][0-9]*$",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "source_artifact_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Source Artifact Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "protocol_version",
+    "run_id",
+    "certificate_hash",
+    "input_artifact_hash",
+    "source_artifact_hash",
+    "environment_hash",
+    "budget"
+  ],
+  "title": "FormalReplayRequest",
+  "type": "object"
+}

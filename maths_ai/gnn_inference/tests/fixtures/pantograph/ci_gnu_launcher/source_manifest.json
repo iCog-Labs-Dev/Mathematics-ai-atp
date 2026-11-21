@@ -1,0 +1,16 @@
+{
+  "target_base_commit": "6a3b5a152b53c4f97ed02ff4080690d1604a0983",
+  "purpose": "Provision the GNU stdbuf required by the native client on Ubuntu 26.04 without replacing host coreutils.",
+  "sources": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "target_base_sha256": "60a690b2ccaac76244ae5d9721c2666a2b5292d183b01d497a4c84e95f2154c7",
+      "sha256": "e58567ccd0ac2fae7471433fcb5f97cb96d6326585004a44f802074fbd6e22ba"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
+      "target_base_sha256": "572ca1fe9569295dcbcf34409c51cb176e7cb86e1d5723d184e819efbbf3c357",
+      "sha256": "17aac0f7a95cf819700fddc3e5435fda7838b3499fd7e7ef56f947dd7311b302"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "kind": "persistent-bundle-publication-verification",
+  "date": "2026-11-05",
+  "publication_layout": "relative-sibling-symlink-v1",
+  "receipt_schema": "repl-only-deployment-migration-v2",
+  "client_commit": "053ff67dfc540391100c86e4deada06839904655",
+  "repl_commit": "ba2c3dd8383f90b4b5327e31a645a53411f385e4",
+  "completed_checks": [
+    "Focused publication, retained retry, copy/space diagnostics, and existing tensor-preservation tests: 49 passed, 1 native test deselected.",
+    "Native migration followed by real client/environment/certification validation and retained publication retry: 1 passed.",
+    "The native test used controlled local model/retrieval artifacts and the compiled Mathlib environment.",
+    "Inference/API regression suite including the publication source-lineage link: 822 passed, 1 skipped, 48 deselected, 35 subtests passed.",
+    "Both migration/publication CLI help entry points passed.",
+    "Lightweight standalone preflight removed its probes without creating a deployment output.",
+    "Offline lockfile verification passed; dependency pins unchanged by this repair."
+  ],
+  "not_run": [
+    "Remote JupyterHub filesystem preflight and persistent trial.",
+    "Full Docker image execution.",
+    "Remote storage quota/capacity verification."
+  ],
+  "limits": [
+    "The user must keep the relative output link and its sibling backing directory.",
+    "Symlink publication requires support on the destination filesystem; preflight checks it before migration work.",
+    "Ordinary copying may still need the full artifact size when reflinks are unavailable."
+  ]
+}

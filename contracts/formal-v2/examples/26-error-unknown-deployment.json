@@ -1,0 +1,52 @@
+{
+  "title": "An unknown deployment (422)",
+  "request": {
+    "method": "POST",
+    "path": "/formal-search/start",
+    "body": {
+      "protocol_version": 2,
+      "proof_id": "example",
+      "claim_id": "example/c-1",
+      "formal_declaration_id": "example/fd-1",
+      "run_id": "example/fr-9",
+      "base_revision": 12,
+      "lease_id": "writer-lease-7",
+      "fencing_token": 4,
+      "input": {
+        "kind": "goal",
+        "goal_text": "n + 1 = 3",
+        "hypotheses": [
+          "n : Nat",
+          "h : n = 2"
+        ],
+        "universe_levels": []
+      },
+      "environment_id": "mathlib-4.10-rc1",
+      "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+      "backend": {
+        "name": "mcts-actor-critic",
+        "profile": "puct",
+        "proposal_mode": "sample",
+        "seed": 42
+      },
+      "deployment_id": "nope",
+      "search_policy": {
+        "policy_name": "bounded-formal",
+        "deny_sorry": true
+      },
+      "budget": {
+        "max_steps": 100,
+        "wall_clock_ms": 45000
+      }
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "protocol_version": 2,
+      "category": "unknown-deployment",
+      "detail": "No deployment 'nope'; configure a default or select one."
+    },
+    "schema": "formal-error.v2"
+  }
+}

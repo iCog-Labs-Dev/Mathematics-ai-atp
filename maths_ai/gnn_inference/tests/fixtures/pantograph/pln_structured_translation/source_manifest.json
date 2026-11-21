@@ -1,0 +1,164 @@
+{
+  "kind": "exact-pln-structured-translation",
+  "target_base_commit": "119eacd35e4c005c07e48fd85e12acf41080edfe",
+  "sources": [
+    {
+      "path": "maths_ai/data_models/proof_components.py",
+      "target_base_sha256": "96d14e1d403efc1998050465eb318de8fc52b33fd2829cbe88ab0e89242f9ebf",
+      "sha256": "c2454ea1e0ba0f99373d06918c6dcefc84dfbea6f027f5e661d2cda196fd6800"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/graph.py",
+      "target_base_sha256": "ef32103e66893d088b13370fda512be94f678533ce7528f9de043d879b83da76",
+      "sha256": "f13378f293464f4845831e3cbf719411347feaeb1785f97c468b83e8058549cf"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/rl_training_driver.py",
+      "target_base_sha256": "5b1732bd88de0ec9388d694ffc8d9fe39497e25bb7d73e000e9b8da61c175835",
+      "sha256": "da79ba16ce05afd792be1fb8924c74f247294b40a038477dfbd6a39a418ad71c"
+    },
+    {
+      "path": "maths_ai/gnn_inference/docs/rl_training_setup.md",
+      "target_base_sha256": "d613fefb8d418d761917b7fddd136c19a2a78b128c834582374427c79ad41eab",
+      "sha256": "a9a252ceeec9d5973c13e879d2cd96e6f754846b2009cfe8186331abeb3d7a05"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
+      "target_base_sha256": "d74b0024ef113d87295d6b1217b5dadb903d57d585ab8e7d467b89e4def84a5a",
+      "sha256": "9da99743e82851720d4b2a3f55039a8dbb6fc2e06ae531e516298f874adfd0c7"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_pln_async.py",
+      "target_base_sha256": "c61048b0b6c7e9d51564e50b69c1cf16e65cf54f5c40c27277c79db2f61d46d4",
+      "sha256": "37535a8d7a6238bca1670949e8f9efb34780936f7b87d61b18b72d37bf81c883"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_pln_imports.py",
+      "target_base_sha256": "154e93a16fbb5bc264ed610fe794bc879a93d1703296e3dcc67836136f20c957",
+      "sha256": "5742bc5a3de54b99efa4b8cd8ab29761ae85e7e592d9ea054f9b8f8f826b46b5"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_proof_state_parser.py",
+      "target_base_sha256": "e090e7e0cf1967d35a304d18f708c9b74732899c92b1afd1db42fd9cd90c55c2",
+      "sha256": "beed9cce6da121e27a2aa6ee2ea2a81a23eb5aadbd0c60c5be320bb09b096d2a"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_rl_reasoner.py",
+      "target_base_sha256": "d1686189ca3c5a8cf0674e1653884e24b42b2af1befb467cab91401e64862698",
+      "sha256": "bb2408ba477bc6616766621e3e258547f39552e900107cd1a7cc81182ecea3c3"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_rl_training_driver.py",
+      "target_base_sha256": "846c64cd2d1044edd0f75c8b0fe486027db6679d16af6fc870602d42cd1007be",
+      "sha256": "5ab3fba42a1967bf123b76ba6222d0b9694f775d9941d4282ece757a98c71d3c"
+    },
+    {
+      "path": "maths_ai/hybrid_reasoner/joint_inference.py",
+      "target_base_sha256": "57e074d27abaa7e3b1d718124d8f37cedffdc58bfe19a7bebf3c121e36c85847",
+      "sha256": "2e7f7af49cea5368522a9544b5e43db40c31e4e7b163bd1ea4fa1ee6857a0716"
+    },
+    {
+      "path": "maths_ai/pln_inference/README.md",
+      "target_base_sha256": "a23b50fd7510b5bc26194f57cb04cc90ab91e97b9d412fff41aa17282d647494",
+      "sha256": "484c9e40351883e1a51891a186bc404be4296db24c1fa7218fcec4d42f78246f"
+    },
+    {
+      "path": "maths_ai/pln_inference/diagnose.py",
+      "target_base_sha256": "e0a109817c69b765515974cc6bf83164baa17c4bcda41ed5bd8e414cfb0ed02a",
+      "sha256": "ec9449953e4d7166faf6c732bb2cc764a5187258af0c031a5dc27166966a7bf8"
+    },
+    {
+      "path": "maths_ai/pln_inference/metta/tests/test_thompson_sampler.py",
+      "target_base_sha256": "6f4c75a8acc3144e4aa57ee5352798c81b39140ff3e3386bee2c8f965ebb30f8",
+      "sha256": "c3d1c7b817e7c3a2ca1d54b6f447dc38ad80cae95b123ff43fff2ba6bd36a97e"
+    },
+    {
+      "path": "maths_ai/pln_inference/metta/translator/readme.md",
+      "target_base_sha256": "c8de5981d91f31635ab6f6b6b49e5a3f875d60a87fcd4ce4e8445857fd6892ee",
+      "sha256": "e21b39f482b8b5b3f524df6823c53d65013bcb52d60bfb2ff7b8626019ed08c5"
+    },
+    {
+      "path": "maths_ai/pln_inference/metta/translator/test_imports.py",
+      "target_base_sha256": "3916437fb010febe15c86b17e76574af3c899698b12893912d06ae3782e601f4",
+      "sha256": "d9b8da390a4d221832c949f6aff9624b46d61fec1c88f5ecfb894c80ce323c79"
+    },
+    {
+      "path": "maths_ai/pln_inference/metta/translator/translator.py",
+      "target_base_sha256": "dc17c1f29c6f1fbd66add8da12114240010c314376e6a1a6e5c509964a268f5b",
+      "sha256": "1ec72d27efd4f75f7789b2e0137ca70d2544f031fc018166aa9b8de5c9e9ad8d"
+    },
+    {
+      "path": "maths_ai/pln_inference/metta/translator/translator_modules/__init__.py",
+      "target_base_sha256": "923952b06cd80c0847ca6db4309d0dc8ba29e67d67a3a1df388e1edd08e0d960",
+      "sha256": "dda83a70339f39fa4135df67d71ab20b913de0faeb43aff2ae79a8603d44c8d5"
+    },
+    {
+      "path": "maths_ai/pln_inference/metta/translator/translator_modules/cli.py",
+      "target_base_sha256": "2a9bf1d55690e514965f87bdd349369eb585fec1995318568221e16ab6a4aef2",
+      "sha256": "9f70b06d352813534d4afe315ad2eb6ddd5d1519d9fe790879367f19c716f8e5"
+    },
+    {
+      "path": "maths_ai/pln_inference/metta/translator/translator_modules/extractor.py",
+      "target_base_sha256": "118e87104860cf2c4287017825dc8637edd9a1a16e90ed255e98b069edc43bc4",
+      "sha256": "78a5e9c95a175b11b2124bd97ba6a52a975025ba0186b1427db1a478f53802c4"
+    },
+    {
+      "path": "maths_ai/pln_inference/metta/translator/translator_modules/runner.py",
+      "target_base_sha256": "be5553351350aacc4b6c2d7e4831f1a991b89a3787bf863a4da1007b56708b37",
+      "sha256": "6efed503149a2a4fd8c30c0c6966edca1aa4fd3435ccc8e3e72aaaa8ce0b803e"
+    },
+    {
+      "path": "maths_ai/pln_inference/model.py",
+      "target_base_sha256": "fd42d6e54ed277fd195fb8ed197f5dc92604d7e2d3e3ac29fc1718b23cc9358c",
+      "sha256": "30022a1b103d27ad467ea828299d9c36c04cd1cdeef4336bb1569ccb26c8393b"
+    },
+    {
+      "path": "maths_ai/pln_inference/compiler.py",
+      "target_base_sha256": null,
+      "sha256": "1ad1d43b0337015a1a702486f8f5477d4282b5d5fe07693904e4973995e2041c"
+    },
+    {
+      "path": "maths_ai/pln_inference/answers.py",
+      "target_base_sha256": null,
+      "sha256": "58cb683ec1eb76fdcc1176048c32857435cb840b25f6174121e1c66e802fa0fc"
+    },
+    {
+      "path": "maths_ai/pln_inference/coverage.py",
+      "target_base_sha256": null,
+      "sha256": "52ceff2af9012e4f16fa62f3416fe5dbcad45cf2b8d66696e93f1afedbaebc3c"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_pln_translation.py",
+      "target_base_sha256": null,
+      "sha256": "1a8e80a141ce84b06a495133a0a321459dd8e199b1dc47c5c5dde56c6acaa12f"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_pln_translation_live.py",
+      "target_base_sha256": null,
+      "sha256": "f1603c6a04a91b194c266489ec362a4bf1e19728ef4703d2d5f8911f423e0e1e"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/fixtures/pln_translation/lean_states.json",
+      "target_base_sha256": null,
+      "sha256": "013b764d9ff0f9f64ee3f82d064567e66afe2a164506780376eaf246875c941f"
+    }
+  ],
+  "removed": [
+    {
+      "path": "maths_ai/pln_inference/metta/translator/translator_modules/constants.py",
+      "target_base_sha256": "2a53f41aec34a4a0c1d67841878f9814d402c31041479415c0e109ac56886cbc"
+    },
+    {
+      "path": "maths_ai/pln_inference/metta/translator/translator_modules/normalizer.py",
+      "target_base_sha256": "af83b4cfc9709ed83add1365464b6bce500d26ed8c291b4535fd45b1d0d4dd59"
+    },
+    {
+      "path": "maths_ai/pln_inference/metta/translator/translator_modules/parser.py",
+      "target_base_sha256": "65f6fb02c0fabb37e8f77091fcc07b084947543daad8b6e728ca1f1d54725f36"
+    },
+    {
+      "path": "maths_ai/pln_inference/metta/translator/translator_modules/renderer.py",
+      "target_base_sha256": "734939eab1ff5e2547ba2e2e68996daaa0c11616e42bbd0c14dee417661fcb0c"
+    }
+  ]
+}

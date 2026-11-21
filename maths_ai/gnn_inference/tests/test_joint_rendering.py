@@ -31,7 +31,7 @@ def _structured_goal() -> Goal:
 
 
 def _render(bundle, action: DecodedAction) -> tuple[list[str], bool]:
-    from maths_ai.gnn_inference.inference_engine import GNNModelEngine
+    from maths_ai.accepted_gnn.inference_engine import GNNModelEngine
 
     goal = _structured_goal()
     dag = goal_to_model_dag(goal)
@@ -103,7 +103,7 @@ def test_render_action_accepts_zero_argument_actions() -> None:
 
 
 def test_render_action_resolves_bare_fv_selections() -> None:
-    from maths_ai.gnn_inference.inference_engine import GNNModelEngine
+    from maths_ai.accepted_gnn.inference_engine import GNNModelEngine
 
     bundle = SimpleNamespace(lemma_corpus={})
     dag = goal_to_model_dag(_structured_goal())
@@ -122,7 +122,7 @@ def test_render_action_resolves_bare_fv_selections() -> None:
 
 
 def test_render_action_reads_structured_hypothesis_name() -> None:
-    from maths_ai.gnn_inference.inference_engine import GNNModelEngine
+    from maths_ai.accepted_gnn.inference_engine import GNNModelEngine
 
     bundle = SimpleNamespace(lemma_corpus={})
     dag = goal_to_model_dag(_structured_goal())
@@ -143,7 +143,7 @@ def test_render_action_reads_structured_hypothesis_name() -> None:
 
 
 def test_render_action_is_tactic_family_aware() -> None:
-    from maths_ai.gnn_inference.inference_engine import GNNModelEngine
+    from maths_ai.accepted_gnn.inference_engine import GNNModelEngine
 
     bundle = SimpleNamespace(lemma_corpus={5: SimpleNamespace(name="Nat.add_zero")})
     dag = goal_to_model_dag(_structured_goal())
@@ -181,7 +181,7 @@ def test_render_action_is_tactic_family_aware() -> None:
     "norm_num", "field_simp", "linarith", "nlinarith",
 ])
 def test_render_all_trained_rule_list_families(family: str) -> None:
-    from maths_ai.gnn_inference.inference_engine import GNNModelEngine
+    from maths_ai.accepted_gnn.inference_engine import GNNModelEngine
 
     dag = goal_to_model_dag(_structured_goal())
     bundle = SimpleNamespace(lemma_corpus={5: SimpleNamespace(name="Nat.add_zero")})

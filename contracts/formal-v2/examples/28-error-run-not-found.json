@@ -1,0 +1,17 @@
+{
+  "title": "Status of an unknown run (404)",
+  "request": {
+    "method": "GET",
+    "path": "/formal-search/example/fr-99",
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "protocol_version": 2,
+      "category": "run-not-found",
+      "detail": "No run example/fr-99."
+    },
+    "schema": "formal-error.v2"
+  }
+}

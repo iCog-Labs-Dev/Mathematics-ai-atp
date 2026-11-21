@@ -1,0 +1,50 @@
+{
+  "kind": "minif2f-structured-goal-conversion",
+  "sources": [
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/goal_file_records.py",
+      "target_base_sha256": null,
+      "sha256": "e04756059eb48af20694f687d4c6edf47a4d333a5acc1cb7ae164ef8d894b701"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/minif2f_conversion.py",
+      "target_base_sha256": null,
+      "sha256": "b23a825c6e53043caadece3be6b762bb7b58d7203bbf7f7d778cde84be22454e"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/seed_admission.py",
+      "target_base_sha256": "c2cdd0e3259f07e9ac880d98e234588521b516fd3f361294bad65ddd8407ca3a",
+      "sha256": "5fdc2f1c47f48151a2ad4d604ab8df0885080538244a599541a429ffa5e60d4c"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/theorem_sources.py",
+      "target_base_sha256": "d93777e7bb60f8d11db57870f99603f864b611e890bf440ba0c117a4d4696822",
+      "sha256": "6886fd63f472d15fa824ca00d2e6460d49805c30a864fe4edf7247bb34dc2449"
+    },
+    {
+      "path": "maths_ai/gnn_inference/lean_extractor/convert_minif2f.lean",
+      "target_base_sha256": null,
+      "sha256": "673f41f35fe95f627bca789161596b6e86bf5214f9d12dbb54df06cfaae3e246"
+    },
+    {
+      "path": "maths_ai/gnn_inference/scripts/convert_minif2f.py",
+      "target_base_sha256": null,
+      "sha256": "26bd6f2276b3472967238879a599cd63b94877facef0ef69b4b79aae12024d67"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_goal_file_records.py",
+      "target_base_sha256": null,
+      "sha256": "ae3dae61c80a867ba404d34cbbb98ec8f86ff1aed1da5b0cda7169aa70b2d9ea"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_minif2f_conversion.py",
+      "target_base_sha256": null,
+      "sha256": "2c2716a3bc08c525d25992fff6d2625282955a19e818d9f9796a8e8c506bb332"
+    },
+    {
+      "path": "maths_ai/lean_replay/seed.py",
+      "target_base_sha256": "df8bb41577055c9df8d00373f7bcac7a3906daff69767e738664fec2963ff793",
+      "sha256": "7159ae2c04de021bd9100896d6e0c58df52925d1f1b1a58ec5f4137ac98bdd51"
+    }
+  ]
+}

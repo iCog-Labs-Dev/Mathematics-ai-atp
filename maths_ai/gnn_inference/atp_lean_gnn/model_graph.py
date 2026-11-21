@@ -13,9 +13,7 @@ exactly the graphs the policy was trained on:
 from __future__ import annotations
 
 from maths_ai.data_models.proof_components import Goal
-from maths_ai.pln_inference.metta.translator.translator_modules.parser import (
-    parse_sexp_string,
-)
+from maths_ai.lean_replay.sexp import parse_sexp_string
 
 from .graph import DAGBuilder, _sexp_walk, sexp_to_dag
 

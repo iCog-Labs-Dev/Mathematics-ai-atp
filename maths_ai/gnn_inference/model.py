@@ -1,56 +1,20 @@
 import torch
-import torch.nn as nn
-from maths_ai.gnn_inference.atp_lean_gnn.inference import InferencePipeline
-from maths_ai.gnn_inference.atp_lean_gnn.premise_scoring import PremiseScorer
-from maths_ai.gnn_inference.atp_lean_gnn.lemma_index import LemmaIndex
-from maths_ai.gnn_inference.atp_lean_gnn.argument_selector import TacticWithArgsClassifier
-from maths_ai.gnn_inference.atp_lean_gnn.lemma_corpus import LemmaRecord
+from .atp_lean_gnn.inference import InferencePipeline
 
 
 class GNNPredictor:
     def __init__(
-        self,
-        tactic_model: TacticWithArgsClassifier,
-        argument_model: PremiseScorer,
-        lemma_index: LemmaIndex,
-        node_vocab: dict[str, int],
-        tactic_vocab: dict[str, int],
-        device: torch.device,
-        k: int = 500,
-        lemma_corpus: dict[int, LemmaRecord] | None = None,
+        self, tactic_model, candidate_provider, node_vocab, tactic_vocab, device
     ):
-        self.tactic_model = tactic_model
-        self.argument_model = argument_model
         self.pipeline = InferencePipeline(
-            model=tactic_model,
-            scorer=argument_model,
-            lemma_index=lemma_index,
-            node_vocab=node_vocab,
-            tactic_vocab=tactic_vocab,
-            device=device,
-            k=k,
-            lemma_corpus=lemma_corpus,
+            tactic_model, candidate_provider, node_vocab, tactic_vocab, device
         )
 
+    async def prepare_goal(self, goal):
+        return await self.pipeline.prepare_goal(goal)
+
     @torch.no_grad()
-    def predict_tactics_with_arguments(
-        self,
-        goal_expression: str,
-        top_k: int = 3,
-        *,
-        hypotheses: list[str] | None = None,
-    ):
-        """
-            Args:
-                goal_expression: current goal expression as a string
-                top_k: number of top tactics to return
-            Returns:
-                A list of up to top_k dicts, each with "tactic_id", "tactic_name",
-                "probability", "selected_arguments" and "selected_argument_details",
-                sorted by probability in descending order.
-        """
-        state_text = goal_expression
-        if hypotheses:
-            state_text = "\n".join([*hypotheses, f"⊢ {goal_expression}"])
-        result = self.pipeline.predict_tactic_result(state_text, top_k=top_k)
-        return result.top_tactic_predictions
+    def predict_tactics_with_arguments(self, prepared, top_k=3):
+        return self.pipeline.predict_from_goal(
+            prepared, top_k=top_k
+        ).top_tactic_predictions

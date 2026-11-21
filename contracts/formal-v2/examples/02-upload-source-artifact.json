@@ -1,0 +1,18 @@
+{
+  "title": "Upload a source artifact (raw bytes)",
+  "request": {
+    "method": "POST",
+    "path": "/formal-artifacts",
+    "body": {
+      "bytes_utf8": "import Mathlib\n\nnamespace Demo\n\ntheorem target (n : ℕ) (h : n = 2) : n + 1 = 3 := by\n  subst h; rfl\n\nend Demo\n"
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "protocol_version": 2,
+      "artifact_hash": "sha256:9e8d40e0f6c29c4830942783552e37082c2449b847e92e0560d13e1e882bcf15"
+    },
+    "schema": "formal-artifact-upload.v2"
+  }
+}

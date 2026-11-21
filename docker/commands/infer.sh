@@ -9,4 +9,4 @@ WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export PYTHONPATH="$WORKSPACE_DIR:${PYTHONPATH:-}"
 
 # Run the inference engine
-exec python -m maths_ai.gnn_inference.inference_engine "$@"
+exec python -m maths_ai.accepted_gnn.inference_engine "$@"

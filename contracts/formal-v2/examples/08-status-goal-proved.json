@@ -1,0 +1,181 @@
+{
+  "title": "A text-based run, proved; generated source recorded",
+  "request": {
+    "method": "GET",
+    "path": "/formal-search/example/fr-2",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "protocol_version": 2,
+      "run_id": "example/fr-2",
+      "status": "finished",
+      "request_digest": "sha256:d8afe8b2b67facf080bcb2b36d28f3db4fdb6c2cb048716c6dbcbd04c40256c9",
+      "input_kind": "goal",
+      "input_artifact_hash": "sha256:8495db7febd2b48e3d3879c65ebee2c3d5f8c51089f44236d38a8687d57e4b19",
+      "source_artifact_hash": "sha256:10880359a57172ed310e1486f43714c4337f4eda68f6edcacb3568288e3ca18c",
+      "source_origin": "generated-from-text",
+      "resolved": {
+        "deployment_id": "mcts-example",
+        "backend": "mcts-actor-critic",
+        "profile": "puct",
+        "profile_config_hash": "sha256:8029fb7d43ab9da5f3e6204cf7aee4243db5add12f0ce5d4cc9633d24de00819",
+        "environment_id": "mathlib-4.10-rc1",
+        "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+        "model": {
+          "tactic_model_artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "proposal_mode": "sample",
+        "seed": 42
+      },
+      "budget": {
+        "requested_max_steps": 100,
+        "admitted_max_steps": 60,
+        "max_steps_reduced": true,
+        "requested_wall_clock_ms": 45000,
+        "admitted_wall_clock_ms": 45000,
+        "wall_clock_reduced": false,
+        "consumed_steps": 3,
+        "consumed_steps_exact": true,
+        "remaining_steps": 57,
+        "verification_max_steps": 100
+      },
+      "attempts": 1,
+      "retry_from": "bound-initial-input",
+      "disposition": "proved-pending-replay",
+      "termination": "certified",
+      "cancel_requested": false,
+      "result": {
+        "artifacts": [
+          {
+            "role": "certificate",
+            "sha256": "sha256:ec8b91074d2ae446d8d493aeaf6f3b4b35f28b3b25a06dedbb566cca9de45861"
+          },
+          {
+            "role": "admitted-input",
+            "sha256": "sha256:8495db7febd2b48e3d3879c65ebee2c3d5f8c51089f44236d38a8687d57e4b19"
+          },
+          {
+            "role": "generated-source",
+            "sha256": "sha256:10880359a57172ed310e1486f43714c4337f4eda68f6edcacb3568288e3ca18c"
+          },
+          {
+            "role": "search-summary",
+            "sha256": "sha256:21deaedad1d51ce7708901a7f2ef56aa6629be0137c5e45eb87ae48771a43387"
+          }
+        ],
+        "attempts": 1,
+        "backend": {
+          "deployment_id": "mcts-example",
+          "name": "mcts-actor-critic",
+          "profile": "puct",
+          "profile_config_hash": "sha256:8029fb7d43ab9da5f3e6204cf7aee4243db5add12f0ce5d4cc9633d24de00819"
+        },
+        "budget": {
+          "admitted_max_steps": 60,
+          "admitted_wall_clock_ms": 45000,
+          "remaining_steps": 57
+        },
+        "budget_used": {
+          "attempt": {
+            "attempt": 1,
+            "reserved_steps": 60,
+            "tactic_steps": 3,
+            "tactic_steps_exact": true,
+            "wall_clock_ms": 4
+          },
+          "tactic_steps": 3,
+          "tactic_steps_exact": true
+        },
+        "certificate": {
+          "artifact_hash": "sha256:ec8b91074d2ae446d8d493aeaf6f3b4b35f28b3b25a06dedbb566cca9de45861",
+          "producer_run_id": "example/fr-2",
+          "status": "replay-pending"
+        },
+        "coordinator_binding": {
+          "base_revision": 12,
+          "claim_id": "example/c-1",
+          "fencing_token": 4,
+          "lease_id": "writer-lease-7"
+        },
+        "declaration_id": "example/fd-1",
+        "disposition": "proved-pending-replay",
+        "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+        "input_artifact_hash": "sha256:8495db7febd2b48e3d3879c65ebee2c3d5f8c51089f44236d38a8687d57e4b19",
+        "input_kind": "goal",
+        "obstructions": [],
+        "proof_id": "example",
+        "protocol_version": 2,
+        "request_digest": "sha256:d8afe8b2b67facf080bcb2b36d28f3db4fdb6c2cb048716c6dbcbd04c40256c9",
+        "root_state_id": "example/fr-2/attempt-1/fs-1",
+        "run_id": "example/fr-2",
+        "source_artifact_hash": "sha256:10880359a57172ed310e1486f43714c4337f4eda68f6edcacb3568288e3ca18c",
+        "source_origin": "generated-from-text",
+        "states": [
+          {
+            "exact_state_hash": "sha256:44880cf700106ccb0014fb01e59ae5f6dfc84d2e9c895788031986b2f3b92d6a",
+            "goal_text": "∀ (n : Nat), ∀ (h : n = 2), n + 1 = 3",
+            "kind": "goal",
+            "semantic_signature": "sha256:4eb2b2f4958e16cef23ad7d31e23e7a8f4f7e7ec7c7961a376e60e232f0a899a",
+            "state_id": "example/fr-2/attempt-1/fs-1",
+            "status": "formally-closed"
+          },
+          {
+            "exact_state_hash": "sha256:9dd864506d747ecc166543877b681033e93dc6ad9efdc4bdcdda32974892f87b",
+            "goal_text": "P",
+            "kind": "goal",
+            "semantic_signature": "sha256:830e9ab6c806cb2e6bd36b4d2130c93caa3262d9b02930792062ac04704e5eee",
+            "state_id": "example/fr-2/attempt-1/fs-2",
+            "status": "formally-closed"
+          },
+          {
+            "exact_state_hash": "sha256:040bcbfc2469619824878444aa6f4751b01d7ef404c3b8ef6af01e379072b774",
+            "goal_text": "Q",
+            "kind": "goal",
+            "semantic_signature": "sha256:1c68e0ad765992de9519bcc638518607c39604be238b8d09731231ca75bdf62a",
+            "state_id": "example/fr-2/attempt-1/fs-3",
+            "status": "formally-closed"
+          }
+        ],
+        "tactic_edges": [
+          {
+            "executor_result": "lean-accepted",
+            "produced_goal_ids": [],
+            "source_state_id": "example/fr-2/attempt-1/fs-2",
+            "status": "closed",
+            "subgoal_count": 0,
+            "tactic_id": "example/fr-2/attempt-1/ta-1",
+            "tactic_label": "trivial"
+          },
+          {
+            "executor_result": "lean-accepted",
+            "produced_goal_ids": [],
+            "source_state_id": "example/fr-2/attempt-1/fs-3",
+            "status": "closed",
+            "subgoal_count": 0,
+            "tactic_id": "example/fr-2/attempt-1/ta-2",
+            "tactic_label": "trivial"
+          },
+          {
+            "executor_result": "lean-accepted",
+            "produced_goal_ids": [
+              "example/fr-2/attempt-1/fs-2",
+              "example/fr-2/attempt-1/fs-3"
+            ],
+            "source_state_id": "example/fr-2/attempt-1/fs-1",
+            "status": "closed",
+            "subgoal_count": 2,
+            "tactic_id": "example/fr-2/attempt-1/ta-3",
+            "tactic_label": "constructor"
+          }
+        ],
+        "termination": {
+          "reason": "certified"
+        }
+      },
+      "replays": []
+    },
+    "schema": "formal-run.v2"
+  }
+}

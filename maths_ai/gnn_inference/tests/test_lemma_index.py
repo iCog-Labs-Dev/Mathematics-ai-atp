@@ -21,18 +21,52 @@ class TestLemmaIndex(unittest.TestCase):
             index_path = index_dir / "faiss.index"
             vectors_path = index_dir / "lemma_vectors.npy"
             ids_path = index_dir / "lemma_ids.json"
+            names_path = index_dir / "lemma_names.json"
+            manifest_path = index_dir / "manifest.json"
 
             index = faiss.IndexFlatL2(dim)
             index.add(vectors)
             faiss.write_index(index, str(index_path))
             np.save(vectors_path, vectors)
             ids_path.write_text(json.dumps([7, 11]), encoding="utf-8")
+            names_path.write_text(json.dumps(["Foo.seven", "Foo.eleven"]), encoding="utf-8")
+            manifest_path.write_text(
+                json.dumps({"encoder_fingerprint": "test-encoder"}),
+                encoding="utf-8",
+            )
 
             loaded = LemmaIndex.load(index_path)
 
             self.assertEqual(loaded.lemma_ids, [7, 11])
+            self.assertEqual(loaded.lemma_names, ["Foo.seven", "Foo.eleven"])
+            self.assertEqual(loaded.encoder_fingerprint, "test-encoder")
             self.assertTrue(np.array_equal(loaded.lemma_vectors, vectors))
             self.assertEqual(loaded.index.ntotal, 2)
+
+    def test_encoder_fingerprint_is_required_unless_the_caller_binds_otherwise(self) -> None:
+        vectors = np.array([[1.0, 0.0]], dtype=np.float32)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            index_dir = Path(tmpdir)
+            index = faiss.IndexFlatL2(2)
+            index.add(vectors)
+            faiss.write_index(index, str(index_dir / "faiss.index"))
+            np.save(index_dir / "lemma_vectors.npy", vectors)
+            (index_dir / "lemma_ids.json").write_text("[3]", encoding="utf-8")
+            (index_dir / "lemma_names.json").write_text('["Foo.three"]', encoding="utf-8")
+            manifest = index_dir / "manifest.json"
+            # The published v2 retriever index: bound by content hash, no graph encoder.
+            manifest.write_text(json.dumps({"model_type": "text_index"}), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "encoder_fingerprint"):
+                LemmaIndex.load(index_dir)
+            loaded = LemmaIndex.load(index_dir, require_encoder_fingerprint=False)
+            self.assertIsNone(loaded.encoder_fingerprint)
+            self.assertEqual(loaded.lemma_ids, [3])
+
+            # An empty or malformed fingerprint is never accepted.
+            manifest.write_text(json.dumps({"encoder_fingerprint": ""}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "encoder_fingerprint"):
+                LemmaIndex.load(index_dir, require_encoder_fingerprint=False)
 
     def test_search_empty_index(self) -> None:
         dim = 8

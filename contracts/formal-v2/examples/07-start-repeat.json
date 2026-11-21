@@ -1,0 +1,84 @@
+{
+  "title": "Repeat the same start: the existing run (200), no new work",
+  "request": {
+    "method": "POST",
+    "path": "/formal-search/start",
+    "body": {
+      "protocol_version": 2,
+      "proof_id": "example",
+      "claim_id": "example/c-1",
+      "formal_declaration_id": "example/fd-1",
+      "run_id": "example/fr-2",
+      "base_revision": 12,
+      "lease_id": "writer-lease-7",
+      "fencing_token": 4,
+      "input": {
+        "kind": "goal",
+        "goal_text": "n + 1 = 3",
+        "hypotheses": [
+          "n : Nat",
+          "h : n = 2"
+        ],
+        "universe_levels": []
+      },
+      "environment_id": "mathlib-4.10-rc1",
+      "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+      "backend": {
+        "name": "mcts-actor-critic",
+        "profile": "puct",
+        "proposal_mode": "sample",
+        "seed": 42
+      },
+      "deployment_id": "mcts-example",
+      "search_policy": {
+        "policy_name": "bounded-formal",
+        "deny_sorry": true
+      },
+      "budget": {
+        "max_steps": 100,
+        "wall_clock_ms": 45000
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "protocol_version": 2,
+      "run_id": "example/fr-2",
+      "status": "admitting",
+      "request_digest": "sha256:d8afe8b2b67facf080bcb2b36d28f3db4fdb6c2cb048716c6dbcbd04c40256c9",
+      "input_kind": "goal",
+      "input_artifact_hash": null,
+      "source_artifact_hash": null,
+      "source_origin": null,
+      "resolved": {
+        "deployment_id": "mcts-example",
+        "backend": "mcts-actor-critic",
+        "profile": "puct",
+        "profile_config_hash": "sha256:8029fb7d43ab9da5f3e6204cf7aee4243db5add12f0ce5d4cc9633d24de00819",
+        "environment_id": "mathlib-4.10-rc1",
+        "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+        "model": {
+          "tactic_model_artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "proposal_mode": "sample",
+        "seed": 42
+      },
+      "budget": {
+        "requested_max_steps": 100,
+        "admitted_max_steps": 60,
+        "max_steps_reduced": true,
+        "requested_wall_clock_ms": 45000,
+        "admitted_wall_clock_ms": 45000,
+        "wall_clock_reduced": false,
+        "consumed_steps": 0,
+        "consumed_steps_exact": true,
+        "remaining_steps": 60,
+        "verification_max_steps": 100
+      },
+      "attempts": 1,
+      "retry_from": "bound-initial-input"
+    },
+    "schema": "formal-admission.v2"
+  }
+}

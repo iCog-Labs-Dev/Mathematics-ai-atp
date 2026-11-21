@@ -1,0 +1,41 @@
+{
+  "title": "Replay rejected: the certificate does not verify",
+  "request": {
+    "method": "POST",
+    "path": "/formal-replay",
+    "body": {
+      "protocol_version": 2,
+      "run_id": "example/fr-6",
+      "certificate_hash": "sha256:1e4c79426754ea45b5733bf243392d04fa447ef0a0dfc0be58cfd58971bc9e61",
+      "input_artifact_hash": "sha256:267f371fa11fedd6dcf372aa9fba3909d75f623e3a5a6d0b645db59acc587cf9",
+      "source_artifact_hash": "sha256:de08dc25c552ebf790300c8545234459384942ed61082b5ef8de9f70d80d25ec",
+      "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+      "budget": {
+        "max_steps": 50,
+        "wall_clock_ms": 30000
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "protocol_version": 2,
+      "status": "rejected",
+      "reason": "scripted rejected",
+      "run_id": "example/fr-6",
+      "certificate_hash": "sha256:1e4c79426754ea45b5733bf243392d04fa447ef0a0dfc0be58cfd58971bc9e61",
+      "input_artifact_hash": "sha256:267f371fa11fedd6dcf372aa9fba3909d75f623e3a5a6d0b645db59acc587cf9",
+      "source_artifact_hash": "sha256:de08dc25c552ebf790300c8545234459384942ed61082b5ef8de9f70d80d25ec",
+      "source_origin": "generated-from-text",
+      "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+      "backend": "mcts-actor-critic",
+      "verification_cost": {
+        "allowance_max_steps": 50,
+        "tactic_steps": null,
+        "wall_clock_ms": 0,
+        "limit": 50
+      }
+    },
+    "schema": "formal-replay-attestation.v2"
+  }
+}

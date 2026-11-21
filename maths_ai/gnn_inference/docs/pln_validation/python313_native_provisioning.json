@@ -1,0 +1,38 @@
+{
+  "settings": {
+    "petta_bin": "/tmp/pr72-native/bin/petta",
+    "chainer_root": "/tmp/pr72-native/src/petta_chainer",
+    "petta_source_root": "/tmp/pr72-native/src/PeTTa",
+    "swipl_bin": "/tmp/pr72-native/bin/swipl",
+    "depth": 10,
+    "timeout_s": 30.0,
+    "max_concurrency": 2,
+    "max_pending": 64,
+    "output_limit": 1048576,
+    "temp_dir": null
+  },
+  "translation": "lean-pln-exact-v1-rule-proof",
+  "swipl": "SWI-Prolog version 9.3.31 for x86_64-linux",
+  "python": "3.13",
+  "native_sha256": {
+    "/tmp/pr72-native/swipl/lib/swipl/bin/x86_64-linux/swipl": "069d8cab15f460902d5292cdc7a096c2e46f510a0b536391b493c7dadc1afc4d",
+    "/tmp/pr72-native/swipl/lib/swipl/lib/x86_64-linux/janus.so": "1bf110a0649248a5aadbacea7ad2e10acd617f5174658b4c5be9b680e0f15fb0",
+    "/tmp/pr72-native/swipl/lib/swipl/lib/x86_64-linux/libswipl.so.9": "79ea08358e7e60bbec902d2032fec4b8261fa02a446d2e3c256f420fa9ca5d48",
+    "/tmp/pr72-native/swipl/lib/swipl/lib/x86_64-linux/libswipl.so.9.3.31": "79ea08358e7e60bbec902d2032fec4b8261fa02a446d2e3c256f420fa9ca5d48",
+    "/tmp/pr72-native/swipl/lib/swipl/lib/x86_64-linux/libswipl.so": "79ea08358e7e60bbec902d2032fec4b8261fa02a446d2e3c256f420fa9ca5d48"
+  },
+  "petta": {
+    "commit": "e1490899cefc67c128d5311ff4861f9997674957",
+    "source_sha256": "52b7ddc4cb2c0fa4d10d8373035500c3688dd0d564ec92f413ab05647284f13b"
+  },
+  "chainer": {
+    "commit": "b1678e97c4498b376b91e8cce215f5ab0398ddef",
+    "source_sha256": "afa059d5d923cfdf4f04cb1680fdee37309e5573126ca39d845cc37ea59c282b"
+  },
+  "validation": {
+    "python313_native_provisioning": "passed",
+    "rule_proof_readiness": "passed",
+    "docker_build": "not run: no Docker daemon",
+    "torch_http_tests": "separate Python 3.11 environment with matching isolated Janus"
+  }
+}

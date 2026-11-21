@@ -1,0 +1,50 @@
+{
+  "kind": "mcts-dataset-replay-port-live-evidence",
+  "note": "Actual-REPL evidence for MCTS-AC-branch after porting AC PR #60 (dataset goal reconstruction). It is target evidence only: AC's reports under ../evidence and the earlier MCTS client-port reports are unchanged and are not reused here.",
+  "reports": {
+    "report.json": {
+      "sha256": "f37844e836dc694d6ec8c477e0c8b76ca2e0be284dc9b3b729dca75204dbab75",
+      "command": "python -m maths_ai.gnn_inference.scripts.mcts_client_smoke --source-root <mathlib4> --pantograph-repl <Pantograph>/.lake/build/bin/repl --report report.json"
+    },
+    "admission_train_500.json": {
+      "sha256": "8704834c83dc44ead692bfd4f3de76c72a8141fe1edb13766da26e28a70cb0d7",
+      "command": "python -m maths_ai.gnn_inference.scripts.validate_rl_seeds --source-root <mathlib4> --pantograph-repl <repl> --report-dir <dir> --dataset-name jajostrains/Mathlib-Normalized-Sexpr --revision f44841f98193c09b20c6092198a22e98ff2cd7a8 --split train --max-scan-rows 500 --max-admitted 500 --request-timeout 60 --time-budget 3300"
+    },
+    "graphs_train_500.json": {
+      "sha256": "9b085d13372508a45ec6562a0a5a679b7800769b03a8a1d3bd0dabf215c2c596",
+      "command": "python -m maths_ai.gnn_inference.scripts.compare_replay_graphs --source-root <mathlib4> --pantograph-repl <repl> --report graphs_train_500.json --dataset-name jajostrains/Mathlib-Normalized-Sexpr --revision f44841f98193c09b20c6092198a22e98ff2cd7a8 --max-scan-rows 500 --request-timeout 60"
+    }
+  },
+  "target_branch": "MCTS-AC-branch",
+  "target_base_commit": "f21d04409ebe80167358360aead4e44c4a06cffb",
+  "application_source_commit": "54d7cefe04aed980734798f06528ed80c71b81ac",
+  "tested_revision": "c59ad2ee4d6704616a0e40bb967761befc103f16",
+  "worktree_clean": true,
+  "client": {
+    "distribution": "pantograph-async-client",
+    "version": "0.1.1",
+    "repository": "https://github.com/123nol/Pantograph-Client",
+    "commit": "d1dac7e8a8ea296192e7a5b2616114b73e0812b7"
+  },
+  "executable": {
+    "patch": "pantograph_async/resources/repository_client_contract.patch (installed package)",
+    "patch_sha256": "ca9921913281f0c53f11cdde59afe15cf38f70a08f59068cd7b96f3ab1f2d021",
+    "build": "lake build repl",
+    "toolchain": "leanprover/lean4:v4.10.0-rc1",
+    "repl_sha256": "ffc2a91985137f9183c4cc1571c08ece182996484feecf44b5e5d22d932d7dc0",
+    "note": "The same local build used for the MCTS client-port evidence; native Lean builds are not bit-reproducible."
+  },
+  "mathlib_commit": "29dcec074de168ac2bf835a77ef68bbe069194c5",
+  "mathlib_build": "lake exe cache get",
+  "dataset": {
+    "name": "jajostrains/Mathlib-Normalized-Sexpr",
+    "revision": "f44841f98193c09b20c6092198a22e98ff2cd7a8",
+    "rows": "train[0:500]"
+  },
+  "not_run": {
+    "prepared_vocabulary_and_checkpoint_gate": "blocked: needs the real prepared artifacts and checkpoint (JupyterHub); not replaced by a synthetic stand-in",
+    "gpu": "not used",
+    "pln": "searches run with use_pln=False"
+  },
+  "complete_theorem_certification": false
+}

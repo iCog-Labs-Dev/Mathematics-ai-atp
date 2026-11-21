@@ -13,6 +13,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.premise_scoring import (
     PremiseScorerConfig,
     compute_premise_ranking_loss,
     _find_target_index_in_pool,
+    load_scorer_checkpoint,
 )
 
 
@@ -95,6 +96,32 @@ class TestPremiseScorerDot(unittest.TestCase):
         tactic_embs = torch.randn(2, self.hidden_dim)
         with self.assertRaises(ValueError):
             self.scorer(goal_vecs, tactic_embs, pools)
+
+    def test_checkpoint_rejects_a_different_encoder_fingerprint(self) -> None:
+        checkpoint = {
+            "scorer_state_dict": self.scorer.state_dict(),
+            "encoder_fingerprint": "encoder-a",
+        }
+        with self.assertRaisesRegex(ValueError, "fingerprint does not match"):
+            load_scorer_checkpoint(
+                self.scorer,
+                checkpoint,
+                expected_encoder_fingerprint="encoder-b",
+            )
+
+    def test_checkpoint_loads_strictly_for_the_matching_encoder(self) -> None:
+        checkpoint = {
+            "scorer_state_dict": self.scorer.state_dict(),
+            "encoder_fingerprint": "encoder-a",
+        }
+        restored = PremiseScorer(self.hidden_dim, mode="dot")
+        load_scorer_checkpoint(
+            restored,
+            checkpoint,
+            expected_encoder_fingerprint="encoder-a",
+        )
+        for key, expected in self.scorer.state_dict().items():
+            torch.testing.assert_close(restored.state_dict()[key], expected)
 
 
 class TestPremiseScorerMLP(unittest.TestCase):

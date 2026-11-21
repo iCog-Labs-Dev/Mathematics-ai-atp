@@ -1,0 +1,413 @@
+{
+  "$defs": {
+    "BackendSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "enum": [
+            "mcts-actor-critic",
+            "accepted-gnn"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "profile": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Profile",
+          "type": "string"
+        },
+        "proposal_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "sample",
+                "greedy"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proposal Mode"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed"
+        }
+      },
+      "required": [
+        "name",
+        "profile"
+      ],
+      "title": "BackendSelection",
+      "type": "object"
+    },
+    "Budget": {
+      "additionalProperties": false,
+      "properties": {
+        "max_steps": {
+          "minimum": 1,
+          "title": "Max Steps",
+          "type": "integer"
+        },
+        "wall_clock_ms": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wall Clock Ms"
+        }
+      },
+      "required": [
+        "max_steps"
+      ],
+      "title": "Budget",
+      "type": "object"
+    },
+    "CorpusManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "premise_corpus_artifact": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Premise Corpus Artifact"
+        },
+        "retrieval_policy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retrieval Policy"
+        }
+      },
+      "title": "CorpusManifest",
+      "type": "object"
+    },
+    "GoalInput": {
+      "additionalProperties": false,
+      "description": "A target with its ordered local context, elaborated by the provider.",
+      "properties": {
+        "goal_text": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Goal Text",
+          "type": "string"
+        },
+        "hypotheses": {
+          "items": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 512,
+          "title": "Hypotheses",
+          "type": "array"
+        },
+        "kind": {
+          "const": "goal",
+          "title": "Kind",
+          "type": "string"
+        },
+        "universe_levels": {
+          "items": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Universe Levels",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "goal_text",
+        "hypotheses",
+        "universe_levels"
+      ],
+      "title": "GoalInput",
+      "type": "object"
+    },
+    "ModelBundle": {
+      "additionalProperties": false,
+      "properties": {
+        "argument_model_artifact": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Argument Model Artifact"
+        },
+        "premise_model_artifact": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Premise Model Artifact"
+        },
+        "tactic_model_artifact": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tactic Model Artifact"
+        }
+      },
+      "title": "ModelBundle",
+      "type": "object"
+    },
+    "SearchPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "deny_sorry": {
+          "const": true,
+          "title": "Deny Sorry",
+          "type": "boolean"
+        },
+        "policy_name": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Name"
+        }
+      },
+      "required": [
+        "deny_sorry"
+      ],
+      "title": "SearchPolicy",
+      "type": "object"
+    },
+    "SourceInput": {
+      "additionalProperties": false,
+      "description": "A declaration in a caller-supplied source artifact.\n\nThe provider resolves the artifact by content hash, elaborates the named\ndeclaration's signature in its original context, and searches it with the\ndeclaration's outer binders introduced. The declaration's own proof is\nnever used and the declaration is never offered as a premise.",
+      "properties": {
+        "artifact_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Artifact Hash",
+          "type": "string"
+        },
+        "declaration": {
+          "maxLength": 512,
+          "minLength": 1,
+          "pattern": "^[^\\s.][^\\s]*$",
+          "title": "Declaration",
+          "type": "string"
+        },
+        "kind": {
+          "const": "source",
+          "title": "Kind",
+          "type": "string"
+        },
+        "starting_state": {
+          "const": "binders-introduced",
+          "title": "Starting State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "artifact_hash",
+        "declaration",
+        "starting_state"
+      ],
+      "title": "SourceInput",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "backend": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BackendSelection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "base_revision": {
+      "minimum": 0,
+      "title": "Base Revision",
+      "type": "integer"
+    },
+    "budget": {
+      "$ref": "#/$defs/Budget"
+    },
+    "claim_id": {
+      "pattern": "^[^/]+/c-[1-9][0-9]*$",
+      "title": "Claim Id",
+      "type": "string"
+    },
+    "corpus_manifest": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CorpusManifest"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "deployment_id": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Deployment Id"
+    },
+    "environment_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Environment Hash",
+      "type": "string"
+    },
+    "environment_id": {
+      "minLength": 1,
+      "title": "Environment Id",
+      "type": "string"
+    },
+    "fencing_token": {
+      "minimum": 1,
+      "title": "Fencing Token",
+      "type": "integer"
+    },
+    "formal_declaration_id": {
+      "pattern": "^[^/]+/fd-[1-9][0-9]*$",
+      "title": "Formal Declaration Id",
+      "type": "string"
+    },
+    "input": {
+      "discriminator": {
+        "mapping": {
+          "goal": "#/$defs/GoalInput",
+          "source": "#/$defs/SourceInput"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/SourceInput"
+        },
+        {
+          "$ref": "#/$defs/GoalInput"
+        }
+      ],
+      "title": "Input"
+    },
+    "lease_id": {
+      "title": "Lease Id",
+      "type": "string"
+    },
+    "model_bundle": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ModelBundle"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "proof_id": {
+      "minLength": 1,
+      "title": "Proof Id",
+      "type": "string"
+    },
+    "protocol_version": {
+      "const": 2,
+      "title": "Protocol Version",
+      "type": "integer"
+    },
+    "run_id": {
+      "pattern": "^[^/]+/fr-[1-9][0-9]*$",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "search_policy": {
+      "$ref": "#/$defs/SearchPolicy"
+    }
+  },
+  "required": [
+    "protocol_version",
+    "proof_id",
+    "claim_id",
+    "formal_declaration_id",
+    "run_id",
+    "base_revision",
+    "lease_id",
+    "fencing_token",
+    "input",
+    "environment_id",
+    "environment_hash",
+    "search_policy",
+    "budget"
+  ],
+  "title": "FormalSearchRequest",
+  "type": "object"
+}

@@ -9,4 +9,4 @@ WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export PYTHONPATH="$WORKSPACE_DIR:${PYTHONPATH:-}"
 
 # Run the joint inference script
-exec python -m maths_ai.hybrid_reasoner.joint_inference "$@"
+exec python -m maths_ai.accepted_gnn.joint_inference "$@"

@@ -14,7 +14,7 @@ from maths_ai.gnn_inference.atp_lean_gnn.joint_source_decoder import (
     goal_first_text,
     goal_state_text,
 )
-from maths_ai.hybrid_reasoner.pantograph_adapter import (
+from maths_ai.accepted_gnn.pantograph_adapter import (
     DEFAULT_CAPABILITY_PROBES,
     all_capabilities_verified,
     capability_findings,
@@ -430,7 +430,7 @@ PINNED_REV_PAYLOAD = {
 
 
 def test_pinned_rev_payload_fails_closed_with_actionable_gap_report() -> None:
-    from maths_ai.hybrid_reasoner.pantograph_adapter import (
+    from maths_ai.accepted_gnn.pantograph_adapter import (
         pantograph_state_to_goals,
         protocol_gap_report,
     )

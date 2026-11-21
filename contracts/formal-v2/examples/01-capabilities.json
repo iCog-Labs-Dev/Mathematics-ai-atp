@@ -1,0 +1,117 @@
+{
+  "title": "Capabilities: deployments, environment hashes, ceilings and semantics",
+  "request": {
+    "method": "GET",
+    "path": "/formal-capabilities",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "protocol_versions": [
+        2
+      ],
+      "schema_hashes": {
+        "formal-search-request.v2.schema.json": "sha256:54a374a753d7a5d5aff67dcae407b3f0c91860c757f40323165b9137317befce",
+        "formal-replay-request.v2.schema.json": "sha256:8f4d23f7a830fc610f1e4c3cf2aaa1dd284dba979d8e587b65256dd657ffd805",
+        "formal-admission.v2.schema.json": "sha256:4a57893f9a4a79b68149949fd826e3d8d4931fa65e8c6961ce71a3ef5cfe2d9d",
+        "formal-replay-attestation.v2.schema.json": "sha256:8c182ee28371a0e5c24109144600d6a73341c132d2b9994164b2520bee309755",
+        "formal-error.v2.schema.json": "sha256:d00b5b0147cc1050f8bbbaf327a33e7448ea0eb0baf29d55d18080aae15938a6",
+        "formal-run.v2.schema.json": "sha256:0827c4267898eb1c585afd8b5bf159f6e6a5325c276bc71c1cf3478a37e89a55",
+        "formal-result.v2.schema.json": "sha256:d0e324f1a1b8a78c39d2f48b4ca2213418cdb120066eb9550d3b03bc3765c94a",
+        "formal-capabilities.v2.schema.json": "sha256:8d9a1006c907ab232b567347468fe6d19d655a2087c9e5962e9c9198bef3b472",
+        "formal-artifact-upload.v2.schema.json": "sha256:f02efd87bbbe3a13efa5f70d78d6166a9fe475fdd38f707c5cfab78324f1fb5b"
+      },
+      "default": null,
+      "registry_hash": "sha256:d9398ffa68f8b836c2a0f999e2242f0f7c02d77541ff70f04e09a28bea25aaeb",
+      "deployments": {
+        "mcts-example": {
+          "deployment_id": "mcts-example",
+          "backend": "mcts-actor-critic",
+          "environment_id": "mathlib-4.10-rc1",
+          "inputs": [
+            "goal",
+            "source"
+          ],
+          "profiles": {
+            "puct": {
+              "name": "puct",
+              "max_steps": 60,
+              "wall_clock_ms": 60000,
+              "default_wall_clock_ms": 30000,
+              "backend_settings": {
+                "search_profile": "puct"
+              }
+            },
+            "best_first": {
+              "name": "best_first",
+              "max_steps": 60,
+              "wall_clock_ms": 60000,
+              "default_wall_clock_ms": 30000,
+              "backend_settings": {
+                "search_profile": "best_first"
+              }
+            }
+          },
+          "verification": {
+            "max_steps": 100,
+            "wall_clock_ms": 60000
+          },
+          "model": {
+            "tactic_model_artifact": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "available": true,
+          "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+          "profile_config_hashes": {
+            "puct": "sha256:8029fb7d43ab9da5f3e6204cf7aee4243db5add12f0ce5d4cc9633d24de00819",
+            "best_first": "sha256:1b7f0aeccf302598c544c7a5cd57ff611a244f01c30737f35b241c7c7d71455f"
+          }
+        },
+        "accepted-example": {
+          "deployment_id": "accepted-example",
+          "backend": "accepted-gnn",
+          "environment_id": "mathlib-4.10-rc1",
+          "inputs": [
+            "goal"
+          ],
+          "profiles": {
+            "best_first": {
+              "name": "best_first",
+              "max_steps": 60,
+              "wall_clock_ms": 60000,
+              "default_wall_clock_ms": 60000,
+              "backend_settings": {
+                "max_nodes": 60
+              }
+            }
+          },
+          "verification": {
+            "max_steps": 100,
+            "wall_clock_ms": 60000
+          },
+          "model": {},
+          "available": false,
+          "environment_hash": null,
+          "profile_config_hashes": {
+            "best_first": "sha256:4397eaf5cd09ee204356107459ec18ad27add724b781d94a6a683ae359345a12"
+          }
+        }
+      },
+      "tactic_step": "one tactic command sent to Lean, including rejected commands and proof-combination replay",
+      "budget_fields": [
+        "budget.max_steps",
+        "budget.wall_clock_ms"
+      ],
+      "wall_clock": "cumulative across attempts; each starts at admission, including queueing",
+      "cancellation": "asynchronous; terminal after the backend's work has stopped",
+      "retry": "bound-initial-input with the remaining admitted allowance",
+      "frontier_resume": false,
+      "replay": "independent, fresh native session, bound to stored evidence",
+      "artifact_upload": {
+        "route": "/formal-artifacts",
+        "max_bytes": 8388608
+      }
+    },
+    "schema": "formal-capabilities.v2"
+  }
+}
