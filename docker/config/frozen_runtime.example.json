@@ -1,0 +1,7 @@
+{
+  "bundle": "/artifacts/accepted-gnn",
+  "source_root": "/runtime/frozen/mathlib",
+  "pantograph_root": "/runtime/frozen/Pantograph",
+  "imports": ["Init", "Mathlib"],
+  "device": "cpu"
+}

@@ -1,0 +1,46 @@
+{
+  "kind": "shared-local-pln-imports",
+  "target_base_commit": "2c8bff8ecf447a9829a3c2246add8229beb66859",
+  "sources": [
+    {
+      "path": "maths_ai/gnn_inference/docs/rl_training_setup.md",
+      "target_base_sha256": "17f6c49a065380fbf4f3f4a09444e3c05cc64aec6921a76b93eb8cacc85aaf10",
+      "sha256": "d613fefb8d418d761917b7fddd136c19a2a78b128c834582374427c79ad41eab"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
+      "target_base_sha256": "7f654b366d3d03d00c6d93d49b6b9218deaa7a815dd4f32a335d5f85bf2eb665",
+      "sha256": "8ffa9987b2757547d1f7eddfe51a014dbf915c30ef73d40ab448a34f3576bb33"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_pln_async.py",
+      "target_base_sha256": "9ec9eca55b9a6c084870fc400ffc93ff0b3755d5188bb905ab27ef1d883fc84a",
+      "sha256": "c61048b0b6c7e9d51564e50b69c1cf16e65cf54f5c40c27277c79db2f61d46d4"
+    },
+    {
+      "path": "maths_ai/pln_inference/metta/tests/translator_output/run_all_generated.sh",
+      "target_base_sha256": "6055865a7b0f830cf5418c08c07839522d1a5d9535626e74193c7295749c4836",
+      "sha256": "213c06d28bed1250c6b0b665e890ba76bfaa07dbe6cd83dbd94dbfda02a21a1c"
+    },
+    {
+      "path": "maths_ai/pln_inference/metta/translator/readme.md",
+      "target_base_sha256": "0416753664abe9909adbc6fb6491f545ed893cdaa9a006615a053ae574b6dfe5",
+      "sha256": "c8de5981d91f31635ab6f6b6b49e5a3f875d60a87fcd4ce4e8445857fd6892ee"
+    },
+    {
+      "path": "maths_ai/pln_inference/metta/translator/translator_modules/cli.py",
+      "target_base_sha256": "e63aed8e5cea4a93518d6aa8a61da29156e94f15140782ea7dfde988e6032f92",
+      "sha256": "99b40ce39ff8515be22a78cd724ba83d272db4aac4003b2c3b0f6e2e3fb17902"
+    },
+    {
+      "path": "maths_ai/pln_inference/metta/translator/translator_modules/runner.py",
+      "target_base_sha256": "b6942d133efe5a3bc46d2a885ab1e30dc6c8c0879d784183f5b4ac1b48d7d5d7",
+      "sha256": "be5553351350aacc4b6c2d7e4831f1a991b89a3787bf863a4da1007b56708b37"
+    },
+    {
+      "path": "maths_ai/pln_inference/model.py",
+      "target_base_sha256": "8c49ac4f848b492fbdf75b6d6c9572dc73f5d9489e9bd8fa9616c7240f1eb0f2",
+      "sha256": "fd42d6e54ed277fd195fb8ed197f5dc92604d7e2d3e3ac29fc1718b23cc9358c"
+    }
+  ]
+}

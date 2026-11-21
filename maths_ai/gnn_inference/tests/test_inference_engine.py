@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from maths_ai.gnn_inference.inference_engine import GNNModelEngine
+from maths_ai.accepted_gnn.inference_engine import GNNModelEngine
 
 
 def test_validate_lemma_artifacts_rejects_ids_missing_from_corpus() -> None:

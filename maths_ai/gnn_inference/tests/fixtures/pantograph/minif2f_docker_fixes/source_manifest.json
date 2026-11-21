@@ -1,0 +1,86 @@
+{
+  "kind": "minif2f-conversion-and-docker-fixes",
+  "target_base_commit": "94f843bbb844871085062c9f9417ac3188fd4743",
+  "sources": [
+    {
+      "path": "docker-compose.yml",
+      "target_base_sha256": "4722d55aa6e462314e1fb9e8725c6e6219f6c0112ae81da6776c46efd536d82e",
+      "sha256": "3c64d7a61a40eaf2caaafdcd24ab4995a716f11c92b1c37154fefb9672796acb"
+    },
+    {
+      "path": "docker/DOCKER.md",
+      "target_base_sha256": "3f00bf26e72a457f409f3dfcf649336cc78504b289138cc515a5672233b64a52",
+      "sha256": "4631d97284339604968da4bccffa87c42fe181ce8fefdda04339c2a0d7648e0f"
+    },
+    {
+      "path": "docker/Dockerfile",
+      "target_base_sha256": "ac48f6f3fb33246caf194fe5fad98a8c104d1abc655f313ea2dafd4fea1f845f",
+      "sha256": "fb81094f82dfb2e5899305a5df186dc32d8d7b1eee5f09df722aa5f6e73e0e36"
+    },
+    {
+      "path": "docker/HUGGING_FACE_DEPLOYMENT.md",
+      "target_base_sha256": "f3f7c2c8c9f98b5c4dd941003a07b3f62e8e74284e9c1b97b9497c17363c4088",
+      "sha256": "1ecc7654cf1abd9d5953ee6e51043c4e0bd7b78adbf34bd0e5c3fa3514bd6925"
+    },
+    {
+      "path": "maths_ai/api/config.py",
+      "target_base_sha256": "bfdc471127045699566d5529a0a11e9417114c9e629d4118ee7f2f45271c3b56",
+      "sha256": "07579b1135e03d16b3d705693d3f11582dc77c3e5a07886be392802a90f527f4"
+    },
+    {
+      "path": "maths_ai/api/runtime_backend.py",
+      "target_base_sha256": "67f3b413c5b07985b680e4549536a396d055d4c5ecd11e6fe07dd4c2f8748d24",
+      "sha256": "7932fbdd7bf7e00f7096e48ce406b5143e44077fa9c5d0f1889851cda11ebbc2"
+    },
+    {
+      "path": "maths_ai/api/tests/test_config.py",
+      "target_base_sha256": "29d089c607c39c9e10066988334c96a62aef04611b82a70d45eb87fa727fcaa1",
+      "sha256": "20d1b3be9dd82402dac4f4deee6bab601ff77358450956f37e8e73a741bb6d2f"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/deployment_migration.py",
+      "target_base_sha256": "7d8aeca929b08f093ebe50ff6f3c217eab60e6fd9636ff4ca2e90547d2fa5db3",
+      "sha256": "a36155cfd697ab7f05cadb8025838d47fd348ef567397fbb31014933f05b3046"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/goal_file_records.py",
+      "target_base_sha256": "e04756059eb48af20694f687d4c6edf47a4d333a5acc1cb7ae164ef8d894b701",
+      "sha256": "94f9e14c8567ac781b21a029477bc6ae7f3e628f1d48277c1a2ec4f5bd26b516"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/minif2f_conversion.py",
+      "target_base_sha256": "b23a825c6e53043caadece3be6b762bb7b58d7203bbf7f7d778cde84be22454e",
+      "sha256": "79b7c6902c6f05e1842d37fc0798474181507760a9023afcdc2c0bcf071ad3c9"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/retrieval_artifacts.py",
+      "target_base_sha256": "16894b6e3a48a7e7204aba0f6a11f071f51dba370f4e5512e1ff44f6faaec0f7",
+      "sha256": "5fd72bacfb1fa9f48b73b8c884ce2abc1308b170a4df2a576fe75dcafd6bffc7"
+    },
+    {
+      "path": "maths_ai/gnn_inference/lean_extractor/convert_minif2f.lean",
+      "target_base_sha256": "673f41f35fe95f627bca789161596b6e86bf5214f9d12dbb54df06cfaae3e246",
+      "sha256": "890be43f5c63700cbf2b2fd7b6772768ee07c8df73634248c49c4811478dd82d"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_environment_identity.py",
+      "target_base_sha256": null,
+      "sha256": "875531f02563a8486ad1c2ce4160743d0ec91d9aebf866b82a722c94826dfc27"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_goal_file_records.py",
+      "target_base_sha256": "ae3dae61c80a867ba404d34cbbb98ec8f86ff1aed1da5b0cda7169aa70b2d9ea",
+      "sha256": "88c3ae369adfa1a5f9cd6a40021680c6902c7edc244928522eb1afcec220244c"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_minif2f_conversion.py",
+      "target_base_sha256": "2c2716a3bc08c525d25992fff6d2625282955a19e818d9f9796a8e8c506bb332",
+      "sha256": "461af184ccedb5db35257bc12ae038ec0845f32f4d18a559c19626ec150b2a8c"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
+      "target_base_sha256": "28653d27f82c25538337160027a9816e2bc0cc0a42423559a5ed5da31d5c4dfb",
+      "sha256": "a74463008081b2a896e07d1ae8c6ba95bc831933a4a98a30424f032696a549fc"
+    }
+  ]
+}

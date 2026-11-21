@@ -1,0 +1,86 @@
+{
+  "kind": "rendered-command-identity-source-manifest",
+  "target_base_commit": "ab3f91f04df857403db7c9c435f7acae09a70c08",
+  "sources": [
+    {
+      "path": "maths_ai/data_models/proof_components.py",
+      "target_base_sha256": "21b1f00b9d24e78e3dcbc5a294a954b53ad13c48cf968d7ff7f87b876892b440",
+      "sha256": "f3abc089b7ce17395c274641e7054ac426e05a8954303116e4a47764689403c4"
+    },
+    {
+      "path": "maths_ai/data_models/tactic_commands.py",
+      "target_base_sha256": null,
+      "sha256": "089a103bb690a99b732e914d73a1cc34c1972af9d83f8ab324bd05c5fd5cafad"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/rl_reasoner.py",
+      "target_base_sha256": "9e5ad22b1134a69cfcbbd56e0c8109a457312e823a9e40f8e7967935090e7bf0",
+      "sha256": "3eb024b1c449d2f3ab7773e29e7f1b77e9b9efc8a3adbc509bbd9553a42ead5d"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/rl_training_driver.py",
+      "target_base_sha256": "bca44667766a5c351e5aa0e755866a8d7fcd34e633c2f24fe4606ed32964aefa",
+      "sha256": "0347562b240163417dab26c424fb6d16b82870aed0465fc2d301ae77387c769a"
+    },
+    {
+      "path": "maths_ai/gnn_inference/docs/dev_plans/rendered_pantograph_command_identity.md",
+      "target_base_sha256": null,
+      "sha256": "b21d7b7a1d1ee867a9ada6f96690e5f302ba52edf51ec420fb381fa7b3bd5feb"
+    },
+    {
+      "path": "maths_ai/gnn_inference/docs/mcts_widening_evaluation_handoff.md",
+      "target_base_sha256": "e95e625dd5b1a5b2a67812b1c8ee57df996853c6ebe14267c1733e06cf8cb6b3",
+      "sha256": "26dd9104eb180027fb9383b8bdca44e7d9c48537c39dcfb22fc7b1e770df8c21"
+    },
+    {
+      "path": "maths_ai/gnn_inference/docs/rl_process_walkthrough.md",
+      "target_base_sha256": "855bb4884d2729a1146c68fcf4f5c8e0133330e27930670cf3cd1253ed04d7f7",
+      "sha256": "0b72292f7f94188a79947457fd213df30101f4974f51fca5c2215a0568137de0"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_command_identity.py",
+      "target_base_sha256": null,
+      "sha256": "935094e2786f4cd1d08cfb3e5a7841289fb4b516ce65171968b953028cc664a3"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
+      "target_base_sha256": "639b50c122c36c68147db7a63930755d7c6ed890beeb09f98157d29eeb744903",
+      "sha256": "8f08525e05d77a33309ef9cfa9c61b2eecd78687d78b8ebb8ad966dd26380f71"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_progressive_widening.py",
+      "target_base_sha256": "05671959ce46eae967f27f185f554eb2053d5640beb4651eb6268be6fa47feed",
+      "sha256": "dcb9f1b538f2370d5c1886ee5714eadfdcf9d6bf94179a14fdbcb4ad38e3ebcd"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_rl_reasoner.py",
+      "target_base_sha256": "ac496407830f065214f030162b7d6b2b3ba727192190bf18693e140529453257",
+      "sha256": "7a03b60b4717d99e001a272634540a09c59a3af2137d9f2525bb5e0417e063b0"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_rl_training_driver.py",
+      "target_base_sha256": "4e467f3181fbc1a84ca283eac6cdf392a11436cdd2abc6eca282b92639235745",
+      "sha256": "2aeacfffe1fde2570ffc182f2db964d609ef11bb6db768b9df2a7edc165a2f61"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_tactic_rendering.py",
+      "target_base_sha256": "de5bdb57f530ee8a262a345a21bd068dcc21b30a0c5739e1344ec3a9529c5f96",
+      "sha256": "75910071283d84c36680b4e72bc207602f846c24619dea7a207fa6500f4ba03f"
+    },
+    {
+      "path": "maths_ai/hybrid_reasoner/hypergraph.py",
+      "target_base_sha256": "8e73b204a13579fa56c66bce1f608f7abe701d11be6b8ef857b9f1aa495b15c8",
+      "sha256": "685faf176895d60b4c9bd7e3dc96682008efd398627ee0aaa824919b5ba14457"
+    },
+    {
+      "path": "maths_ai/hybrid_reasoner/joint_inference.py",
+      "target_base_sha256": "9c97342001cff80adf4443f410eae649e4c2e6869125bb1c2d929b5d9926a27c",
+      "sha256": "db50f9972e45a6c21523c2f0fd376e1a18ca2a5e5430d2e78fedb6918b7ef250"
+    },
+    {
+      "path": "maths_ai/hybrid_reasoner/mcts_diagnostics.py",
+      "target_base_sha256": "042163aad4c760105d0fa5b448fa3733a73c10151ec3bc67bc869abd25851a54",
+      "sha256": "5d2d7e21590aab9108f876cead8ccd6a436cba2fb0e07f54bcee60075434750c"
+    }
+  ]
+}

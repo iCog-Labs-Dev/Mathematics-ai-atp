@@ -1,0 +1,16 @@
+{
+  "target_base_commit": "9f9874831eeeffaa33eee249c12757f6b1eb714b",
+  "purpose": "Test launcher path resolution without assumptions about the host /usr/bin symlinks.",
+  "sources": [
+    {
+      "path": "maths_ai/gnn_inference/tests/test_setup_sexpr_environment.py",
+      "target_base_sha256": "ee46754597e1993ea99b18c3ba477430247b8aa8794cf61b12546ce2c5d46763",
+      "sha256": "c5f322652b0ff4c208d5a93b0b0b79318a526f596bb3077a521e8e3d4d7a8051"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
+      "target_base_sha256": "17aac0f7a95cf819700fddc3e5435fda7838b3499fd7e7ef56f947dd7311b302",
+      "sha256": "2ea556ca3bb2067efe55e1c21d894df3baa7404f2804d4237e6d8cc06dcc7801"
+    }
+  ]
+}

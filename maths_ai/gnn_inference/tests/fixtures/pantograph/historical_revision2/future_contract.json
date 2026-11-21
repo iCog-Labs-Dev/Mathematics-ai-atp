@@ -1,0 +1,394 @@
+{
+  "kind": "authored-future-contract",
+  "note": "Authored revision-2 companion contract, not live validation evidence. Canonical model-bearing fields retain the captured baseline; fragment and top-level flags follow upstream PR #1. Descriptor, validation completion metadata and real-log scenarios remain authored expectations.",
+  "descriptor": {
+    "protocol": "maths-ai-pantograph",
+    "protocolVersion": 1,
+    "modelSexpVersion": 1,
+    "transitionValidationVersion": 1,
+    "messageVersion": 1,
+    "goalSelection": "explicit-focused-v1",
+    "tacticErrorsFormat": "string-array-v1"
+  },
+  "successes": {
+    "identity_intro": {
+      "nextStateId": 1,
+      "goals": [
+        {
+          "vars": [
+            {
+              "userName": "p",
+              "type": {
+                "sexp": "(:sort 0)",
+                "pp": "Prop",
+                "modelSexpVersion": 1,
+                "modelSexp": "(:sort Prop)"
+              },
+              "name": "_uniq.8",
+              "isLet": false,
+              "isInstance": false,
+              "isInaccessible": false,
+              "contextIndex": 0,
+              "binderRole": ":explicit"
+            },
+            {
+              "userName": "h",
+              "type": {
+                "sexp": "(:fv _uniq.8)",
+                "pp": "p",
+                "modelSexpVersion": 1,
+                "modelSexp": "(:fv FV0)"
+              },
+              "name": "_uniq.11",
+              "isLet": false,
+              "isInstance": false,
+              "isInaccessible": false,
+              "contextIndex": 1,
+              "binderRole": ":explicit"
+            }
+          ],
+          "target": {
+            "sexp": "(:fv _uniq.8)",
+            "pp": "p",
+            "modelSexpVersion": 1,
+            "modelSexp": "(:fv FV0)"
+          },
+          "name": "_uniq.12",
+          "isConversion": false,
+          "fragment": "tactic"
+        }
+      ],
+      "validation": {
+        "version": 1,
+        "scope": "transition-expressions",
+        "checked": true
+      },
+      "messages": [],
+      "hasSorry": false,
+      "hasUnsafe": false
+    },
+    "conjunction_split": {
+      "nextStateId": 5,
+      "goals": [
+        {
+          "vars": [],
+          "userName": "left",
+          "target": {
+            "sexp": "(:c True)",
+            "pp": "True",
+            "modelSexpVersion": 1,
+            "modelSexp": "(:c True)"
+          },
+          "name": "_uniq.22",
+          "isConversion": false,
+          "fragment": "tactic"
+        },
+        {
+          "vars": [],
+          "userName": "right",
+          "target": {
+            "sexp": "(:c True)",
+            "pp": "True",
+            "modelSexpVersion": 1,
+            "modelSexp": "(:c True)"
+          },
+          "name": "_uniq.23",
+          "isConversion": false,
+          "fragment": "tactic"
+        }
+      ],
+      "validation": {
+        "version": 1,
+        "scope": "transition-expressions",
+        "checked": true
+      },
+      "messages": [],
+      "hasSorry": false,
+      "hasUnsafe": false
+    },
+    "nonzero_index": {
+      "nextStateId": 6,
+      "goals": [
+        {
+          "vars": [],
+          "userName": "left",
+          "target": {
+            "sexp": "(:c True)",
+            "pp": "True",
+            "modelSexpVersion": 1,
+            "modelSexp": "(:c True)"
+          },
+          "name": "_uniq.22",
+          "isConversion": false,
+          "fragment": "tactic"
+        }
+      ],
+      "validation": {
+        "version": 1,
+        "scope": "transition-expressions",
+        "checked": true
+      },
+      "messages": [],
+      "hasSorry": false,
+      "hasUnsafe": false
+    },
+    "instance_intro": {
+      "nextStateId": 10,
+      "goals": [
+        {
+          "vars": [
+            {
+              "userName": "α",
+              "type": {
+                "sexp": "(:sort 1)",
+                "pp": "Type",
+                "modelSexpVersion": 1,
+                "modelSexp": "(:sort Type)"
+              },
+              "name": "_uniq.74",
+              "isLet": false,
+              "isInstance": false,
+              "isInaccessible": false,
+              "contextIndex": 0,
+              "binderRole": ":explicit"
+            },
+            {
+              "userName": "inst",
+              "type": {
+                "sexp": "((:c Inhabited) (:fv _uniq.74))",
+                "pp": "Inhabited α",
+                "modelSexpVersion": 1,
+                "modelSexp": "(:app (:c Inhabited) (:arg :explicit 0 (:fv FV0)))"
+              },
+              "name": "_uniq.77",
+              "isLet": false,
+              "isInstance": true,
+              "isInaccessible": false,
+              "contextIndex": 1,
+              "binderRole": ":instance-implicit"
+            },
+            {
+              "userName": "x",
+              "type": {
+                "sexp": "(:fv _uniq.74)",
+                "pp": "α",
+                "modelSexpVersion": 1,
+                "modelSexp": "(:fv FV0)"
+              },
+              "name": "_uniq.80",
+              "isLet": false,
+              "isInstance": false,
+              "isInaccessible": false,
+              "contextIndex": 2,
+              "binderRole": ":explicit"
+            }
+          ],
+          "target": {
+            "sexp": "((:c Eq) (:fv _uniq.74) (:fv _uniq.80) (:fv _uniq.80))",
+            "pp": "x = x",
+            "modelSexpVersion": 1,
+            "modelSexp": "(:app (:c Eq) (:arg :implicit-type 0 (:fv FV0)) (:arg :explicit 1 (:fv FV2)) (:arg :explicit 2 (:fv FV2)))"
+          },
+          "name": "_uniq.81",
+          "isConversion": false,
+          "fragment": "tactic"
+        }
+      ],
+      "validation": {
+        "version": 1,
+        "scope": "transition-expressions",
+        "checked": true
+      },
+      "messages": [],
+      "hasSorry": false,
+      "hasUnsafe": false
+    },
+    "let_intro": {
+      "nextStateId": 12,
+      "goals": [
+        {
+          "vars": [
+            {
+              "userName": "n",
+              "type": {
+                "sexp": "(:c Nat)",
+                "pp": "ℕ",
+                "modelSexpVersion": 1,
+                "modelSexp": "(:c Nat)"
+              },
+              "name": "_uniq.97",
+              "isLet": false,
+              "isInstance": false,
+              "isInaccessible": false,
+              "contextIndex": 0,
+              "binderRole": ":explicit"
+            },
+            {
+              "value": {
+                "sexp": "(:fv _uniq.97)",
+                "pp": "n",
+                "modelSexpVersion": 1,
+                "modelSexp": "(:fv FV0)"
+              },
+              "userName": "x",
+              "type": {
+                "sexp": "(:c Nat)",
+                "pp": "ℕ",
+                "modelSexpVersion": 1,
+                "modelSexp": "(:c Nat)"
+              },
+              "name": "_uniq.100",
+              "isLet": true,
+              "isInstance": false,
+              "isInaccessible": false,
+              "contextIndex": 1,
+              "binderRole": ":let"
+            }
+          ],
+          "target": {
+            "sexp": "((:c Eq) (:c Nat) (:fv _uniq.100) (:fv _uniq.100))",
+            "pp": "x = x",
+            "modelSexpVersion": 1,
+            "modelSexp": "(:app (:c Eq) (:arg :implicit-type 0 (:c Nat)) (:arg :explicit 1 (:fv FV1)) (:arg :explicit 2 (:fv FV1)))"
+          },
+          "name": "_uniq.101",
+          "isConversion": false,
+          "fragment": "tactic"
+        }
+      ],
+      "validation": {
+        "version": 1,
+        "scope": "transition-expressions",
+        "checked": true
+      },
+      "messages": [],
+      "hasSorry": false,
+      "hasUnsafe": false
+    },
+    "valid_truth": {
+      "nextStateId": 16,
+      "goals": [],
+      "validation": {
+        "version": 1,
+        "scope": "transition-expressions",
+        "checked": true
+      },
+      "messages": [],
+      "hasSorry": false,
+      "hasUnsafe": false
+    },
+    "admission": {
+      "nextStateId": 14,
+      "goals": [],
+      "validation": {
+        "version": 1,
+        "scope": "transition-expressions",
+        "checked": true
+      },
+      "messages": [
+        {
+          "severity": "warning",
+          "data": "declaration uses 'sorry'",
+          "kind": "[anonymous]",
+          "pos": {
+            "line": 0,
+            "column": 0
+          }
+        }
+      ],
+      "hasSorry": true,
+      "hasUnsafe": false
+    },
+    "unsafe": {
+      "nextStateId": 16,
+      "goals": [],
+      "validation": {
+        "version": 1,
+        "scope": "transition-expressions",
+        "checked": true
+      },
+      "messages": [],
+      "hasSorry": false,
+      "hasUnsafe": true
+    }
+  },
+  "parse_failure": {
+    "parseError": "<pantograph>:1:1: unexpected end of input; expected '{'",
+    "messages": [
+      {
+        "kind": "[anonymous]",
+        "severity": "error",
+        "pos": {
+          "line": 0,
+          "column": 0
+        },
+        "data": "<pantograph>:1:1: unexpected end of input; expected '{'"
+      }
+    ],
+    "hasSorry": false,
+    "hasUnsafe": false
+  },
+  "tactic_failure": {
+    "tacticErrors": [
+      "type mismatch\n  True.intro\nhas type\n  True : Prop\nbut is expected to have type\n  p : Prop"
+    ],
+    "messages": [
+      {
+        "severity": "error",
+        "data": "type mismatch\n  True.intro\nhas type\n  True : Prop\nbut is expected to have type\n  p : Prop",
+        "kind": "[anonymous]",
+        "pos": {
+          "line": 0,
+          "column": 0
+        }
+      }
+    ],
+    "hasSorry": false,
+    "hasUnsafe": false
+  },
+  "logged_error_failure": {
+    "tacticErrors": [
+      "capture error"
+    ],
+    "messages": [
+      {
+        "severity": "error",
+        "data": "capture error",
+        "kind": "[anonymous]",
+        "pos": {
+          "line": 0,
+          "column": 0
+        }
+      }
+    ],
+    "hasSorry": false,
+    "hasUnsafe": false
+  },
+  "warning_success": {
+    "nextStateId": 16,
+    "goals": [],
+    "validation": {
+      "version": 1,
+      "scope": "transition-expressions",
+      "checked": true
+    },
+    "messages": [
+      {
+        "severity": "warning",
+        "data": "authored diagnostic",
+        "pos": {
+          "line": 2,
+          "column": 0
+        },
+        "endPos": {
+          "line": 2,
+          "column": 4
+        },
+        "kind": "example"
+      }
+    ],
+    "hasSorry": false,
+    "hasUnsafe": false
+  },
+  "contract_revision": 2
+}

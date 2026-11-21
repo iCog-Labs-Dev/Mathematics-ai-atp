@@ -1,0 +1,34 @@
+{
+  "kind": "observed-native-model-run-summary",
+  "recorded_date": "2026-11-16",
+  "example": "lagrange",
+  "device": "cpu",
+  "interpretation": "Historical observations, not portable admission credentials or a comparative benchmark.",
+  "gnn_bundle_revision": "8aba62625dfeb833e4591498700f351f3bc60af9",
+  "mcts_release_revision": "1a48c749c9b2ec4b0f20d087998569243198db92",
+  "backends": {
+    "mcts": {
+      "run_id": "demo-mcts-actor-critic-0ad075dd/fr-1",
+      "search_tactic_steps": 6,
+      "search_wall_clock_ms": 8727,
+      "proof_trace": {"command": "ring", "subgoals": []},
+      "replay_status": "verified",
+      "replay_tactic_steps": 2,
+      "sorry_detected": false,
+      "certificate_hash": "sha256:8d67dc2974938d8a23b4d57bb182f79d7bed3e62393f0c18b7c0e16c74fb0f06"
+    },
+    "gnn": {
+      "run_id": "demo-accepted-gnn-c4c23d5f/fr-1",
+      "search_tactic_steps": 4,
+      "search_wall_clock_ms": 17476,
+      "proof_trace": {
+        "command": "intro a b c x y z",
+        "subgoals": [{"command": "ring", "subgoals": []}]
+      },
+      "replay_status": "verified",
+      "replay_tactic_steps": 2,
+      "sorry_detected": false,
+      "certificate_hash": "sha256:283e851ee45774e4038b1b8d56d6cc4c6b5788b5f5490c2358993d58b2f94f16"
+    }
+  }
+}

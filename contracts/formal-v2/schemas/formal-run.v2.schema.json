@@ -1,0 +1,961 @@
+{
+  "$defs": {
+    "AdmittedBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "admitted_max_steps": {
+          "title": "Admitted Max Steps",
+          "type": "integer"
+        },
+        "admitted_wall_clock_ms": {
+          "title": "Admitted Wall Clock Ms",
+          "type": "integer"
+        },
+        "consumed_steps": {
+          "title": "Consumed Steps",
+          "type": "integer"
+        },
+        "consumed_steps_exact": {
+          "title": "Consumed Steps Exact",
+          "type": "boolean"
+        },
+        "max_steps_reduced": {
+          "title": "Max Steps Reduced",
+          "type": "boolean"
+        },
+        "remaining_steps": {
+          "title": "Remaining Steps",
+          "type": "integer"
+        },
+        "requested_max_steps": {
+          "title": "Requested Max Steps",
+          "type": "integer"
+        },
+        "requested_wall_clock_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Requested Wall Clock Ms"
+        },
+        "verification_max_steps": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Verification Max Steps"
+        },
+        "wall_clock_reduced": {
+          "title": "Wall Clock Reduced",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "requested_max_steps",
+        "admitted_max_steps",
+        "max_steps_reduced",
+        "requested_wall_clock_ms",
+        "admitted_wall_clock_ms",
+        "wall_clock_reduced",
+        "consumed_steps",
+        "consumed_steps_exact",
+        "remaining_steps",
+        "verification_max_steps"
+      ],
+      "title": "AdmittedBudget",
+      "type": "object"
+    },
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "enum": [
+            "certificate",
+            "admitted-input",
+            "source",
+            "generated-source",
+            "search-summary"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sha256",
+        "role"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "AttemptCost": {
+      "additionalProperties": false,
+      "properties": {
+        "admission": {
+          "anyOf": [
+            {
+              "enum": [
+                "rejected",
+                "cancelled"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Admission"
+        },
+        "attempt": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attempt"
+        },
+        "interrupted": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Interrupted"
+        },
+        "reserved_steps": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reserved Steps"
+        },
+        "tactic_steps": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tactic Steps"
+        },
+        "tactic_steps_exact": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tactic Steps Exact"
+        },
+        "wall_clock_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wall Clock Ms"
+        }
+      },
+      "title": "AttemptCost",
+      "type": "object"
+    },
+    "BudgetUsed": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt": {
+          "$ref": "#/$defs/AttemptCost"
+        },
+        "tactic_steps": {
+          "minimum": 0,
+          "title": "Tactic Steps",
+          "type": "integer"
+        },
+        "tactic_steps_exact": {
+          "title": "Tactic Steps Exact",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "tactic_steps",
+        "tactic_steps_exact",
+        "attempt"
+      ],
+      "title": "BudgetUsed",
+      "type": "object"
+    },
+    "CertificateRef": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Artifact Hash",
+          "type": "string"
+        },
+        "producer_run_id": {
+          "title": "Producer Run Id",
+          "type": "string"
+        },
+        "status": {
+          "const": "replay-pending",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_hash",
+        "status",
+        "producer_run_id"
+      ],
+      "title": "CertificateRef",
+      "type": "object"
+    },
+    "CoordinatorBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "base_revision": {
+          "title": "Base Revision",
+          "type": "integer"
+        },
+        "claim_id": {
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "fencing_token": {
+          "title": "Fencing Token",
+          "type": "integer"
+        },
+        "lease_id": {
+          "title": "Lease Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_id",
+        "base_revision",
+        "lease_id",
+        "fencing_token"
+      ],
+      "title": "CoordinatorBinding",
+      "type": "object"
+    },
+    "FormalResult": {
+      "additionalProperties": false,
+      "description": "A finished attempt's canonical result (``result`` of the run view).",
+      "properties": {
+        "artifacts": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "attempts": {
+          "title": "Attempts",
+          "type": "integer"
+        },
+        "backend": {
+          "$ref": "#/$defs/ResultBackend"
+        },
+        "budget": {
+          "$ref": "#/$defs/ResultBudget"
+        },
+        "budget_used": {
+          "$ref": "#/$defs/BudgetUsed"
+        },
+        "certificate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CertificateRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "coordinator_binding": {
+          "$ref": "#/$defs/CoordinatorBinding"
+        },
+        "declaration_id": {
+          "title": "Declaration Id",
+          "type": "string"
+        },
+        "disposition": {
+          "enum": [
+            "searching",
+            "proved-pending-replay",
+            "budget-exhausted",
+            "stagnated",
+            "counterexample",
+            "invalid-request",
+            "environment-error",
+            "internal-error",
+            "cancelled"
+          ],
+          "title": "Disposition",
+          "type": "string"
+        },
+        "environment_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Environment Hash",
+          "type": "string"
+        },
+        "input_artifact_hash": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Input Artifact Hash"
+        },
+        "input_kind": {
+          "enum": [
+            "source",
+            "goal"
+          ],
+          "title": "Input Kind",
+          "type": "string"
+        },
+        "obstructions": {
+          "items": {},
+          "title": "Obstructions",
+          "type": "array"
+        },
+        "proof_id": {
+          "title": "Proof Id",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": 2,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "request_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "root_state_id": {
+          "pattern": "^[^/]+/fr-[1-9][0-9]*/attempt-[1-9][0-9]*/fs-[1-9][0-9]*$",
+          "title": "Root State Id",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "source_artifact_hash": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Artifact Hash"
+        },
+        "source_origin": {
+          "anyOf": [
+            {
+              "enum": [
+                "caller-artifact",
+                "generated-from-text"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Origin"
+        },
+        "states": {
+          "items": {
+            "$ref": "#/$defs/FormalState"
+          },
+          "title": "States",
+          "type": "array"
+        },
+        "tactic_edges": {
+          "items": {
+            "$ref": "#/$defs/TacticEdge"
+          },
+          "title": "Tactic Edges",
+          "type": "array"
+        },
+        "termination": {
+          "$ref": "#/$defs/Termination"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "run_id",
+        "proof_id",
+        "declaration_id",
+        "environment_hash",
+        "disposition",
+        "termination",
+        "root_state_id",
+        "states",
+        "tactic_edges",
+        "obstructions",
+        "artifacts",
+        "budget_used",
+        "budget",
+        "input_kind",
+        "input_artifact_hash",
+        "source_artifact_hash",
+        "source_origin",
+        "backend",
+        "request_digest",
+        "coordinator_binding",
+        "attempts"
+      ],
+      "title": "FormalResult",
+      "type": "object"
+    },
+    "FormalState": {
+      "additionalProperties": false,
+      "properties": {
+        "exact_state_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Exact State Hash",
+          "type": "string"
+        },
+        "goal_text": {
+          "title": "Goal Text",
+          "type": "string"
+        },
+        "kind": {
+          "const": "goal",
+          "title": "Kind",
+          "type": "string"
+        },
+        "semantic_signature": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Semantic Signature",
+          "type": "string"
+        },
+        "state_id": {
+          "pattern": "^[^/]+/fr-[1-9][0-9]*/attempt-[1-9][0-9]*/fs-[1-9][0-9]*$",
+          "title": "State Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "open",
+            "formally-closed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state_id",
+        "kind",
+        "goal_text",
+        "exact_state_hash",
+        "semantic_signature",
+        "status"
+      ],
+      "title": "FormalState",
+      "type": "object"
+    },
+    "ReplaySummary": {
+      "additionalProperties": false,
+      "properties": {
+        "replay": {
+          "title": "Replay",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "verified",
+            "rejected",
+            "inconclusive"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "replay",
+        "status"
+      ],
+      "title": "ReplaySummary",
+      "type": "object"
+    },
+    "ResolvedDeployment": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "enum": [
+            "mcts-actor-critic",
+            "accepted-gnn"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "deployment_id": {
+          "title": "Deployment Id",
+          "type": "string"
+        },
+        "environment_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Environment Hash",
+          "type": "string"
+        },
+        "environment_id": {
+          "title": "Environment Id",
+          "type": "string"
+        },
+        "model": {
+          "additionalProperties": true,
+          "title": "Model",
+          "type": "object"
+        },
+        "profile": {
+          "title": "Profile",
+          "type": "string"
+        },
+        "profile_config_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Profile Config Hash",
+          "type": "string"
+        },
+        "proposal_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "sample",
+                "greedy"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proposal Mode"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed"
+        }
+      },
+      "required": [
+        "deployment_id",
+        "backend",
+        "profile",
+        "profile_config_hash",
+        "environment_id",
+        "environment_hash",
+        "model"
+      ],
+      "title": "ResolvedDeployment",
+      "type": "object"
+    },
+    "ResultBackend": {
+      "additionalProperties": false,
+      "properties": {
+        "deployment_id": {
+          "title": "Deployment Id",
+          "type": "string"
+        },
+        "name": {
+          "enum": [
+            "mcts-actor-critic",
+            "accepted-gnn"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "profile": {
+          "title": "Profile",
+          "type": "string"
+        },
+        "profile_config_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Profile Config Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "profile",
+        "deployment_id",
+        "profile_config_hash"
+      ],
+      "title": "ResultBackend",
+      "type": "object"
+    },
+    "ResultBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "admitted_max_steps": {
+          "title": "Admitted Max Steps",
+          "type": "integer"
+        },
+        "admitted_wall_clock_ms": {
+          "title": "Admitted Wall Clock Ms",
+          "type": "integer"
+        },
+        "remaining_steps": {
+          "title": "Remaining Steps",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "admitted_max_steps",
+        "remaining_steps",
+        "admitted_wall_clock_ms"
+      ],
+      "title": "ResultBudget",
+      "type": "object"
+    },
+    "TacticEdge": {
+      "additionalProperties": false,
+      "properties": {
+        "executor_result": {
+          "const": "lean-accepted",
+          "title": "Executor Result",
+          "type": "string"
+        },
+        "produced_goal_ids": {
+          "items": {
+            "pattern": "^[^/]+/fr-[1-9][0-9]*/attempt-[1-9][0-9]*/fs-[1-9][0-9]*$",
+            "type": "string"
+          },
+          "title": "Produced Goal Ids",
+          "type": "array"
+        },
+        "source_state_id": {
+          "pattern": "^[^/]+/fr-[1-9][0-9]*/attempt-[1-9][0-9]*/fs-[1-9][0-9]*$",
+          "title": "Source State Id",
+          "type": "string"
+        },
+        "status": {
+          "const": "closed",
+          "title": "Status",
+          "type": "string"
+        },
+        "subgoal_count": {
+          "minimum": 0,
+          "title": "Subgoal Count",
+          "type": "integer"
+        },
+        "tactic_args": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tactic Args"
+        },
+        "tactic_id": {
+          "pattern": "^[^/]+/fr-[1-9][0-9]*/attempt-[1-9][0-9]*/ta-[1-9][0-9]*$",
+          "title": "Tactic Id",
+          "type": "string"
+        },
+        "tactic_label": {
+          "title": "Tactic Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tactic_id",
+        "source_state_id",
+        "tactic_label",
+        "executor_result",
+        "subgoal_count",
+        "produced_goal_ids",
+        "status"
+      ],
+      "title": "TacticEdge",
+      "type": "object"
+    },
+    "Termination": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "reason": {
+          "enum": [
+            "certified",
+            "search-closed",
+            "step-budget",
+            "node-budget",
+            "simulation-budget",
+            "deadline",
+            "frontier-exhausted",
+            "alternatives-exhausted",
+            "lean-resource",
+            "invalid-input",
+            "environment-mismatch",
+            "crash",
+            "cancelled",
+            "interrupted"
+          ],
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "Termination",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``GET /formal-search/{run_id}`` and the cancel/retry responses.",
+  "properties": {
+    "attempts": {
+      "title": "Attempts",
+      "type": "integer"
+    },
+    "budget": {
+      "$ref": "#/$defs/AdmittedBudget"
+    },
+    "cancel_requested": {
+      "title": "Cancel Requested",
+      "type": "boolean"
+    },
+    "disposition": {
+      "anyOf": [
+        {
+          "enum": [
+            "searching",
+            "proved-pending-replay",
+            "budget-exhausted",
+            "stagnated",
+            "counterexample",
+            "invalid-request",
+            "environment-error",
+            "internal-error",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Disposition"
+    },
+    "input_artifact_hash": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Input Artifact Hash"
+    },
+    "input_kind": {
+      "enum": [
+        "source",
+        "goal"
+      ],
+      "title": "Input Kind",
+      "type": "string"
+    },
+    "protocol_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Protocol Version",
+      "type": "integer"
+    },
+    "replays": {
+      "items": {
+        "$ref": "#/$defs/ReplaySummary"
+      },
+      "title": "Replays",
+      "type": "array"
+    },
+    "request_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Request Digest",
+      "type": "string"
+    },
+    "resolved": {
+      "$ref": "#/$defs/ResolvedDeployment"
+    },
+    "result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FormalResult"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "retry_from": {
+      "const": "bound-initial-input",
+      "default": "bound-initial-input",
+      "title": "Retry From",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "source_artifact_hash": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source Artifact Hash"
+    },
+    "source_origin": {
+      "anyOf": [
+        {
+          "enum": [
+            "caller-artifact",
+            "generated-from-text"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source Origin"
+    },
+    "status": {
+      "enum": [
+        "admitting",
+        "queued",
+        "running",
+        "cancelling",
+        "finished",
+        "interrupted"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "termination": {
+      "anyOf": [
+        {
+          "enum": [
+            "certified",
+            "search-closed",
+            "step-budget",
+            "node-budget",
+            "simulation-budget",
+            "deadline",
+            "frontier-exhausted",
+            "alternatives-exhausted",
+            "lean-resource",
+            "invalid-input",
+            "environment-mismatch",
+            "crash",
+            "cancelled",
+            "interrupted"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Termination"
+    }
+  },
+  "required": [
+    "run_id",
+    "status",
+    "request_digest",
+    "input_kind",
+    "input_artifact_hash",
+    "source_artifact_hash",
+    "source_origin",
+    "resolved",
+    "budget",
+    "attempts",
+    "disposition",
+    "termination",
+    "cancel_requested",
+    "result",
+    "replays"
+  ],
+  "title": "RunView",
+  "type": "object"
+}

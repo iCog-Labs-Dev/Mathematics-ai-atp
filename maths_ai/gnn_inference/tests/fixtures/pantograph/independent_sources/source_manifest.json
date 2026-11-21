@@ -1,0 +1,130 @@
+{
+  "kind": "independent-training-evaluation-sources",
+  "sources": [
+    {
+      "path": "docker/config/rl.json",
+      "target_base_sha256": "1bb7bab69c2b15c019ffb36c03ab3d86a1dab5b05e8a443762c4f64b1289c6ba",
+      "sha256": "4e7d2cbcffe87f959df5d89e4e6c7c68299f084d22755a5db34e2623f2aa1c3c"
+    },
+    {
+      "path": "docker/config/service.json",
+      "target_base_sha256": "cc5da7f74c209854da13d4024370d039b617c5feecc2d5e925f528a4dc2d5c15",
+      "sha256": "9c2d2bacb95d220ad51806d36376337e668c3d52f729e4b55bd9e5b27b79c7cd"
+    },
+    {
+      "path": "maths_ai/api/config.py",
+      "target_base_sha256": "aeac37fe15249002d4c42293159be3a4b0db672b4378c7cfd4921a5c93e197d7",
+      "sha256": "bfdc471127045699566d5529a0a11e9417114c9e629d4118ee7f2f45271c3b56"
+    },
+    {
+      "path": "maths_ai/api/runtime_backend.py",
+      "target_base_sha256": "e43e8ca18513315ce7d84c08fbce58b7a750a66b9250407dffd00936c23c4278",
+      "sha256": "67f3b413c5b07985b680e4549536a396d055d4c5ecd11e6fe07dd4c2f8748d24"
+    },
+    {
+      "path": "maths_ai/api/service.py",
+      "target_base_sha256": "dabad9d1b7391a6203ad442b3851a941eb79b4c566b46066eab2fad2bf944d9e",
+      "sha256": "8af7c1ebe7c69da1fa9a24c75bf52e8e9a07d0482d158ed0fb52f79961d086fe"
+    },
+    {
+      "path": "maths_ai/api/tests/helpers.py",
+      "target_base_sha256": "8be04f777ad05e91646abe5fadf97320c9a5aedef3aa13db1f3792029b59920c",
+      "sha256": "e812804b513f799f549d08639c05e44da870d8a661fcd9400338b63efde77cbe"
+    },
+    {
+      "path": "maths_ai/api/tests/test_api_live.py",
+      "target_base_sha256": "b3290959f170cce3a07da438acd34463ab85b00929fbb10036a936da6a6721e0",
+      "sha256": "d015e43188a18a6ec77fdda494ec1208280eab4a7c875fbac9be443a6beaec54"
+    },
+    {
+      "path": "maths_ai/api/tests/test_config.py",
+      "target_base_sha256": "abd5d101fdeb06eed1df25c3a399e756aee17a3342db9fe3140f7610b09f8bdc",
+      "sha256": "29d089c607c39c9e10066988334c96a62aef04611b82a70d45eb87fa727fcaa1"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/dataset.py",
+      "target_base_sha256": "36d69271ed02d4d1997350640e22813cd683dafec22c71a2f864af95e9ad3a4e",
+      "sha256": "e3fdc13ac6264c4fb37b1e2172b8a1b7a1e12636e36d0af50b655bea9dbf5c64"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/deployment_migration.py",
+      "target_base_sha256": "0a3402e19dc66612e840345584a175c3a37386f5909e49ea9e51409df31bf555",
+      "sha256": "7d8aeca929b08f093ebe50ff6f3c217eab60e6fd9636ff4ca2e90547d2fa5db3"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/evaluation_runtime.py",
+      "target_base_sha256": "dd5dfb08533d1afcd6758949986999d626628a69925964181c445409879fe764",
+      "sha256": "b69b1dd49faa894dba20f7ac0ab1a6d60a6c15b120fc5de3f14e1a322171cf9d"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/hub_deployment.py",
+      "target_base_sha256": "fc291ba8b9e75815436416826ce126ff1bfbaf3eff6d64d42a348f08cf8bf430",
+      "sha256": "72022932d4cebb9861c9af57b4e12b16a337dfe5584252e494fe446688ceabf8"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/rl_training_driver.py",
+      "target_base_sha256": "a279ab239bc1b8791100bddb175afd20c14f8490d4b491ae4540f0c3ca0c39ec",
+      "sha256": "7a236d9693fa71429ba912c20610a78ebf9ccda502022ef985162ed7802ed451"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/theorem_sources.py",
+      "target_base_sha256": null,
+      "sha256": "d93777e7bb60f8d11db57870f99603f864b611e890bf440ba0c117a4d4696822"
+    },
+    {
+      "path": "maths_ai/gnn_inference/configs/rl_actor_critic.json",
+      "target_base_sha256": "d5b42248acb9c765d0a664290de63b18bb7f8e2570db2a3f9646e39f6feb2e6c",
+      "sha256": "cf035292a23d9830fb63db029ed53a355a6ba2b7bee21e81f18e20d1185aa68d"
+    },
+    {
+      "path": "maths_ai/gnn_inference/docs/independent_training_and_evaluation_sources.md",
+      "target_base_sha256": null,
+      "sha256": "2438e122b7ac84f8b3de7f34f985c9b1c82489d6f61e8e47d9500a05a8b89acb"
+    },
+    {
+      "path": "maths_ai/gnn_inference/docs/rl_training_setup.md",
+      "target_base_sha256": "a9a252ceeec9d5973c13e879d2cd96e6f754846b2009cfe8186331abeb3d7a05",
+      "sha256": "a447366665781b587562e43b6b2b5fa28e8769a46e79711397f35df20a003282"
+    },
+    {
+      "path": "maths_ai/gnn_inference/scripts/validate_rl_seeds.py",
+      "target_base_sha256": "6c7e301506988095ffcd3a418858b8c809068a5a58efd94f24fffb51a23d448a",
+      "sha256": "3f3d408d69b639637e3bc072c531643cc2e030ff5c51ab511a79455a76e0794e"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_bundle_publication_retry.py",
+      "target_base_sha256": "d612ff3ec074ad23547a190b33ceaf4e6f4b0f6fb85913e6f0459767dd896ff6",
+      "sha256": "1038d6c50ff2afe0d9808fc294427cd3d90a538518793ff83366e9c74e803d55"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_dataset_preparation.py",
+      "target_base_sha256": "b28f6d087251471a469d31eb512ef3c4dbb26376b3f8a3511cc37760296dd0e0",
+      "sha256": "2d3fd68a0d6c0d630dac0be8b81491a823ac7a07ce0c8cb3834880c1055ccd7a"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_deployment_migration.py",
+      "target_base_sha256": "ab667bb6a04d69347fd818c4dc6a172dca3cd8c615d753bc3201c29f8965a8ff",
+      "sha256": "2e6b87ed02d7cc085ead124d44aefcee3fefbe45cc86f48ee68449f6e1b400e1"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_hub_deployment.py",
+      "target_base_sha256": "b8a6ab37888b15b0cf57264ea855ca8293c7b591456e76b1388d6e7e6c95c42f",
+      "sha256": "d7bd230015c608e6f7cf74d92e428bd87ded2241f58f9ccd2b4bcbd19a583e8b"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_independent_theorem_sources.py",
+      "target_base_sha256": null,
+      "sha256": "2527daae7eadf2a14232e31981a2d6e0683b137732cebe67f70eaa1c0163a784"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
+      "target_base_sha256": "0d4aa32c209f6b79963a2612231ebc1375d898363e1717448e382f0b65ea010a",
+      "sha256": "ea8962092e54c7a671afc99cbbdb5e062c57a9d51c278acc007fc6db1f1e2c2c"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_rl_training_driver.py",
+      "target_base_sha256": "86a3d55739bb887811e07a7973e2cdf3669d32df3d8959e804dcb67bc06823c6",
+      "sha256": "4760f3962e48a5783bf1b683fc1c891b5a3b4bcdef74ea2ea993f1fa4e2337c4"
+    }
+  ]
+}

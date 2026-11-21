@@ -1,0 +1,28 @@
+{
+  "title": "Replay naming another certificate: refused (409)",
+  "request": {
+    "method": "POST",
+    "path": "/formal-replay",
+    "body": {
+      "protocol_version": 2,
+      "run_id": "example/fr-2",
+      "certificate_hash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "input_artifact_hash": "sha256:8495db7febd2b48e3d3879c65ebee2c3d5f8c51089f44236d38a8687d57e4b19",
+      "source_artifact_hash": "sha256:10880359a57172ed310e1486f43714c4337f4eda68f6edcacb3568288e3ca18c",
+      "environment_hash": "sha256:a1b03f32997ad42b01abe3b487447e8989dbcd7a29f70a86a20a407cfdd89ee0",
+      "budget": {
+        "max_steps": 50,
+        "wall_clock_ms": 30000
+      }
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "protocol_version": 2,
+      "category": "certificate-hash-mismatch",
+      "detail": "Run example/fr-2's certificate_hash is sha256:ec8b91074d2ae446d8d493aeaf6f3b4b35f28b3b25a06dedbb566cca9de45861, not sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff."
+    },
+    "schema": "formal-error.v2"
+  }
+}

@@ -1,5 +1,3 @@
-"""Representation contracts shared by live extraction and model preparation."""
-
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -8,6 +6,8 @@ from typing import Mapping
 
 @dataclass(frozen=True)
 class GraphRepresentationSpec:
+    """The graph representation a prepared dataset and checkpoint require."""
+
     representation: str
     model_sexp_version: int
     graph_schema_version: int
@@ -32,9 +32,11 @@ class GraphRepresentationSpec:
 
     def validate(self) -> None:
         if not self.representation:
-            raise ValueError("Graph representation cannot be empty.")
-        if self.model_sexp_version < 0 or self.graph_schema_version < 1:
-            raise ValueError("Graph representation versions are invalid.")
+            raise ValueError("Graph representation name cannot be empty.")
+        if self.model_sexp_version < 0:
+            raise ValueError("model_sexp_version cannot be negative.")
+        if self.graph_schema_version < 1:
+            raise ValueError("graph_schema_version must be positive.")
         if not self.hypothesis_schema:
             raise ValueError("Hypothesis schema cannot be empty.")
 
@@ -46,6 +48,13 @@ MODEL_SEXPR_GRAPH_SPEC = GraphRepresentationSpec(
     hypothesis_schema="fv-name-role-type-v1",
 )
 
+TEXT_GRAPH_SPEC = GraphRepresentationSpec(
+    representation="lean-pretty-text-v1",
+    model_sexp_version=0,
+    graph_schema_version=1,
+    hypothesis_schema="name-type-v1",
+)
+
 
 def require_graph_representation(
     actual: GraphRepresentationSpec,
@@ -53,6 +62,6 @@ def require_graph_representation(
 ) -> None:
     if actual != expected:
         raise ValueError(
-            f"Graph representation mismatch: actual={actual.to_dict()}, "
-            f"expected={expected.to_dict()}."
+            "Graph representation mismatch: "
+            f"actual={actual.to_dict()}, expected={expected.to_dict()}."
         )

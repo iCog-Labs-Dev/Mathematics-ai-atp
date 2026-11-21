@@ -1,0 +1,57 @@
+{
+  "kind": "upstream-pr1-unextended-live-capture",
+  "captured_on": "2026-10-08",
+  "repository_revision": "53d36e8a68f1edbf85d8e43fe229b0967d1cebb8",
+  "upstream_url": "https://github.com/jajos12/Pantograph.git",
+  "upstream_branch": "gnn-sexpr-v410",
+  "upstream_commit": "0dd5d2225e2d093f66a4b6231c1aa35004f2c8f3",
+  "pull_request": "https://github.com/jajos12/Pantograph/pull/1",
+  "merge_parents": [
+    "73781c2d58456e4bf369dadd4a501e1b78a0b177",
+    "726b558da1acc0d15b1f506b01b9186595620cc9"
+  ],
+  "merge_date": "2026-10-07T10:51:06+03:00",
+  "previous_base_commit": "73781c2d58456e4bf369dadd4a501e1b78a0b177",
+  "checkout": "/tmp/pantograph-pr1-reconciliation",
+  "tracked_changes": [
+    "Pantograph/Goal.lean",
+    "Pantograph/Protocol.lean",
+    "Pantograph/Serial.lean",
+    "Repl.lean",
+    "Test/Integration.lean",
+    "Test/Proofs.lean"
+  ],
+  "source_hashes": {
+    "Pantograph/Goal.lean": "9919b62e5f23a1c8144cacf130a5a7a019b19b9df4b3023eaf728a0c031d1a64",
+    "Pantograph/Protocol.lean": "54f551502ba93859e28b5d46dc6d4542c432b673f084bd1c55704a74072a4b07",
+    "Pantograph/Serial.lean": "67d65da093dbf517c87c28fc461c78ea35bab151b4145af6a6db2e6506f04e37",
+    "Repl.lean": "0e500e577496ed1bef0367e86a252c681dda7a7e98f18864ad9586a3cf506750",
+    "Test/Integration.lean": "81c94bdc075adf846fbc3eb3e481cb814062ebb0531e1492859eba0bda658874",
+    "Test/Proofs.lean": "b4d123b6fbdabb112826a496f8ba60d746f8298ead786b3d00ad1626f4c4bdbf"
+  },
+  "toolchain": "leanprover/lean4:v4.10.0-rc1",
+  "lean_version": "Lean (version 4.10.0-rc1, x86_64-unknown-linux-gnu, commit 3b58e0649156, Release)",
+  "repl": "/tmp/pantograph-pr1-reconciliation/.lake/build/bin/repl",
+  "repl_sha256": "15da3517f2d8b0592a1cefe6fc5e0b18323ee8027ed68d58783a233a43c25c78",
+  "original_archive_repl_sha256": "511e32d79635a4fe55f711f6fc1d42c6d5044203829b57eb37ab72e8227570c3",
+  "source_root": "/home/nolawi/new-maths/maths_ai/sexpr_environment/sexpr_environment/mathlib4",
+  "mathlib_pin_expected_not_archive_verified": "29dcec074de168ac2bf835a77ef68bbe069194c5",
+  "imports": [
+    "Mathlib"
+  ],
+  "options": {
+    "printJsonPretty": false,
+    "printExprPretty": true,
+    "printExprAST": true,
+    "printExprModelAST": true,
+    "noRepeat": false,
+    "automaticMode": true
+  },
+  "build": {
+    "lake build repl": "passed",
+    "lake test": "passed",
+    "cache": "Copied original .lake into separate checkout; changed source targets rebuilt by Lake."
+  },
+  "scope": "Observed upstream protocol only; no companion validation patch applied.",
+  "stderr_tail": ""
+}

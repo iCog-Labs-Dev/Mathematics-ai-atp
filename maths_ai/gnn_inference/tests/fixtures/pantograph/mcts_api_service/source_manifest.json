@@ -1,0 +1,101 @@
+{
+  "kind": "mcts-api-service",
+  "target_base_commit": "2c8bff8ecf447a9829a3c2246add8229beb66859",
+  "sources": [
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/rl_live_collection.py",
+      "target_base_sha256": "776f4e082f2c9d7c74447bd1a09203da0bee6a6391206b2dbc1be1b9a6d3a071",
+      "sha256": "970f5f50d3ad14160f215d1226eccc963c07a00bcb86f7d59c45a312a53ac9da"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/rl_training_driver.py",
+      "target_base_sha256": "5b1732bd88de0ec9388d694ffc8d9fe39497e25bb7d73e000e9b8da61c175835",
+      "sha256": "0ed9eb44dfa10d15f76965b5af8db0d8451af3fda364b85b49d428a5a39e2342"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/seed_admission.py",
+      "target_base_sha256": "9cf532b7e537e2a7535fb0b77b3fb5181e9f79f7ec5fbba18f160274ad5515d8",
+      "sha256": "4f2eb6d23708277c7ba4f03fbf0d9a458b8a2d350c3825004fcb210b5ccc3cbb"
+    },
+    {
+      "path": "maths_ai/gnn_inference/lean_extractor/export_declarations.lean",
+      "target_base_sha256": "7db1d3ea649e65be86fbd871cb7ed19ff5ff8b0e0ad9a4deca4079d51a06df17",
+      "sha256": "45ba39428e1c55570d10e731191bebbe5ed30d643f59ac9aed2e34b9ce4b4655"
+    },
+    {
+      "path": "maths_ai/gnn_inference/scripts/export_declaration_inventory.py",
+      "target_base_sha256": "5eefca6a3d1edc2b906e70401f6e7eab85b3e95e780ab17c867e922f353fbb26",
+      "sha256": "41f3cbaf3a6939c24a2d0874c979d7409fef0970853f31349debd5babd12c707"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
+      "target_base_sha256": "7f654b366d3d03d00c6d93d49b6b9218deaa7a815dd4f32a335d5f85bf2eb665",
+      "sha256": "e5d6552fe05f92754ba89889717cbcc6bd2badf45ca40e7876f0dd24c5d8df44"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_rl_live_collection.py",
+      "target_base_sha256": "5afa482e8b0e44e6305893018bd90a501d58133869f871b518cb92a93ec3baa8",
+      "sha256": "8f74374126cf512b41d2e7599817add1ed0150f8d8fd55a13fbd883e70971587"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_rl_training_driver.py",
+      "target_base_sha256": "846c64cd2d1044edd0f75c8b0fe486027db6679d16af6fc870602d42cd1007be",
+      "sha256": "9a571df96f7b5f748bdad08d1bd321d8c7588f15c76314beabbcd7880be2ad75"
+    },
+    {
+      "path": "maths_ai/hybrid_reasoner/mcts_diagnostics.py",
+      "target_base_sha256": "af2a051ead0799bc155d39ae48377dfcc56b6379374aba894c03cdfa5c7bafda",
+      "sha256": "27d2a6a9ef3389aac0d9642102e9e348829b62ef53ad7fb10b520af5b00d3829"
+    },
+    {
+      "path": "pyproject.toml",
+      "target_base_sha256": "335332ebc658d2174f9ea27d36c03954a116e5f2b6070c2b8cdb6335101fa3a9",
+      "sha256": "5763e1125ee1f4cfa7fa61a7f94edfb1a05d16c3893f519a003a9f5de11b2fbc"
+    },
+    {
+      "path": "uv.lock",
+      "target_base_sha256": "19df593fd159865f9146ea658bedfd04d68c89fb0274936e7ce6c97b20beaae7",
+      "sha256": "e20fad7b442890bc683184e05c56dd121e7f6a0a5ea76798febfdef6a511de6e"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/live_runtime.py",
+      "target_base_sha256": null,
+      "sha256": "940d3db7b99674269b37e6a470572285277c58c9327afd8ddd138e2dad9fdd34"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/evaluation_runtime.py",
+      "target_base_sha256": null,
+      "sha256": "66c65a793e65b2d0d02b4bf906725c9bf452731f23049948bb6a8a9f5e85825b"
+    },
+    {
+      "path": "maths_ai/api/runtime_backend.py",
+      "target_base_sha256": null,
+      "sha256": "79db82a65b3de0cba2b3dd2bacb4a0f024a1b1fbc9b7b38a4af84e3078decd39"
+    },
+    {
+      "path": "maths_ai/api/runtime_worker.py",
+      "target_base_sha256": null,
+      "sha256": "88978ad2ad18019fb89d4aeb58608168d19c310b395839d1853a81527396d355"
+    },
+    {
+      "path": "maths_ai/api/runtime_supervisor.py",
+      "target_base_sha256": null,
+      "sha256": "8ee4ffd2af769acd41382ed144ee2ed662948ae05bcc6b0700d12bb00905d3c8"
+    },
+    {
+      "path": "maths_ai/api/service.py",
+      "target_base_sha256": null,
+      "sha256": "cb0ba2e88643430b7bea367b32c5282662c744b940920d0bfb6f8e58ebd8af46"
+    },
+    {
+      "path": "maths_ai/api/job_store.py",
+      "target_base_sha256": null,
+      "sha256": "ad04eca7f84475d24d57930c99fddefa7b0d6fa9ffb5e7e1e0b1a713a052b71e"
+    },
+    {
+      "path": "maths_ai/api/app.py",
+      "target_base_sha256": null,
+      "sha256": "0b974a12250d781754aaf210b11f60e5338f4da3815f9ef628fbc655045a428a"
+    }
+  ]
+}

@@ -1,61 +1,42 @@
-# Docker ignore file for Mathematics AI ATP
-
-# Git
 .git
-.gitmodules
-.gitignore
-
-# Python
 .venv
-__pycache__
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
+.venv-*
+**/__pycache__
+**/*.py[cod]
 *.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual environments
+.pytest_cache/
+.lake/
+artifacts/
+data/
+runs/
+outputs/
+*.pt
+*.log
 .env
-.venv/
-env/
-venv/
-ENV/
+**/.git
+**/.lake
+**/*.pt
+.codex
+.agents
+.aws
+experiments/
+maths_ai/sexpr_environment/
+maths_ai/_support_files/
+maths_ai/**/runs/
+maths_ai/gnn_inference/local_state_tactic_pairs.jsonl
 
-# IDE
+# Editor, OS and build leftovers
+.gitmodules
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
-
-# OS
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log
+build/
+dist/
+*.so
 logs/
-
-# Data and artifacts
-*.cache
-.lake/
-.lean/
-.pkl
-
-# Local development
-.tmp/
 tmp/
+.tmp/

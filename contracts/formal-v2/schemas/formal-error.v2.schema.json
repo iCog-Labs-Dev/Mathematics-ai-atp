@@ -1,0 +1,72 @@
+{
+  "$defs": {
+    "FieldError": {
+      "additionalProperties": false,
+      "properties": {
+        "loc": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          },
+          "title": "Loc",
+          "type": "array"
+        },
+        "msg": {
+          "title": "Msg",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "loc",
+        "type",
+        "msg"
+      ],
+      "title": "FieldError",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Every error response: a stable ``category`` and a human-readable ``detail``.\n\n``invalid-request`` carries the rejected fields as a list instead.",
+  "properties": {
+    "category": {
+      "title": "Category",
+      "type": "string"
+    },
+    "detail": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/FieldError"
+          },
+          "type": "array"
+        }
+      ],
+      "title": "Detail"
+    },
+    "protocol_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Protocol Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "category",
+    "detail"
+  ],
+  "title": "ErrorBody",
+  "type": "object"
+}

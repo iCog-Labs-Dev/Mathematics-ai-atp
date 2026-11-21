@@ -1,0 +1,96 @@
+{
+  "kind": "source-aware-validation-and-inference-lifecycle",
+  "target_base_commit": "8260a43b0fea4718c22e9157a17afc0902d1d4cd",
+  "sources": [
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/inference.py",
+      "target_base_sha256": "eae060f5d7a9bb03decb1a0ae940d61725ed349e21400d3f975279e0b9116393",
+      "sha256": "5f17cc8ac6e951c6a31f216c1ea5d46307b2875cc0d314a163f6072e5728d686"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/pln_rl_training.py",
+      "target_base_sha256": "dbdd078235172a0c76c4b8a2467d64344be9ea9969b82c809c3b6b5673c3f683",
+      "sha256": "9bb0b48cdaa4957e3b1d4a8f6b8a1331595ccb0a886e7b3b1468041dc3ba8bbf"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/policy_model.py",
+      "target_base_sha256": "bc83cdefa3948bdc9b55ca2d8ed27738efb85213b4feda11eeba290d83ad8364",
+      "sha256": "653b714f80202ee975e0cf557e570bface1450eddf81ac80de2534dc852c63f1"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/rl_training_driver.py",
+      "target_base_sha256": "a2ccc439647b207bc7205b6985a69136d1efbf24cbd041d2564ec5c3bfc7cd09",
+      "sha256": "5b1732bd88de0ec9388d694ffc8d9fe39497e25bb7d73e000e9b8da61c175835"
+    },
+    {
+      "path": "maths_ai/gnn_inference/docs/mcts_source_aware_port_handoff.md",
+      "target_base_sha256": "dab20c8b167cb8cb4ce829278300d2a0e38bee1de22682e7f16903394c02f2ad",
+      "sha256": "170945b0253cca708d828ab7c56f917b4304c2dcfbde21dc6a1592e02035d253"
+    },
+    {
+      "path": "maths_ai/gnn_inference/docs/owned_pantograph_client.md",
+      "target_base_sha256": "6b70cdb9e080ca9816a4a77aa08a987b9448f06efcc523a656bf0aef59f82784",
+      "sha256": "503a205a5ba1fb64d61cbd44802e6718ff99c593043c8b148ddd3cc33f5b24e2"
+    },
+    {
+      "path": "maths_ai/gnn_inference/inference_engine.py",
+      "target_base_sha256": "3e812bf2036d895d325ccd69fc2a0ddbb2249ff598c4afe42ecbb63d34a28d93",
+      "sha256": "8b9ec811db60e8dc16ba5c23eed97297e9236741d08b44eb5a62cfe60e5e231f"
+    },
+    {
+      "path": "maths_ai/gnn_inference/model.py",
+      "target_base_sha256": "95d84eec13c0921ee3baaeb6df96153d54e6f4bef2cec15f0b1dd06f90af8425",
+      "sha256": "94ee8b54adf46cbfcb62ca90d536a38796329781a05508bb8e044ec443ad39b7"
+    },
+    {
+      "path": "maths_ai/gnn_inference/scripts/run_inference.py",
+      "target_base_sha256": "e1c13ba540182d47f697b1a023c78fe64ba9f122cc4cab92e668e2782d68eb49",
+      "sha256": "36d94ff517529f32e2144c5d65b489366120db08bbb1f40b994ec62dba332aa2"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_action_priors.py",
+      "target_base_sha256": "7ebf9dba748147a131387d1fe86330447de8885b22820d3c046b4ccf924214d2",
+      "sha256": "dd5ebe1f7e74e54852b9eaf7bf8fd6bfd7258be3c52b10d3c36a5c4860896cb8"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_command_identity.py",
+      "target_base_sha256": "9856d6d59181eaed72607c320bb0345383b8c7e9b330661c69c7a403b9590a84",
+      "sha256": "c5001d0538bc617029b686ac220f2d184f394d6c32ebba4373b30093155782ae"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
+      "target_base_sha256": "6dd03aae92de02ec57291d27792024a9333322cb3185af44271815a9a83dc057",
+      "sha256": "7f654b366d3d03d00c6d93d49b6b9218deaa7a815dd4f32a335d5f85bf2eb665"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_progressive_widening.py",
+      "target_base_sha256": "3bc718ab426396f20aa181353594bbd0fff4afea4a6dd245c1763463f0a4528e",
+      "sha256": "1b23379a53b3e89e3aea12079a6c6558ba9a2e5b8d5c69d2b18b86fcb9610821"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_rl_training_driver.py",
+      "target_base_sha256": "12d7fa1709c839238e075c3419ed616820c84cfa922d6c8552ec70426a6428fc",
+      "sha256": "846c64cd2d1044edd0f75c8b0fe486027db6679d16af6fc870602d42cd1007be"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_source_aware_admission_and_lifecycle.py",
+      "target_base_sha256": null,
+      "sha256": "8bfbb204a0acae1508c6b261769ce31305812e9a43c1577cd2bf16925e91d547"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_source_aware_live.py",
+      "target_base_sha256": "fb3f61c13abf22e8143733ed4aa23aad2c584d6088a2366febc6b75185be0938",
+      "sha256": "77bfab2053a0e7f04ab7ae5c9e4d7d46ff84b1ba1c46d70c346fb7da898e7904"
+    },
+    {
+      "path": "maths_ai/hybrid_reasoner/joint_inference.py",
+      "target_base_sha256": "16fd1106a1877a6f7734bdb8e58f1e7a2b06a46f93ed3c88193195254c4742ab",
+      "sha256": "57e074d27abaa7e3b1d718124d8f37cedffdc58bfe19a7bebf3c121e36c85847"
+    },
+    {
+      "path": "maths_ai/hybrid_reasoner/mcts_diagnostics.py",
+      "target_base_sha256": "32ccc6d0e0ba8f722fe1760a4edfca6a59d94bb5458a34ea8feadf27ad1a12f2",
+      "sha256": "af2a051ead0799bc155d39ae48377dfcc56b6379374aba894c03cdfa5c7bafda"
+    }
+  ]
+}

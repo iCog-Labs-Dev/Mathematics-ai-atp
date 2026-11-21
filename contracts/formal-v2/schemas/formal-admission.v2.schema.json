@@ -1,0 +1,264 @@
+{
+  "$defs": {
+    "AdmittedBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "admitted_max_steps": {
+          "title": "Admitted Max Steps",
+          "type": "integer"
+        },
+        "admitted_wall_clock_ms": {
+          "title": "Admitted Wall Clock Ms",
+          "type": "integer"
+        },
+        "consumed_steps": {
+          "title": "Consumed Steps",
+          "type": "integer"
+        },
+        "consumed_steps_exact": {
+          "title": "Consumed Steps Exact",
+          "type": "boolean"
+        },
+        "max_steps_reduced": {
+          "title": "Max Steps Reduced",
+          "type": "boolean"
+        },
+        "remaining_steps": {
+          "title": "Remaining Steps",
+          "type": "integer"
+        },
+        "requested_max_steps": {
+          "title": "Requested Max Steps",
+          "type": "integer"
+        },
+        "requested_wall_clock_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Requested Wall Clock Ms"
+        },
+        "verification_max_steps": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Verification Max Steps"
+        },
+        "wall_clock_reduced": {
+          "title": "Wall Clock Reduced",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "requested_max_steps",
+        "admitted_max_steps",
+        "max_steps_reduced",
+        "requested_wall_clock_ms",
+        "admitted_wall_clock_ms",
+        "wall_clock_reduced",
+        "consumed_steps",
+        "consumed_steps_exact",
+        "remaining_steps",
+        "verification_max_steps"
+      ],
+      "title": "AdmittedBudget",
+      "type": "object"
+    },
+    "ResolvedDeployment": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "enum": [
+            "mcts-actor-critic",
+            "accepted-gnn"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "deployment_id": {
+          "title": "Deployment Id",
+          "type": "string"
+        },
+        "environment_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Environment Hash",
+          "type": "string"
+        },
+        "environment_id": {
+          "title": "Environment Id",
+          "type": "string"
+        },
+        "model": {
+          "additionalProperties": true,
+          "title": "Model",
+          "type": "object"
+        },
+        "profile": {
+          "title": "Profile",
+          "type": "string"
+        },
+        "profile_config_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Profile Config Hash",
+          "type": "string"
+        },
+        "proposal_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "sample",
+                "greedy"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proposal Mode"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed"
+        }
+      },
+      "required": [
+        "deployment_id",
+        "backend",
+        "profile",
+        "profile_config_hash",
+        "environment_id",
+        "environment_hash",
+        "model"
+      ],
+      "title": "ResolvedDeployment",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The admission acknowledgement: the run's effective settings and identities.",
+  "properties": {
+    "attempts": {
+      "title": "Attempts",
+      "type": "integer"
+    },
+    "budget": {
+      "$ref": "#/$defs/AdmittedBudget"
+    },
+    "input_artifact_hash": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Input Artifact Hash"
+    },
+    "input_kind": {
+      "enum": [
+        "source",
+        "goal"
+      ],
+      "title": "Input Kind",
+      "type": "string"
+    },
+    "protocol_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Protocol Version",
+      "type": "integer"
+    },
+    "request_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Request Digest",
+      "type": "string"
+    },
+    "resolved": {
+      "$ref": "#/$defs/ResolvedDeployment"
+    },
+    "retry_from": {
+      "const": "bound-initial-input",
+      "default": "bound-initial-input",
+      "title": "Retry From",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "source_artifact_hash": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source Artifact Hash"
+    },
+    "source_origin": {
+      "anyOf": [
+        {
+          "enum": [
+            "caller-artifact",
+            "generated-from-text"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source Origin"
+    },
+    "status": {
+      "enum": [
+        "admitting",
+        "queued",
+        "running",
+        "cancelling",
+        "finished",
+        "interrupted"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "status",
+    "request_digest",
+    "input_kind",
+    "input_artifact_hash",
+    "source_artifact_hash",
+    "source_origin",
+    "resolved",
+    "budget",
+    "attempts"
+  ],
+  "title": "Admission",
+  "type": "object"
+}

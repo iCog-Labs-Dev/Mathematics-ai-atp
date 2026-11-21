@@ -1,0 +1,19 @@
+{
+  "note": "Base AC 59148bb reconstruction (line parser, string seed, sanitizer, no levels) on the same first 500 train rows at the pinned revision. Lean acceptance only; the base path did not validate the rebuilt goal.",
+  "dataset_revision": "f44841f98193c09b20c6092198a22e98ff2cd7a8",
+  "rows": "train[0:500]",
+  "counts": {
+    "scanned": 500,
+    "candidates": 497,
+    "lean-rejected": 489,
+    "lean-accepted": 8,
+    "dropped-offline": 3
+  },
+  "lean_rejections": {
+    "unknown universe level": 279,
+    "expected term / parse": 197,
+    "unknown identifier": 11,
+    "other": 2
+  },
+  "seconds": 28
+}

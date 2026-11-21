@@ -10,7 +10,7 @@ import torch
 from maths_ai.gnn_inference.atp_lean_gnn import (
     BaselineConfig,
     DatasetRow,
-    GraphSAGEClassifierConfig,
+    ModelSpec,
     PreparedGraphDataset,
     TrainingLoopConfig,
     build_dataloaders,
@@ -24,6 +24,7 @@ from maths_ai.gnn_inference.atp_lean_gnn import (
 )
 from maths_ai.gnn_inference.atp_lean_gnn.cache import SplitReport, prepare_output_root, write_manifest, write_pyg_artifact, write_vocab
 from maths_ai.gnn_inference.atp_lean_gnn.graph import proof_state_to_dag
+from maths_ai.gnn_inference.atp_lean_gnn.graph_contract import TEXT_GRAPH_SPEC
 from maths_ai.gnn_inference.atp_lean_gnn.pyg import build_vocab_from_labels, dag_to_pyg
 from maths_ai.gnn_inference.atp_lean_gnn.training import build_baseline_model
 
@@ -117,6 +118,11 @@ class TrainingPipelineTests(unittest.TestCase):
         tactic_vocab = build_tactic_vocab(train_tactic_names)
         write_vocab(self.prepared_root, name="node_vocab.json", vocab=node_vocab)
         write_vocab(self.prepared_root, name="tactic_vocab.json", vocab=tactic_vocab)
+        metadata_dir = self.prepared_root / "metadata"
+        metadata_dir.mkdir(parents=True, exist_ok=True)
+        (metadata_dir / "graph_representation.json").write_text(
+            json.dumps(TEXT_GRAPH_SPEC.to_dict()), encoding="utf-8"
+        )
 
         for split in ("train", "val", "test"):
             report = SplitReport(split=split)
@@ -155,8 +161,14 @@ class TrainingPipelineTests(unittest.TestCase):
             seed=7,
             device="cpu",
             edge_mode="bidirectional",
-            use_node_type=True,
-            model=GraphSAGEClassifierConfig(hidden_dim=16, num_layers=2, dropout=0.1),
+            model=ModelSpec.from_dict({
+                "architecture": "graphsage",
+                "hidden_dim": 16,
+                "dropout": 0.1,
+                "encoder": {"num_layers": 2},
+                "use_node_type": True,
+                "max_args": 3,
+            }),
             training=TrainingLoopConfig(
                 batch_size=2,
                 epochs=1,
@@ -188,6 +200,46 @@ class TrainingPipelineTests(unittest.TestCase):
             metadata.state_label_id,
         )
         self.assertNotIn(int(sample.state_node_index.item()), source_nodes)
+
+    def test_preparation_writes_graph_size_sidecars_for_budget_sampling(self) -> None:
+        metadata = load_prepared_metadata(self.prepared_root)
+        dataset = PreparedGraphDataset(metadata, split="train", edge_mode="forward")
+        sizes = dataset.graph_sizes()
+        bidirectional_sizes = PreparedGraphDataset(
+            metadata,
+            split="train",
+            edge_mode="bidirectional",
+        ).graph_sizes()
+
+        self.assertEqual(len(sizes), len(dataset))
+        self.assertTrue(all(size.nodes > 0 and size.edges >= 0 for size in sizes))
+        self.assertTrue(
+            all(
+                bidirectional.edges >= forward.edges
+                for forward, bidirectional in zip(sizes, bidirectional_sizes)
+            )
+        )
+        for path in dataset.files:
+            self.assertTrue(path.with_suffix(".size.json").exists())
+
+        budgeted = BaselineConfig(
+            prepared_root=self.prepared_root,
+            run_root=self.run_root,
+            device="cpu",
+            model=self._tiny_config().model,
+            training=TrainingLoopConfig(
+                batch_size=2,
+                epochs=1,
+                num_workers=0,
+                pin_memory=False,
+                persistent_workers=False,
+                max_batch_nodes=max(size.nodes for size in sizes),
+                max_batch_edges=max(size.edges for size in bidirectional_sizes),
+                use_amp=False,
+            ),
+        ).normalized()
+        _, loaders = build_dataloaders(metadata, budgeted)
+        self.assertEqual(len(list(loaders["train"])), len(dataset))
 
     def test_bidirectional_transform_preserves_nodes_and_adds_reverse_edges(self) -> None:
         metadata = load_prepared_metadata(self.prepared_root)
@@ -271,8 +323,14 @@ class TrainingPipelineTests(unittest.TestCase):
             seed=7,
             device="cpu",
             edge_mode="bidirectional",
-            use_node_type=True,
-            model=GraphSAGEClassifierConfig(hidden_dim=16, num_layers=2, dropout=0.1),
+            model=ModelSpec.from_dict({
+                "architecture": "graphsage",
+                "hidden_dim": 16,
+                "dropout": 0.1,
+                "encoder": {"num_layers": 2},
+                "use_node_type": True,
+                "max_args": 3,
+            }),
             training=TrainingLoopConfig(
                 batch_size=2,
                 epochs=2,

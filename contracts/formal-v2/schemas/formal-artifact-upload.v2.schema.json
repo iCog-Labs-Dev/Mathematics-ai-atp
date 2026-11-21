@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "artifact_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Artifact Hash",
+      "type": "string"
+    },
+    "protocol_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Protocol Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "artifact_hash"
+  ],
+  "title": "ArtifactUpload",
+  "type": "object"
+}

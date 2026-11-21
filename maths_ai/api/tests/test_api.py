@@ -1,753 +1,228 @@
-"""HTTP API tests: all four endpoints, happy paths plus basic error cases.
+"""The HTTP surface over the real coordinator, supervisor and runtime process.
 
-The tests inject a fully-fake ``InferenceService`` into :func:`create_app`, so
-no torch/pantograph stack (or model checkpoints) is needed.
+The runtime process runs the scripted ``FakeBackend``, so no GPU, model or Lean
+is needed; ``test_api_live`` runs the same routes against the custom REPL.
 """
 
 from __future__ import annotations
 
-import tomllib
-from dataclasses import dataclass
+import threading
+import time
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Dict, List, Optional
 
 import pytest
 from fastapi.testclient import TestClient
 
 from maths_ai.api.app import create_app
-from maths_ai.api.service import InferenceService
-from maths_ai.data_models.proof_components import STV, TacticCandidate
-from maths_ai.hybrid_reasoner.joint_inference import PantographExecutor
-from maths_ai.pln_inference.model import PLNResult
+from maths_ai.api.config import ServiceConfig
+from maths_ai.api.service import ProvingService
+from maths_ai.api.tests.fake_backend import FAKE_FORMAL_ENVIRONMENT
+from maths_ai.api.tests.helpers import FAKE_BACKEND, write_config
 
 
-# Fakes -----------------------------------------------------------------------
+def _client(tmp_path: Path, **overrides) -> TestClient:
+    path = write_config(tmp_path, **overrides)
+
+    async def factory():
+        service = ProvingService(ServiceConfig.from_json(path), path, backend=FAKE_BACKEND)
+        await service.start()
+        return service
+
+    return TestClient(create_app(factory))
 
 
-class FakeGnnEngine:
-    def inference(self, goal_expression: str, top_k: int = 3) -> List[TacticCandidate]:
-        if "✝" in goal_expression:
-            raise ValueError(f"cannot tokenize {goal_expression!r}")
-        candidates = [
-            TacticCandidate(tactic_name="exact", arguments=["h"], probability=0.9),
-            TacticCandidate(tactic_name="simp", arguments=[], probability=0.4),
-        ]
-        return candidates[:top_k]
+def _wait_ready(client: TestClient, timeout: float = 60.0) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        response = client.get("/ready")
+        if response.status_code == 200:
+            return response.json()
+        if response.json()["runtime"] == "failed":
+            return response.json()
+        time.sleep(0.1)
+    raise AssertionError("the runtime did not become ready")
 
 
-class PlaceholderGnnEngine(FakeGnnEngine):
-    def inference(self, goal_expression: str, top_k: int = 3) -> List[TacticCandidate]:
-        return [
-            TacticCandidate(
-                tactic_name="exact",
-                arguments=["<lemma_-1>"],
-                probability=0.99,
-            ),
-            TacticCandidate(tactic_name="rfl", arguments=[], probability=0.01),
-        ][:top_k]
+def _wait_job(client: TestClient, job_id: str, states=("completed", "cancelled", "failed", "interrupted")):
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        job = client.get(f"/evaluations/{job_id}").json()
+        if job["state"] in states:
+            return job
+        time.sleep(0.1)
+    raise AssertionError(f"job stayed {job['state']}")
 
 
-class FakePlnChainer:
-    def evaluate(self, expression: str, hypotheses: Optional[List[str]] = None) -> PLNResult:
-        if "✝" in expression:
-            return PLNResult(
-                stv=STV(strength=0.42, confidence=1.0),
-                status="render_error",
-                is_fallback=True,
-                raw_output="parse failure",
-            )
-        return PLNResult(
-            stv=STV(strength=0.8, confidence=0.5),
-            status="ok",
-            is_fallback=False,
-        )
+def test_health_is_independent_of_readiness(tmp_path):
+    with _client(tmp_path, checkpoint="missing.pt") as client:
+        assert client.get("/health").json() == {"status": "ok"}
+        readiness = _wait_ready(client)
+        assert client.get("/ready").status_code == 503
+        assert readiness["runtime"] == "failed"
+        assert "startup:artifacts" in readiness["error"]
+        response = client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "proved"})
+        assert response.status_code == 503
 
 
-@dataclass
-class FakeGraph:
-    solved: bool = True
-    exhausted: bool = False
-    trace: Optional[Dict] = None
-    num_nodes: int = 3
-    num_edges: int = 2
-    budget_exhausted: bool = False
-    termination_reason: Optional[str] = None
-
-    def is_solved(self) -> bool:
-        return self.solved
-
-    def is_exhausted(self) -> bool:
-        return self.budget_exhausted or self.exhausted
-
-    def proof_trace(self) -> Optional[Dict]:
-        return self.trace
-
-    def summary(self) -> Dict:
-        return {
-            "solved": self.solved,
-            "exhausted": self.is_exhausted(),
-            "budget_exhausted": self.budget_exhausted,
-            "termination_reason": self.termination_reason,
+def test_a_certified_proof_and_its_settings(tmp_path):
+    with _client(tmp_path) as client:
+        readiness = _wait_ready(client)
+        assert readiness["ready"] and readiness["provenance"] == {
+            "checkpoint": "fake", "workers": 1, "formal_environment": FAKE_FORMAL_ENVIRONMENT,
         }
-
-    def __len__(self) -> int:
-        return self.num_nodes
-
-
-SOLVED_TRACE = {
-    "goal": "Or q p",
-    "tactic": "exact",
-    "arguments": ["or_comm"],
-    "subgoals": [],
-}
-
-
-class FakeReasoner:
-    def __init__(self, graph: Optional[FakeGraph] = None, dts_sampler=None):
-        self.gnn_engine = FakeGnnEngine()
-        self.petta_chainer = FakePlnChainer()
-        self.dts_sampler = dts_sampler
-        self.max_depth = 10
-        self.max_nodes = 500
-        self.graph = graph or FakeGraph(solved=True, trace=SOLVED_TRACE)
-        self.prove_calls: List[tuple] = []
-
-    async def prove(self, goal: str, *, hypotheses: Optional[List[str]] = None) -> FakeGraph:
-        self.prove_calls.append((goal, list(hypotheses or []), self.max_depth))
-        if goal == "bad syntax":
-            raise ValueError("parse error at 'bad syntax'")
-        if goal == "this is not Lean ???":
-            raise ValueError("Lean parsing error: expected '_' or identifier")
-        if goal == "index error":
-            from pantograph.server import ServerError
-            raise ServerError({"error": "index", "desc": "Invalid goal index 0"})
-        if goal == "server failure":
-            from pantograph.server import ServerError
-            raise ServerError("Lean server failed while starting a goal")
-        if goal == "internal crash":
-            raise RuntimeError("lean backend exploded")
-        if self.max_nodes is not None and getattr(self.graph, "num_nodes", 0) >= self.max_nodes and not self.graph.is_solved():
-            self.graph.budget_exhausted = True
-            self.graph.termination_reason = "budget_exhausted"
-        return self.graph
+        response = client.post("/prove", json={"backend": "mcts-actor-critic", 
+            "goal": "proved", "hypotheses": ["p : Prop"], "search_profile": "puct",
+            "proposal_mode": "greedy", "seed": 7, "num_simulations": 16,
+        })
+        assert response.status_code == 200
+        body = response.json()
+        assert body["certified"] is True and body["outcome"] == "solved"
+        assert body["proof_trace"]["command"] == "trivial"
+        assert body["search_profile"] == "puct"
+        assert body["echo"]["profile"]["num_simulations"] == 16
+        assert body["echo"]["proposal_mode"] == "greedy" and body["echo"]["seed"] == 7
+        assert body["timing"]["queue_wait_s"] >= 0 and body["runtime"]["generation"] == 1
+        unsolved = client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "open", "search_profile": "best_first"}).json()
+        assert unsolved["certified"] is False and unsolved["outcome"] == "unsolved"
 
 
-class FakeDtsSampler:
-    def __init__(self):
-        self.save_targets: List[str] = []
-
-    def save_to(self, path: str) -> None:
-        Path(path).write_text("{}", encoding="utf-8")
-        self.save_targets.append(path)
-
-
-# Helpers ---------------------------------------------------------------------
-
-
-def test_project_core_dependencies_include_pantograph():
-    pyproject_path = Path(__file__).resolve().parents[3] / "pyproject.toml"
-    with pyproject_path.open("rb") as fh:
-        metadata = tomllib.load(fh)
-
-    dependency_names = [d.split(";", 1)[0].split("@", 1)[0].strip() for d in metadata["project"]["dependencies"]]
-    assert "pantograph" in dependency_names
+@pytest.mark.parametrize("goal, kind", [("resource", "heartbeats"), ("resource-recursion", "recursion-depth")])
+def test_resource_outcome_is_reported_without_invalid_input_or_false_success(tmp_path, goal, kind):
+    with _client(tmp_path) as client:
+        _wait_ready(client)
+        response = client.post("/prove", json={"backend": "mcts-actor-critic", "goal": goal})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["outcome"] == "resource_limit" and not body["certified"]
+        assert body["resource"]["kind"] == kind
+        assert body["resource"]["recovery"] == "command-rolled-back"
+        assert client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "proved"}).json()["certified"]
 
 
-@pytest.fixture
-def api(tmp_path: Path):
-    """App wired to a fake reasoner, plus handles for assertions."""
-    reasoner = FakeReasoner()
-    service = InferenceService(reasoner=reasoner, dts_state_path=tmp_path / "dts" / "state.json")
+@pytest.mark.parametrize(
+    "body, category",
+    [
+        ({"goal": "p", "hypotheses": ["not a declaration"]}, "input:"),
+        ({"goal": "p", "search_profile": "nope"}, "input:profile"),
+        ({"goal": "p", "search_profile": "best_first", "num_simulations": 4}, "input:budget"),
+        ({"goal": "p", "max_nodes": 1000}, "input:budget"),
+        ({"goal": "inadmissible"}, "input:lean-rejected"),
+        ({"goal": "fail"}, "input:malformed-text"),
+    ],
+)
+def test_input_errors_are_typed_422s(tmp_path, body, category):
+    with _client(tmp_path) as client:
+        _wait_ready(client)
+        response = client.post("/prove", json={"backend": "mcts-actor-critic", **body})
+        assert response.status_code == 422, response.text
+        assert response.json()["category"].startswith(category)
 
-    async def factory():
-        return service
 
-    with TestClient(create_app(service_factory=factory, formal_runs_dir=tmp_path / "formal_runs")) as client:
-        yield SimpleNamespace(
-            client=client,
-            reasoner=reasoner,
-            dts_state_path=tmp_path / "dts" / "state.json",
-            formal_runs_dir=tmp_path / "formal_runs",
+def test_strict_request_types(tmp_path):
+    with _client(tmp_path) as client:
+        _wait_ready(client)
+        assert client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "p", "seed": True}).status_code == 422
+        assert client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "p", "max_depth": "3"}).status_code == 422
+        assert client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "p", "checkpoint": "/x.pt"}).status_code == 422
+
+
+def _background(client, body, sink):
+    sink.append(client.post("/prove", json={"backend": "mcts-actor-critic", **body}))
+
+
+def test_a_full_queue_is_a_429_and_a_queued_expiry_a_504(tmp_path):
+    with _client(tmp_path, limits={"max_pending_proofs": 2}) as client:
+        _wait_ready(client)
+        first: list = []
+        thread = threading.Thread(target=_background, args=(client, {"goal": "sleep:2", "timeout_s": 10}, first))
+        thread.start()
+        time.sleep(0.5)
+        queued: list = []
+        waiter = threading.Thread(
+            target=_background,
+            args=(client, {"goal": "proved", "timeout_s": 10, "queue_timeout_s": 0.5}, queued),
         )
-
-
-# GET /health -----------------------------------------------------------------
-
-
-def test_health_ready(api):
-    response = api.client.get("/health")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body == {"status": "ok", "ready": True, "error": None}
-
-
-def test_health_degraded_when_initialization_failed():
-    async def failing_factory():
-        raise RuntimeError("checkpoint missing")
-
-    with TestClient(create_app(service_factory=failing_factory)) as client:
-        response = client.get("/health")
-
-        assert response.status_code == 200
-        body = response.json()
-        assert body["ready"] is False
-        assert body["status"] == "degraded"
-        assert "checkpoint missing" in body["error"]
-
-
-def test_health_reports_degraded_when_petta_not_ready():
-    """PeTTa failing its startup probe must downgrade readiness, not masquerade."""
-    reasoner = SimpleNamespace(
-        gnn_engine=FakeGnnEngine(),
-        petta_chainer=SimpleNamespace(
-            evaluate=lambda expression, hypotheses=None: PLNResult(
-                stv=STV(strength=0.0, confidence=0.0),
-                status="petta_unavailable",
-                is_fallback=True,
-            ),
-            is_available=False,
-            initialization_error="PeTTa startup probe failed: petta_unavailable",
-        ),
-        dts_sampler=None,
-    )
-    service = InferenceService(reasoner=reasoner)
-
-    async def factory():
-        return service
-
-    with TestClient(create_app(service_factory=factory)) as client:
-        response = client.get("/health")
-
-        assert response.status_code == 200
-        body = response.json()
-        assert body["ready"] is False
-        assert body["status"] == "degraded"
-        assert body["petta_available"] is False
-        assert "PeTTa startup probe failed" in body["error"]
-
-
-def test_health_exposes_petta_when_available(api, tmp_path: Path):
-    class AvailablePln(FakePlnChainer):
-        is_available = True
-        initialization_error = None
-
-    api.reasoner.petta_chainer = AvailablePln()
-
-    response = api.client.get("/health")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["status"] == "ok"
-    assert body["ready"] is True
-    assert body["petta_available"] is True
-
-
-def test_endpoints_return_503_while_uninitialized():
-    async def failing_factory():
-        raise RuntimeError("checkpoint missing")
-
-    with TestClient(create_app(service_factory=failing_factory)) as client:
-        assert client.post("/prove", json={"goal": "p"}).status_code == 503
-        assert client.post("/gnn/predict_tactic", json={"goal": "p"}).status_code == 503
-        assert client.post("/pln/evaluate", json={"expression": "p"}).status_code == 503
-        assert client.post("/formal-search/start", json={"goal": "p"}).status_code == 422
-
-
-# POST /prove -----------------------------------------------------------------
-
-
-def test_prove_solved_returns_verifiable_trace(api):
-    response = api.client.post(
-        "/prove",
-        json={"goal": "forall (p q : Prop), Or p q -> Or q p", "hypotheses": ["h : Or p q"]},
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["solved"] is True
-    assert body["proof_trace"] == {
-        "goal": "Or q p",
-        "tactic": "exact",
-        "arguments": ["or_comm"],
-        "subgoals": [],
-    }
-    # the search saw exactly what the client sent
-    assert api.reasoner.prove_calls == [("forall (p q : Prop), Or p q -> Or q p", ["h : Or p q"], 10)]
-
-
-def test_prove_per_request_budget_override_is_applied_and_restored(api):
-    response = api.client.post("/prove", json={"goal": "Or q p", "max_depth": 3, "max_nodes": 17})
-
-    assert response.status_code == 200
-    assert api.reasoner.prove_calls[0][2] == 3  # override visible during the search
-    assert api.reasoner.max_depth == 10  # ...and restored afterwards
-    assert api.reasoner.max_nodes == 500
-
-
-def test_prove_unsolved_returns_summary_without_trace(api):
-    unsolved = FakeGraph(solved=False, exhausted=True, trace=None)
-    service = InferenceService(reasoner=FakeReasoner(graph=unsolved))
-
-    async def factory():
-        return service
-
-    with TestClient(create_app(service_factory=factory)) as client:
-        response = client.post("/prove", json={"goal": "Or q p"})
-
-        assert response.status_code == 200
-        body = response.json()
-        assert body["solved"] is False
-        assert body["exhausted"] is True
-        assert body["proof_trace"] is None
-        assert body["summary"]["solved"] is False
-
-
-def test_prove_node_budget_exhausted_returns_budget_exhausted_reason(api):
-    unsolved = FakeGraph(solved=False, exhausted=False, num_nodes=1, trace=None)
-    api.reasoner.graph = unsolved
-
-    response = api.client.post("/prove", json={"goal": "True", "max_nodes": 1})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["solved"] is False
-    assert body["exhausted"] is True
-    assert body["termination_reason"] == "budget_exhausted"
-    assert body["proof_trace"] is None
-
-
-def test_prove_persists_dts_state_after_search(api):
-    api.reasoner.dts_sampler = FakeDtsSampler()
-
-    response = api.client.post("/prove", json={"goal": "Or q p"})
-
-    assert response.status_code == 200
-    assert api.dts_state_path.exists()
-
-
-def test_prove_timeout_returns_timeout_termination_reason(api):
-    import asyncio
-
-    async def slow_prove(goal, *, hypotheses=None):
-        await asyncio.sleep(0.05)
-        return api.reasoner.graph
-
-    api.reasoner.prove = slow_prove
-
-    response = api.client.post("/prove", json={"goal": "Or q p", "timeout": 0.01})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["solved"] is False
-    assert body["exhausted"] is False
-    assert body["termination_reason"] == "timeout"
-    assert body["proof_trace"] is None
-    assert body["summary"] == {"error": "timeout"}
-
-
-def test_prove_rejects_non_positive_timeout(api):
-    response = api.client.post("/prove", json={"goal": "Or q p", "timeout": 0})
-
-    assert response.status_code == 422
-
-
-def test_prove_rejects_empty_goal(api):
-    for bad_goal in ("", "   "):
-        response = api.client.post("/prove", json={"goal": bad_goal})
-        assert response.status_code == 422
-
-
-def test_prove_rejects_blank_hypothesis_entries(api):
-    response = api.client.post("/prove", json={"goal": "Or q p", "hypotheses": ["h : p", "  "]})
-
-    assert response.status_code == 422
-
-
-def test_prove_maps_goal_syntax_error_to_400(api):
-    response = api.client.post("/prove", json={"goal": "bad syntax"})
-
-    assert response.status_code == 400
-    assert "parse error" in response.json()["detail"]
-
-
-def test_prove_maps_malformed_lean_goal_to_400(api):
-    response = api.client.post("/prove", json={"goal": "this is not Lean ???", "max_nodes": 5})
-
-    assert response.status_code == 400
-    assert "lean parsing error" in response.json()["detail"].lower()
-
-
-def test_prove_maps_internal_failure_to_500(api):
-    response = api.client.post("/prove", json={"goal": "internal crash"})
-
-    assert response.status_code == 500
-    assert "proof search failed" in response.json()["detail"]
-
-
-def test_prove_maps_server_failure_to_500(api):
-    response = api.client.post("/prove", json={"goal": "server failure"})
-
-    assert response.status_code == 500
-    assert "proof search failed" in response.json()["detail"]
-
-
-def test_prove_maps_index_protocol_error_to_500(api):
-    response = api.client.post("/prove", json={"goal": "index error"})
-
-    assert response.status_code == 500
-    assert "proof search failed" in response.json()["detail"]
-
-
-def test_prove_with_hybrid_reasoner_maps_real_server_error_payloads(tmp_path: Path):
-    from pantograph.server import ServerError
-    from maths_ai.hybrid_reasoner.joint_inference import HybridReasoner
-
-    class StubbedHybridReasoner(HybridReasoner):
-        def __init__(self):
-            self.max_depth = 10
-            self.max_nodes = 500
-            self.gnn_engine = SimpleNamespace(_is_joint_v2=False)
-            self.predict_next_tactic = lambda goal, *args, **kwargs: [object()]
-
-        async def _start_state(self, goal):
-            if goal.expression == "this is not Lean ???":
-                raise ServerError({"error": "main", "desc": "expected '_' or identifier"})
-            if goal.expression == "index error":
-                raise ServerError({"error": "index", "desc": "Invalid goal index 0"})
-            raise RuntimeError("unexpected goal")
-
-    reasoner = StubbedHybridReasoner()
-    service = InferenceService(reasoner=reasoner, dts_state_path=tmp_path / "dts" / "state.json")
-
-    async def factory():
-        return service
-
-    with TestClient(create_app(service_factory=factory)) as client:
-        res_400 = client.post("/prove", json={"goal": "this is not Lean ???"})
-        assert res_400.status_code == 400
-        assert "lean parsing error" in res_400.json()["detail"].lower()
-        assert "expected '_' or identifier" in res_400.json()["detail"]
-
-        res_500 = client.post("/prove", json={"goal": "index error"})
-        assert res_500.status_code == 500
-        assert "proof search failed" in res_500.json()["detail"]
-
-
-# POST /gnn/predict_tactic ----------------------------------------------------
-
-
-def test_predict_tactic_returns_ranked_candidates(api):
-    response = api.client.post("/gnn/predict_tactic", json={"goal": "Or q p", "top_k": 1})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["goal"] == "Or q p"
-    assert len(body["candidates"]) == 1
-    candidate = body["candidates"][0]
-    assert set(candidate) == {"tactic_name", "arguments", "probability"}
-    assert candidate["tactic_name"] == "exact"
-    probabilities = [c["probability"] for c in body["candidates"]]
-    assert probabilities == sorted(probabilities, reverse=True)
-
-
-def test_predict_tactic_defaults_to_service_top_k(api):
-    response = api.client.post("/gnn/predict_tactic", json={"goal": "Or q p"})
-
-    assert response.status_code == 200
-    assert len(response.json()["candidates"]) == 2
-
-
-def test_predict_tactic_maps_goal_syntax_error_to_400(api):
-    response = api.client.post("/gnn/predict_tactic", json={"goal": "parse error ✝"})
-
-    assert response.status_code == 400
-
-
-def test_predict_tactic_rejects_out_of_range_top_k(api):
-    response = api.client.post("/gnn/predict_tactic", json={"goal": "Or q p", "top_k": 0})
-
-    assert response.status_code == 422
-
-
-def test_predict_tactic_rejects_empty_goal(api):
-    response = api.client.post("/gnn/predict_tactic", json={"goal": "  "})
-
-    assert response.status_code == 422
-
-
-def test_pantograph_executor_rejects_placeholder_before_server_call():
-    class FakeServer:
-        def __init__(self):
-            self.called = False
-
-        async def goal_tactic_async(self, *_args):
-            self.called = True
-            raise AssertionError("server must not receive placeholder tactics")
-
-    server = FakeServer()
-    executor = PantographExecutor(server)
-
-    import asyncio
-
-    outcome = asyncio.run(
-        executor.apply(
-            server,
-            SimpleNamespace(goals=[SimpleNamespace()]),
-            TacticCandidate(
-                tactic_name="exact",
-                arguments=["<lemma_-1>"],
-                probability=1.0,
-            ),
-        )
-    )
-
-    assert outcome.success is False
-    assert "unresolved lemma placeholder" in outcome.error
-    assert server.called is False
-
-
-def test_predict_tactic_filters_unresolved_lemma_placeholders(tmp_path: Path):
-    reasoner = FakeReasoner()
-    reasoner.gnn_engine = PlaceholderGnnEngine()
-    service = InferenceService(reasoner=reasoner, dts_state_path=tmp_path / "dts" / "state.json")
-
-    async def factory():
-        return service
-
-    with TestClient(create_app(service_factory=factory)) as client:
-        response = client.post("/gnn/predict_tactic", json={"goal": "Or q p"})
-
-    assert response.status_code == 200
-    assert response.json()["candidates"] == [
-        {"tactic_name": "rfl", "arguments": [], "probability": 0.01}
-    ]
-
-
-# POST /pln/evaluate ----------------------------------------------------------
-
-
-def test_evaluate_returns_stv_score(api):
-    response = api.client.post(
-        "/pln/evaluate",
-        json={"expression": "Or q p", "hypotheses": ["h : Or p q"]},
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["stv"] == {"strength": 0.8, "confidence": 0.5}
-    assert body["score"] == pytest.approx(0.4)
-    assert body["status"] == "ok"
-    assert body["is_fallback"] is False
-
-
-def test_evaluate_flags_fallback_results(api):
-    service = InferenceService(
-        reasoner=SimpleNamespace(gnn_engine=FakeGnnEngine(), petta_chainer=FakePlnChainer(), dts_sampler=None)
-    )
-    service.reasoner.petta_chainer.evaluate = lambda expression, hypotheses=None: PLNResult(
-        stv=STV(strength=0.1, confidence=1.0),
-        status="no_stv_found",
-        is_fallback=True,
-    )
-
-    async def factory():
-        return service
-
-    with TestClient(create_app(service_factory=factory)) as client:
-        response = client.post("/pln/evaluate", json={"expression": "Or q p"})
-
-        assert response.status_code == 200
-        body = response.json()
-        assert body["is_fallback"] is True
-        assert body["status"] == "no_stv_found"
-
-
-def test_evaluate_maps_unparseable_expression_to_400(api):
-    response = api.client.post("/pln/evaluate", json={"expression": "broken ✝ syntax"})
-
-    assert response.status_code == 400
-
-
-def test_evaluate_rejects_empty_expression(api):
-    response = api.client.post("/pln/evaluate", json={"expression": ""})
-
-    assert response.status_code == 422
-
-
-# Persistent formal-search contract ------------------------------------------
-
-
-def test_formal_search_lifecycle_preserves_envelope_and_result(api):
-    envelope = {
-        "run_id": "formal-test-1",
-        "problem": {"goal": "Or q p", "hypotheses": ["h : Or p q"]},
-        "environment": {"lean_version": "v4.19.0"},
-        "budget": {"max_nodes": 12},
-    }
-    response = api.client.post("/formal-search/start", json=envelope)
-    assert response.status_code == 202
-    assert response.json()["run_id"] == "formal-test-1"
-    assert response.json()["environment"] == envelope["environment"]
-
-    import time
-    for _ in range(20):
-        status = api.client.get("/formal-search/formal-test-1")
-        if status.json()["status"] == "found":
-            break
-        time.sleep(0.01)
-    assert status.status_code == 200
-    body = status.json()
-    assert body["status"] == "found"
-    assert body["request"] == envelope
-    assert body["result"]["solved"] is True
-
-
-def test_formal_search_missing_run_is_404(api):
-    assert api.client.get("/formal-search/missing").status_code == 404
-    assert api.client.post("/formal-search/missing/retry").status_code == 404
-    assert api.client.post("/formal-search/missing/cancel").status_code == 404
-
-
-def test_formal_search_accepts_namespaced_run_id_and_hashes_storage(api):
-    run_id = "proof/example/task-1"
-    response = api.client.post(
-        "/formal-search/start",
-        json={"run_id": run_id, "problem": {"goal": "Or q p"}},
-    )
-    assert response.status_code == 202
-    assert response.json()["run_id"] == run_id
-    assert response.json()["request"]["run_id"] == run_id
-
-    import time
-    for _ in range(20):
-        status = api.client.get(f"/formal-search/{run_id}")
-        if status.json()["status"] == "found":
-            break
-        time.sleep(0.01)
-
-    assert status.status_code == 200
-    assert status.json()["run_id"] == run_id
-    stored_files = list(api.formal_runs_dir.glob("*.json"))
-    assert len(stored_files) == 1
-    assert stored_files[0].stem != run_id
-    assert not any(path.is_dir() for path in api.formal_runs_dir.iterdir())
-
-    assert api.client.post("/formal-search/proof/example/missing/retry").status_code == 404
-    assert api.client.post("/formal-search/proof/example/missing/cancel").status_code == 404
-
-
-def test_formal_search_generated_id_is_normalized_in_request(api):
-    response = api.client.post(
-        "/formal-search/start",
-        json={"problem": {"goal": "Or q p"}},
-    )
-    assert response.status_code == 202
-    body = response.json()
-    assert body["run_id"]
-    assert body["request"]["run_id"] == body["run_id"]
-
-
-def test_formal_search_unsolved_result_is_not_found(tmp_path: Path):
-    reasoner = FakeReasoner(graph=FakeGraph(solved=False, exhausted=True, trace=None))
-    service = InferenceService(reasoner=reasoner)
-
-    async def factory():
-        return service
-
-    with TestClient(create_app(service_factory=factory, formal_runs_dir=tmp_path / "runs")) as client:
-        response = client.post(
-            "/formal-search/start",
-            json={"run_id": "unsolved-test", "problem": {"goal": "False"}},
-        )
+        waiter.start()
+        time.sleep(0.2)
+        full = client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "proved"})
+        assert full.status_code == 429 and full.headers["Retry-After"]
+        waiter.join()
+        thread.join()
+        assert queued[0].status_code == 504 and queued[0].json()["category"] == "queue-timeout"
+        assert first[0].status_code == 200
+
+
+def test_an_execution_deadline_is_a_504_and_the_runtime_recovers(tmp_path):
+    with _client(tmp_path) as client:
+        _wait_ready(client)
+        started = time.monotonic()
+        response = client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "sleep:30", "timeout_s": 1})
+        assert response.status_code == 504 and response.json()["category"] == "deadline"
+        assert time.monotonic() - started < 5
+        assert client.get("/health").status_code == 200
+        _wait_ready(client)
+        assert client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "proved"}).json()["certified"]
+
+
+def test_an_evaluation_job_runs_to_a_complete_result(tmp_path):
+    with _client(tmp_path) as client:
+        _wait_ready(client)
+        response = client.post("/evaluations", json={
+            "dataset_profile": "smoke", "search_profile": "best_first",
+            "proposal_mode": "greedy", "seed": 3, "repeats": 2,
+        })
         assert response.status_code == 202
-
-        import time
-        for _ in range(20):
-            status = client.get("/formal-search/unsolved-test").json()
-            if status["status"] == "exhausted":
-                break
-            time.sleep(0.01)
-
-        assert status["status"] == "exhausted"
-        assert status["result"]["solved"] is False
-
-
-def test_formal_search_node_budget_exhausted_exposes_budget_exhausted(tmp_path: Path):
-    reasoner = FakeReasoner(graph=FakeGraph(solved=False, exhausted=False, num_nodes=1, trace=None))
-    service = InferenceService(reasoner=reasoner)
-
-    async def factory():
-        return service
-
-    with TestClient(create_app(service_factory=factory, formal_runs_dir=tmp_path / "runs")) as client:
-        response = client.post(
-            "/formal-search/start",
-            json={"run_id": "budget-test", "problem": {"goal": "True"}, "budget": {"max_nodes": 1}},
-        )
-        assert response.status_code == 202
-
-        import time
-        for _ in range(20):
-            status = client.get("/formal-search/budget-test").json()
-            if status["status"] == "exhausted":
-                break
-            time.sleep(0.01)
-
-        assert status["status"] == "exhausted"
-        assert status["result"]["solved"] is False
-        assert status["result"]["exhausted"] is True
-        assert status["result"]["termination_reason"] == "budget_exhausted"
+        job = response.json()
+        assert job["state"] == "queued"
+        assert job["settings"]["profile"]["selection_policy"] == "legacy"
+        assert job["settings"]["evaluation"] == {"mode": "greedy", "seed": 3, "repeats": 2}
+        done = _wait_job(client, job["id"])
+        assert done["state"] == "completed" and done["result_partial"] is False
+        result = client.get(f"/evaluations/{job['id']}/result").json()
+        assert result["complete"] is True and result["partial"] is False
+        assert len(result["attempts"]) == 4  # two inputs, two repeats
+        summary = result["summary"]
+        assert summary["proof_rate"] == 1.0 and summary["searched"] == 4.0
+        assert summary["eval_subset_sha256"] == "fake-subset"
+        assert [row["proposal_seeds_sha256"] for row in summary["repeats"]] == ["seeds-0", "seeds-1"]
+        assert client.get("/evaluations/unknown").status_code == 404
 
 
-def test_proof_hypergraph_mark_budget_exhausted():
-    from maths_ai.data_models.proof_components import Goal
-    from maths_ai.hybrid_reasoner.hypergraph import ProofHypergraph
-
-    graph = ProofHypergraph(Goal(expression="True"))
-    assert graph.is_exhausted() is False
-    assert graph.budget_exhausted is False
-
-    graph.mark_budget_exhausted(note="node budget (1) reached")
-    assert graph.is_exhausted() is True
-    assert graph.budget_exhausted is True
-    assert graph.termination_reason == "budget_exhausted"
-    assert graph.summary()["exhausted"] is True
-    assert graph.summary()["budget_exhausted"] is True
-    assert graph.summary()["termination_reason"] == "budget_exhausted"
-
-
-def test_formal_replay_cannot_verify_a_different_problem(api):
-    envelope = {
-        "run_id": "bound-replay-test",
-        "problem": {"goal": "Or q p", "hypotheses": ["h : Or p q"]},
-    }
-    assert api.client.post("/formal-search/start", json=envelope).status_code == 202
-
-    import time
-    for _ in range(20):
-        if api.client.get("/formal-search/bound-replay-test").json()["status"] == "found":
-            break
-        time.sleep(0.01)
-
-    response = api.client.post(
-        "/formal-replay",
-        json={
-            "run_id": "bound-replay-test",
-            "problem": {"goal": "True"},
-            "proof_trace": SOLVED_TRACE,
-        },
-    )
-    assert response.status_code == 409
-    assert "does not match" in response.json()["detail"]
+def test_cancelling_a_running_job_keeps_a_labelled_partial_result(tmp_path):
+    with _client(tmp_path) as client:
+        _wait_ready(client)
+        job = client.post("/evaluations", json={"dataset_profile": "smoke", "repeats": 3}).json()
+        _wait_job(client, job["id"], states=("running",))
+        time.sleep(1.2)
+        early = client.get(f"/evaluations/{job['id']}/result")
+        assert early.status_code == 409
+        cancel = client.post(f"/evaluations/{job['id']}/cancel")
+        assert cancel.status_code == 202 and cancel.json()["state"] == "cancelling"
+        done = _wait_job(client, job["id"])
+        assert done["state"] == "cancelled" and done["result_partial"] is True
+        result = client.get(f"/evaluations/{job['id']}/result").json()
+        assert result["partial"] is True and "summary" not in result
+        assert result["partial_summary"]["repeats"]  # completed chunks survive
+        # A proof still runs after the cancellation settled.
+        assert client.post("/prove", json={"backend": "mcts-actor-critic", "goal": "proved"}).json()["certified"]
 
 
-def test_formal_replay_reports_unavailable_lean_as_503(api):
-    response = api.client.post(
-        "/formal-replay",
-    json={
-        "problem": {"goal": "Or q p"},
-        "proof_trace": SOLVED_TRACE,
-    },
-    )
-    assert response.status_code == 503
+def test_a_service_restart_interrupts_unfinished_jobs(tmp_path):
+    with _client(tmp_path) as client:
+        _wait_ready(client)
+        job = client.post("/evaluations", json={"dataset_profile": "smoke", "repeats": 3}).json()
+        _wait_job(client, job["id"], states=("running",))
+    with _client(tmp_path) as client:
+        restarted = client.get(f"/evaluations/{job['id']}").json()
+        # Interrupted at shutdown (or by the restart's reconciliation), never resumed.
+        assert restarted["state"] == "interrupted"
+        assert restarted["error_category"] in ("service-shutdown", "service-restart")
+
+
+def test_a_second_service_on_the_same_state_directory_is_refused(tmp_path):
+    from maths_ai.api.service import StateOwnershipError
+
+    with _client(tmp_path):
+        with pytest.raises(StateOwnershipError):
+            with _client(tmp_path):
+                pass

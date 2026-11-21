@@ -1,0 +1,51 @@
+{
+  "kind": "mcts-replay-recovery-source-manifest",
+  "target_base_commit": "c52f74c24a6aa7a74524c6d22d1a904dc5d7851b",
+  "sources": [
+    {
+      "path": "maths_ai/gnn_inference/docs/mcts_snapshot_retention_port_handoff.md",
+      "target_base_sha256": "bc272e99762ccc7a9f09beded81e5f0e6be0b28a426a105f8b1f4bcdf2cafff2",
+      "sha256": "ef9900f3d3495d5f38d01b634fa8d906b990a4188aa1bc0bd23ba5514bfafc4e"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/snapshot_explorer.py",
+      "target_base_sha256": "bb37215a27e1f7ac0b8ab80810708c6cd20160a57960fb8128ec32349dd1a05b",
+      "sha256": "453b0afbc6258cedabe46d6dc07d51e5122c0bc5939956dc7425886b456a432c"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_mcts_replay_recovery.py",
+      "target_base_sha256": null,
+      "sha256": "5b01745e3cb06fba7805da4f2ca81d167d085cf0e47cbfbd7883ff4d0f80d321"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
+      "target_base_sha256": "e2cd983ec1b60f7178bab7a244d13c08c7b40d30305a6feb922972a87eee993f",
+      "sha256": "2f94d7a47745038fd49188daf51da42da798f4a5b4e5a3b4d7e955eb2f8c46a6"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_rl_reasoner.py",
+      "target_base_sha256": "4042431d6e0b5cb8c20fd168c8c8300e6c29477c329aa297a60147051191bce6",
+      "sha256": "c63b88bd48c8e8c86d2ea061e808e7eac1ddcf5aa6e708d2210a77e1f7eecae1"
+    },
+    {
+      "path": "maths_ai/hybrid_reasoner/hypergraph.py",
+      "target_base_sha256": "a466eab645ae3d5e92ac349c7cfde3397620dfd5300453cf0e2bf53e1a16900c",
+      "sha256": "ce702f8e66822a44aacfe33e62dd91c317511d98616e96885803f7e323f0f203"
+    },
+    {
+      "path": "maths_ai/hybrid_reasoner/joint_inference.py",
+      "target_base_sha256": "b44af74553b659da606f5226b424093a4639b2bd784aea4a8d1af6ab17f75e0b",
+      "sha256": "ab6ff6d63343d95c5220dc63e602af9e1ac690cba60082b8e31ae39f6747f967"
+    },
+    {
+      "path": "maths_ai/hybrid_reasoner/proof_recipes.py",
+      "target_base_sha256": "cacf293543276f4c31d02921acf40de56cd99f6e10cda24d4541accf6f87b988",
+      "sha256": "a735104d4d21003230f83b3214a243deb5260e3f4e2c05dfcfa20e041b69ad8b"
+    },
+    {
+      "path": "maths_ai/hybrid_reasoner/proof_replay.py",
+      "target_base_sha256": "8c6c487c44f5d4280c7b41dc1efab7fd8a5c82093c2386ba832e1f3f24c60ce6",
+      "sha256": "764cdd3e9929af36a6d4ac715c86814266645dbcd024c20fab79a282b13dc441"
+    }
+  ]
+}

@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from maths_ai.lean_replay import ReplayInputError
+
 from .dataset import DATASET_NAME, load_dataset_row
 from .graph import proof_state_to_dag, write_dag_json
 from .pyg import build_vocab, dag_to_pyg
@@ -83,7 +85,11 @@ def main(argv: list[str] | None = None) -> int:
         console_print(f"  ERROR: {exc}")
         return 1
 
-    parsed_state = parse_state(state_text)
+    try:
+        parsed_state = parse_state(state_text)
+    except ReplayInputError as exc:
+        console_print(f"  ERROR: {exc}")
+        return 1
     dag = proof_state_to_dag(parsed_state)
 
     console_print(format_dag_summary(dag, parsed_state, theorem=theorem, tactic=tactic))
