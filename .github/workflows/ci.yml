@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest 
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
 
     steps:
@@ -29,6 +29,19 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+
+      - name: Install GNU stdbuf
+        # Ubuntu 26.04 defaults to uutils; the native client requires GNU stdbuf.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gnu-coreutils
+          launcher_dir="$RUNNER_TEMP/pantograph-gnu-bin"
+          mkdir -p "$launcher_dir"
+          ln -s /usr/bin/gnustdbuf "$launcher_dir/stdbuf"
+          version="$("$launcher_dir/stdbuf" --version)"
+          printf '%s\n' "$version"
+          [[ "$version" == *"GNU coreutils"* ]]
+          printf '%s\n' "$launcher_dir" >> "$GITHUB_PATH"
 
       - name: Install Lean
         run: |

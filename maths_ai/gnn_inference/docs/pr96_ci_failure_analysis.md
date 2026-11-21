@@ -51,3 +51,17 @@ The previous patch registered its changed test files but omitted the workflow fr
 Follow-up verification uses a fresh archive of the exact pushed commit, reproduces the mismatch, and then applies only the manifest correction. All tracked files changed by the original CI commit must be present in that validation snapshot.
 
 Result: the exact pushed snapshot reproduced the workflow mismatch before correction. With only the manifest correction applied, the inference suite completed with **1,022 passed, 70 skipped, and 35 subtests passed**. All seven other files from the original patch were verified unchanged against the pushed commit. `git diff --check` passed. A new GitHub run is still required, including the factory tests that this fail-fast run did not reach.
+
+## Confirmed startup cause: non-GNU stdbuf on the runner
+
+[Run 44891098225](https://github.com/iCog-Labs-Dev/Mathematics-ai-atp/actions/runs/44891098225) passes source lineage and reaches the original factory failure. The pinned client's startup check rejects the selected executable with `The configured stdbuf is not GNU coreutils stdbuf.` It stops after 668 passed and 53 skipped cases.
+
+The runner is Ubuntu 26.04, whose default utilities are provided by uutils. GNU utilities remain available separately. See [Ubuntu's documented provider change](https://documentation.ubuntu.com/release-notes/26.04/summary-for-lts-users/) and the [GNU coreutils package](https://packages.ubuntu.com/resolute/gnu-coreutils). Inspection of that package confirms `/usr/bin/gnustdbuf` and `/usr/libexec/coreutils/libstdbuf.so`.
+
+The workflow had declared neither the GNU dependency nor its selection. The client's strict check is intentional. A local non-GNU-banner launcher reproduces the same factory exception; selecting real GNU stdbuf ahead of it allows the factory tests to pass.
+
+The correction selects Ubuntu 26.04 explicitly, installs `gnu-coreutils`, and prepends a job-local `stdbuf` symlink to `/usr/bin/gnustdbuf` through `GITHUB_PATH`. A version check runs before dependency builds. It preserves the host's coreutils provider and production validation. Docker's Debian-based runtime and the Conda environment already declare GNU coreutils; this change addresses the CI runner.
+
+The workflow and lineage-test changes are recorded in a new `ci_gnu_launcher` adaptation stage based on `6a3b5a152b53c4f97ed02ff4080690d1604a0983`. Earlier lineage records are unchanged. Validation uses a fresh archive of that exact commit plus the complete patch, including the workflow.
+
+Local results: **8 factory tests passed** with GNU selected ahead of a deliberately conflicting non-GNU launcher. The complete inference suite on the clean patched snapshot returned **1,022 passed, 70 skipped, and 35 subtests passed**. Workflow YAML, provisioning-shell syntax, manifest hashes, and `git diff --check` passed. Installing the package on the actual Ubuntu runner remains part of the next CI run.

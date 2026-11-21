@@ -475,5 +475,12 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
     for entry in startup_tests["sources"]:
         assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
         expected[entry["path"]] = entry["sha256"]
+    gnu_launcher = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "ci_gnu_launcher/source_manifest.json").read_text()
+    )
+    assert gnu_launcher["target_base_commit"] == "6a3b5a152b53c4f97ed02ff4080690d1604a0983"
+    for entry in gnu_launcher["sources"]:
+        assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        expected[entry["path"]] = entry["sha256"]
     for path, digest in expected.items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path
