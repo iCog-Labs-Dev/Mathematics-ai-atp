@@ -1,0 +1,26 @@
+{
+  "target_base_commit": "8c4482222555269191ca2354d9ddc5c5d60ce929",
+  "purpose": "Bound startup tests and preserve early failures without changing production protocol validation.",
+  "sources": [
+    {
+      "path": "maths_ai/gnn_inference/tests/pantograph_fake.py",
+      "target_base_sha256": "23853ed6c9cd21989c9732896c494354990d5f1a9b8ac1efefc79c04b2947896",
+      "sha256": "fe424eae304b10e6cac395ad431797aca17a9fc97e429385d463232b2f9edda4"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_pantograph_model_sexpr.py",
+      "target_base_sha256": "9ad43d2b1add567a34c059e2a63ff024fac254ab8a5fbe96a9d62e364bce675a",
+      "sha256": "01a051f77ff8ead1b9db84167788b1c011d9c1f96a8a451173663b1afd6b93a4"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_rl_live_collection_children.py",
+      "target_base_sha256": "a99768e9ecc7878d3eed52b3b832bdf921159243554e4e50faaecbd3c1371df0",
+      "sha256": "9279426a4ff38899e1ed7c2329a5ade5c234450b0e81e2ae98d7ed19e53ff178"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
+      "target_base_sha256": "11e89999bdccde9d514aa34bcec83a6d8ccac31bcff723d7976782b62fd50e35",
+      "sha256": "572ca1fe9569295dcbcf34409c51cb176e7cb86e1d5723d184e819efbbf3c357"
+    }
+  ]
+}

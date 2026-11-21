@@ -468,5 +468,12 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
     for name, digest in json.loads(raw)["files_sha256"].items():
         expected[f"contracts/formal-v2/{name}"] = digest.removeprefix("sha256:")
     expected["contracts/formal-v2/manifest.json"] = consolidated["contract_manifest_sha256"]
+    startup_tests = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "ci_startup_tests/source_manifest.json").read_text()
+    )
+    assert startup_tests["target_base_commit"] == "8c4482222555269191ca2354d9ddc5c5d60ce929"
+    for entry in startup_tests["sources"]:
+        assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        expected[entry["path"]] = entry["sha256"]
     for path, digest in expected.items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path

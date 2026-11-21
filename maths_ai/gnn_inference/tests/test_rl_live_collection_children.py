@@ -19,6 +19,7 @@ from maths_ai.gnn_inference.tests.pantograph_fake import (  # noqa: F401
     records,
     run,
     setup,
+    started_operation,
 )
 from maths_ai.gnn_inference.tests.test_rl_live_collection import _plan
 from pantograph_async import PantographClient, PantographTransportError
@@ -105,11 +106,10 @@ def test_cancelled_startup_reaps_every_started_child(setup):  # noqa: F811
             started.set()
             return client
 
-        task = asyncio.create_task(_pool(env, server_factory=create))
-        await started.wait()
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        async with started_operation(_pool(env, server_factory=create), started) as task:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
 
     run(body)
     assert _repl_pids(report)
@@ -192,11 +192,10 @@ def test_shutdown_racing_worker_replacement_reaps_every_child(setup):  # noqa: F
                     proposals=[None] * 2,
                 )
 
-        task = asyncio.create_task(collect())
-        await replacing.wait()
-        await asyncio.wait_for(pool.close(), 5)
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        async with started_operation(collect(), replacing) as task:
+            await asyncio.wait_for(pool.close(), 5)
+            with pytest.raises(asyncio.CancelledError):
+                await task
 
     run(body)
     assert len(_repl_pids(report)) == 2
