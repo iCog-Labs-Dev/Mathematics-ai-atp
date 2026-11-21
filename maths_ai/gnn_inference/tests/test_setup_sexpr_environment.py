@@ -27,13 +27,19 @@ def _git(*args: str, cwd: Path) -> str:
 
 
 class SetupSExprEnvironmentTests(unittest.TestCase):
-    @patch(
-        "maths_ai.gnn_inference.scripts.setup_sexpr_environment.shutil.which",
-        return_value="/usr/bin/stdbuf",
-    )
-    def test_stdbuf_dependency_resolves_from_runtime_path(self, which):
-        self.assertEqual(_require_stdbuf(), "/usr/bin/stdbuf")
-        which.assert_called_once_with("stdbuf")
+    def test_stdbuf_dependency_resolves_from_runtime_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "gnu-stdbuf"
+            binary.touch()
+            link = Path(directory) / "stdbuf"
+            link.symlink_to(binary)
+            for discovered in (binary, link):
+                with self.subTest(discovered=discovered), patch(
+                    "maths_ai.gnn_inference.scripts.setup_sexpr_environment.shutil.which",
+                    return_value=str(discovered),
+                ) as which:
+                    self.assertEqual(_require_stdbuf(), str(binary.resolve()))
+                    which.assert_called_once_with("stdbuf")
 
     @patch(
         "maths_ai.gnn_inference.scripts.setup_sexpr_environment.shutil.which",

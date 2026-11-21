@@ -65,3 +65,13 @@ The correction selects Ubuntu 26.04 explicitly, installs `gnu-coreutils`, and pr
 The workflow and lineage-test changes are recorded in a new `ci_gnu_launcher` adaptation stage based on `6a3b5a152b53c4f97ed02ff4080690d1604a0983`. Earlier lineage records are unchanged. Validation uses a fresh archive of that exact commit plus the complete patch, including the workflow.
 
 Local results: **8 factory tests passed** with GNU selected ahead of a deliberately conflicting non-GNU launcher. The complete inference suite on the clean patched snapshot returned **1,022 passed, 70 skipped, and 35 subtests passed**. Workflow YAML, provisioning-shell syntax, manifest hashes, and `git diff --check` passed. Installing the package on the actual Ubuntu runner remains part of the next CI run.
+
+## Host-dependent setup-test expectation
+
+[Run 44891929006](https://github.com/iCog-Labs-Dev/Mathematics-ai-atp/actions/runs/44891929006), at `9f9874831eeeffaa33eee249c12757f6b1eb714b`, successfully provisions GNU stdbuf and passes the factory tests. It reaches 1,054 passed and 80 skipped cases before a setup test fails.
+
+That test mocked executable discovery to return `/usr/bin/stdbuf` and expected the same string after `Path.resolve()`. On Ubuntu 26.04 that path is a symlink resolving to `/usr/lib/cargo/bin/coreutils/stdbuf`. The setup function is correctly resolving the discovered path; the test assumed a particular host filesystem layout.
+
+The test now creates its own temporary binary and symlink, checking discovery and resolution for both paths. Production code is unchanged. A new `ci_launcher_paths` lineage stage preserves the previous snapshots. Focused setup and lineage validation passes **41 tests and 2 subtests**.
+
+The full inference suite on the clean patched snapshot passes **1,022 tests**, with **70 skipped and 37 subtests passed**, while selecting GNU ahead of the conflicting non-GNU launcher.
