@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from functools import partial
 import hashlib
 import json
 import math
@@ -12,6 +13,8 @@ from typing import Any
 from maths_ai.hybrid_reasoner.pantograph_model_sexpr import create_model_sexpr_client
 from maths_ai.hybrid_reasoner.proposal import input_identity
 from maths_ai.lean_replay import RENDERER_VERSION, render_replay
+from .admission_rows import AdmissionSource
+from .lean_source_rows import elaborate_candidate, read_selection
 from .dataset import canonicalize_split_name
 from .goal_file_records import GOAL_FILE_DECODER_VERSION
 from .seed_admission import (
@@ -26,8 +29,11 @@ from .seed_admission import (
 )
 
 DATA_CONTRACT_VERSION = 1
+LEAN_SOURCE_FIELDS = ("lean_source_root", "lean_source_revision", "lean_source_manifest")
+SOURCE_PATH_FIELDS = ("theorem_file", "seed_cache_path", "lean_source_root", "lean_source_manifest")
 RETIRED_SOURCE_FIELDS = frozenset(
     {
+        *LEAN_SOURCE_FIELDS,
         "data_source",
         "theorem_file",
         "dataset_name",
@@ -65,12 +71,18 @@ class TheoremSourceConfig:
     max_replay_chars: int | None = 50000
     admission_time_budget_s: float = 1800.0
     seed_cache_path: Path | None = None
+    lean_source_root: Path | None = None
+    lean_source_revision: str | None = None
+    lean_source_manifest: Path | None = None
 
     def __post_init__(self):
-        for name in ("theorem_file", "seed_cache_path"):
+        for name in SOURCE_PATH_FIELDS:
             value = getattr(self, name)
             if value is not None:
                 object.__setattr__(self, name, Path(value))
+        source_fields = [getattr(self, name) for name in LEAN_SOURCE_FIELDS]
+        if self.data_source != "lean_source" and any(v is not None for v in source_fields):
+            raise ValueError("Lean source fields require data_source=lean_source")
         if self.data_source == "dataset":
             if not self.dataset_name or not self.dataset_revision or not self.split:
                 raise ValueError(
@@ -91,8 +103,18 @@ class TheoremSourceConfig:
                 raise ValueError(
                     "File sources require theorem_file and no dataset fields"
                 )
+        elif self.data_source == "lean_source":
+            if any(v is None for v in source_fields) or any(
+                v is not None for v in (self.dataset_name, self.dataset_revision, self.split, self.theorem_file)
+            ):
+                raise ValueError("Lean source evaluation requires root, revision, and manifest exclusively")
+            revision = self.lean_source_revision
+            if not isinstance(revision, str) or len(revision) != 40 or any(
+                c not in "0123456789abcdef" for c in revision
+            ):
+                raise ValueError("lean_source_revision must be a full lowercase Git commit SHA")
         else:
-            raise ValueError("data_source must be dataset or file")
+            raise ValueError("data_source must be dataset, file, or lean_source")
         for name in (
             "max_pool_size",
             "max_scan_rows",
@@ -114,7 +136,9 @@ class TheoremSourceConfig:
 
     def to_dict(self):
         return {
-            k: str(v) if isinstance(v, Path) else v for k, v in asdict(self).items()
+            k: str(v) if isinstance(v, Path) else v
+            for k, v in asdict(self).items()
+            if k not in LEAN_SOURCE_FIELDS or v is not None
         }
 
     def source_identity(self):
@@ -125,6 +149,8 @@ class TheoremSourceConfig:
                 "revision": self.dataset_revision,
                 "split": self.split,
             }
+        if self.data_source == "lean_source":
+            return read_selection(self.lean_source_manifest, self.lean_source_revision)[0]
         path = self.theorem_file
         return {"kind": "file", "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
 
@@ -132,6 +158,8 @@ class TheoremSourceConfig:
         config = self.to_dict()
         config.pop("seed_cache_path")
         config.pop("theorem_file")
+        config.pop("lean_source_root", None)
+        config.pop("lean_source_manifest", None)
         return {
             "config": config,
             "source": self.source_identity(),
@@ -163,7 +191,24 @@ class AdmittedSource:
 def open_admission(source: TheoremSourceConfig, env, *, client_factory=None):
     report = AdmissionReport()
     report.environment = environment_identity(env)
-    if source.data_source == "file":
+    resolver = None
+    cache_environment = report.environment
+    if source.data_source == "lean_source":
+        identity, selections = read_selection(
+            source.lean_source_manifest, source.lean_source_revision
+        )
+        candidates = AdmissionSource("lean_source", {
+            "root": source.lean_source_root,
+            "identity": identity,
+            "selections": selections,
+            "max_scan_rows": source.max_scan_rows,
+        })
+        report.source = {**identity, "max_scan_rows": source.max_scan_rows}
+        cache_environment = {**report.environment, "lean_source": identity}
+        resolver = partial(
+            elaborate_candidate, env=env, max_state_chars=source.max_state_chars, report=report
+        )
+    elif source.data_source == "file":
         candidates = file_candidates(
             source.theorem_file,
             max_scan_rows=source.max_scan_rows,
@@ -185,7 +230,8 @@ def open_admission(source: TheoremSourceConfig, env, *, client_factory=None):
         max_admitted=source.max_pool_size,
         time_budget_s=source.admission_time_budget_s,
         report=report,
-        cache=ValidationCache(source.seed_cache_path, report.environment),
+        cache=ValidationCache(source.seed_cache_path, cache_environment),
+        elaborate_candidate=resolver,
         max_replay_chars=source.max_replay_chars,
     )
     return session, report
@@ -193,12 +239,16 @@ def open_admission(source: TheoremSourceConfig, env, *, client_factory=None):
 
 def finalize_admission(source, items, report):
     ordered = ordered_items(items)
+    contract = source.contract()
+    identity = contract["source"]
+    if source.data_source == "lean_source" and identity["selection_sha256"] != report.source["selection_sha256"]:
+        raise ValueError("Lean source selection manifest changed during admission")
     return AdmittedSource(
         ordered,
         {
-            "source": source.source_identity(),
+            "source": identity,
             "configuration": source.to_dict(),
-            "contract": source.contract(),
+            "contract": contract,
             "admitted": len(ordered),
             "pool_identity": pool_identity(ordered),
             "environment": report.environment,
@@ -218,7 +268,7 @@ async def admit_source(source, env, *, report_dir=None, client_factory=None):
     report_path = write_report(report, report_dir) if report_dir is not None else None
     if not session.admitted:
         raise RuntimeError(
-            f"No seed passed Lean validation for {source.data_source} source {source.split or source.theorem_file}"
+            f"No seed passed Lean validation for {source.data_source} source {source.split or source.theorem_file or source.lean_source_manifest}"
         )
     admitted = finalize_admission(source, session.admitted, report)
     if report_path is not None:
@@ -247,6 +297,8 @@ def data_contract(cfg, pool):
 
 
 def validate_source_separation(training, evaluation):
+    if training and training.data_source == "lean_source":
+        raise ValueError("Lean source inputs are supported only in evaluation_data")
     if training and evaluation:
         if training.source_identity() == evaluation.source_identity():
             raise ValueError(

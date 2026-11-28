@@ -52,6 +52,7 @@ from maths_ai.lean_replay import (
 
 from .dataset import iter_dataset_rows
 from .admission_rows import AdmissionSource, SourceRows
+from .lean_source_rows import LeanSourceCandidate
 from maths_ai.hybrid_reasoner.resource_outcomes import resource_from_exception
 
 EXAMPLES_PER_REASON = 20
@@ -89,6 +90,7 @@ class AdmissionRow:
     """One source-row event; an offline rejection still consumes step capacity."""
 
     item: TheoremItem | None
+    source_candidate: LeanSourceCandidate | None = None
 
 
 @dataclass
@@ -118,12 +120,14 @@ class AdmissionReport:
     def quarantine(
         self, seed_source: dict[str, object], error: ReplayInputError, size: int, **extra
     ) -> None:
-        reason = error.reason.value
+        self.reject(seed_source, error.reason.value, error.as_dict(), size, **extra)
+
+    def reject(self, seed_source, reason, error, size, **extra) -> None:
         self.quarantined[reason] += 1
         self.cover(seed_source, size, "quarantined")
         bucket = self.examples.setdefault(reason, [])
         if len(bucket) < EXAMPLES_PER_REASON:
-            bucket.append({"source": seed_source, "error": error.as_dict(), **extra})
+            bucket.append({"source": seed_source, "error": error, **extra})
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -172,7 +176,6 @@ def _admit_offline(
     seed_factory, tactic: str, size: int, source: dict[str, object],
     max_state_chars: int | None, report: AdmissionReport,
 ) -> TheoremItem | None:
-    report.scanned += 1
     if max_state_chars is not None and size > max_state_chars:
         report.skipped["over-size"] += 1
         report.cover(source, size, "skipped")
@@ -207,6 +210,7 @@ def _dataset_row_events(
     for row in iter_dataset_rows(
         dataset_name=dataset_name, split=split, sample_limit=max_scan_rows, revision=revision
     ):
+        report.scanned += 1
         item = _admit_offline(
             row.structured_seed,
             row.tactic or "",
@@ -233,8 +237,8 @@ def _file_row_events(
         for line_number, line in enumerate(handle, start=1):
             if report.scanned >= max_scan_rows:
                 return
+            report.scanned += 1
             if not line.strip():
-                report.scanned += 1
                 yield AdmissionRow(None)
                 continue
             source = {"file": str(path), "line": line_number}
@@ -246,7 +250,6 @@ def _file_row_events(
                 if not isinstance(tactic, str):
                     raise ValueError("tactic must be a string.")
             except (ValueError, TypeError) as exc:
-                report.scanned += 1
                 report.quarantine(source, ReplayInputError(
                     ReplayFailure.MALFORMED_STRUCTURED, str(exc)), len(line))
                 yield AdmissionRow(None)
@@ -347,11 +350,13 @@ class AdmissionSession:
         report: AdmissionReport,
         cache: ValidationCache | None = None,
         max_replay_chars: int | None = None,
+        elaborate_candidate: Callable[[LeanSourceCandidate, float], Awaitable[TheoremItem | None]] | None = None,
     ) -> None:
         self._source = candidates
         self._rows: SourceRows | None = None
         self._offline_report = AdmissionReport()
         self._client_factory = client_factory
+        self._elaborate_candidate = elaborate_candidate
         self.max_admitted = max_admitted
         self.report = report
         self.cache = cache
@@ -398,14 +403,21 @@ class AdmissionSession:
                     self.done = True
                     break
                 self.rows_seen += 1
-                if event.item is None:
-                    await asyncio.sleep(0)
-                    continue
                 async with asyncio.timeout_at(self._deadline):
+                    item = event.item
+                    if event.source_candidate is not None:
+                        if self._elaborate_candidate is None:
+                            raise RuntimeError("Lean source admission requires an elaborator")
+                        item = await self._elaborate_candidate(
+                            event.source_candidate, self._deadline - time.monotonic()
+                        )
+                    if item is None:
+                        await asyncio.sleep(0)
+                        continue
                     if self._client is None:
                         self._client = await self._client_factory()
-                    if await self._admit(event.item):
-                        newly.append(event.item)
+                    if await self._admit(item):
+                        newly.append(item)
         except TimeoutError:
             self.report.stopped_by, self.done = "time-budget", True
             await self.close()

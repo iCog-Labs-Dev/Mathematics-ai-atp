@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from maths_ai.pln_inference.runtime import PLNRuntimeSpec
-from maths_ai.gnn_inference.atp_lean_gnn.theorem_sources import TheoremSourceConfig
+from maths_ai.gnn_inference.atp_lean_gnn.theorem_sources import SOURCE_PATH_FIELDS, TheoremSourceConfig
 from maths_ai.hybrid_reasoner.selection_policy import (
     WIDENING_FIELDS,
     resolve_search_params,
@@ -195,7 +195,7 @@ class ServiceConfig:
             },
             default_search_profile=payload["default_search_profile"],
             dataset_profiles={
-                name: TheoremSourceConfig(**{**profile, **{key: path(profile[key]) for key in ("theorem_file", "seed_cache_path") if profile.get(key)}})
+                name: TheoremSourceConfig(**{**profile, **{key: path(profile[key]) for key in SOURCE_PATH_FIELDS if profile.get(key)}})
                 for name, profile in payload.get("dataset_profiles", {}).items()
             },
             checkpoint=path(payload.get("checkpoint")),

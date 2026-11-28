@@ -1,0 +1,60 @@
+{
+  "target_base_commit": "9614548e3e917e8c45aecc42991aeb2870e391cb",
+  "sources": [
+    {
+      "path": "maths_ai/api/config.py",
+      "target_base_sha256": "07579b1135e03d16b3d705693d3f11582dc77c3e5a07886be392802a90f527f4",
+      "sha256": "ef22375453f987d669b74cbc1c44b31af39f178737159d5d1ca00d437df3c336"
+    },
+    {
+      "path": "maths_ai/api/runtime_backend.py",
+      "target_base_sha256": "6f59b7273ead02f26e18389958521c53a49bdcf58751d774d0a8ef94708c31ec",
+      "sha256": "8f20bcc47797186037b3b606d7c4c666f5e11084447fadb549ab14ba222523d5"
+    },
+    {
+      "path": "maths_ai/formal/admission.py",
+      "target_base_sha256": "315b0e36f47b601f3cc366565f2fab7ca4790022f353ec5c1ae3e579e4c221e4",
+      "sha256": "9d5055a5341b3b6af5da983a485b9c059364d33631dafa862364851db6c4babe"
+    },
+    {
+      "path": "maths_ai/formal/source_elaboration.py",
+      "target_base_sha256": "892aafa9c7c7c2a361b4980a543e885f67001a01447d2ce799611683640b9578",
+      "sha256": "1e0bb8cd34fe8687e0ce16da504c6c7184901244e31ce89c6d35da91e7410660"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/admission_rows.py",
+      "target_base_sha256": "6b084ff5397226da7b63a3213b3bd5382419990b8ea6803bf58729fbcfcbce10",
+      "sha256": "e827698efd7c8459120f511f55afc135252d63e40f98c288aadd4f21b8d3e9f1"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/lean_source_rows.py",
+      "target_base_sha256": null,
+      "sha256": "5b64b9ade7a4ccb95b19d756699863fbd014c521df7cb2678c2845a065b73093"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/seed_admission.py",
+      "target_base_sha256": "341596c53ced8f54d368898ffefe751cf0238d4a3928214f8831d159699a0d0a",
+      "sha256": "3d9fd609e511e34769ab1e9b0bafc4bda11639289f4df3a9c41039d2b5dc0443"
+    },
+    {
+      "path": "maths_ai/gnn_inference/atp_lean_gnn/theorem_sources.py",
+      "target_base_sha256": "6886fd63f472d15fa824ca00d2e6460d49805c30a864fe4edf7247bb34dc2449",
+      "sha256": "36ebfe7cfa75acf2c68383c7f575a234420a6a70bb0874953bebdadebf18fa6f"
+    },
+    {
+      "path": "maths_ai/gnn_inference/docs/independent_training_and_evaluation_sources.md",
+      "target_base_sha256": "2438e122b7ac84f8b3de7f34f985c9b1c82489d6f61e8e47d9500a05a8b89acb",
+      "sha256": "26ea87e7164c2ee02489c8288396ba25792da239c74f9b25ff76c31901e45aa1"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_lean_source_evaluation.py",
+      "target_base_sha256": null,
+      "sha256": "89649173fa13c2bfae19109fde7604bd02cbebca4df18be641d0ddfc88f3fab0"
+    },
+    {
+      "path": "maths_ai/gnn_inference/tests/test_owned_client_migration.py",
+      "target_base_sha256": "2ea556ca3bb2067efe55e1c21d894df3baa7404f2804d4237e6d8cc06dcc7801",
+      "sha256": "ff8d81691d4ed002fd60c08b4f6358539fc203871b290c5932da028077aa311a"
+    }
+  ]
+}

@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from .admission import AdmissionRejected
+from .admission import AdmissionRejected, source_seed
 
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 _SORRY_WARNING = "declaration uses 'sorry'"
@@ -194,3 +194,15 @@ async def elaborate_source(session_factory, body: str, declaration: str, stateme
         statement = statement_of(goal)
         goal["check"] = await check_statement(session.send, statement)
         return goal
+
+
+
+async def elaborate_in_environment(env, payload: dict[str, Any], *, timeout_s: float):
+    """Use a dedicated source elaboration process in the deployment environment."""
+    declaration = payload["declaration"]
+    return await elaborate_source(
+        lambda: ReplSession(env.pantograph_repl, env.source_root, list(env.imports), timeout_s=timeout_s),
+        payload["body"],
+        declaration,
+        lambda goal: source_seed(goal, declaration)[1],
+    )
