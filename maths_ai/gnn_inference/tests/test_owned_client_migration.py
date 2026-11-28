@@ -489,5 +489,12 @@ def test_port_sources_match_the_recorded_lineage_and_current_adaptations():
     for entry in launcher_paths["sources"]:
         assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
         expected[entry["path"]] = entry["sha256"]
+    lean_source = json.loads(
+        (WIDENING_MANIFEST.parent.parent / "lean_source_evaluation/source_manifest.json").read_text()
+    )
+    for entry in lean_source["sources"]:
+        if entry["path"] in expected:
+            assert entry["target_base_sha256"] == expected[entry["path"]], entry["path"]
+        expected[entry["path"]] = entry["sha256"]
     for path, digest in expected.items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path

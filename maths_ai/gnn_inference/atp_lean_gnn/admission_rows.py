@@ -25,6 +25,10 @@ def _decode_rows(source, connection):
         rows = _dataset_row_events(**source.parameters, report=report)
     elif source.kind == "file":
         rows = _file_row_events(**source.parameters, report=report)
+    elif source.kind == "lean_source":
+        from .lean_source_rows import lean_source_row_events
+
+        rows = lean_source_row_events(**source.parameters, report=report)
     elif source.kind == "rows":
         rows = iter(source.parameters["rows"])
     else:
@@ -65,7 +69,7 @@ class SourceRows:
         self.pending = None
         event, report, error = result
         if error is not None:
-            raise RuntimeError(f"Dataset source failed: {error}")
+            raise RuntimeError(f"Admission source failed: {error}")
         return event, report
 
     async def close(self):

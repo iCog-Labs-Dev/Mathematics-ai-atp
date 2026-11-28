@@ -195,20 +195,12 @@ class LiveBackend:
         A dedicated REPL process from the workers' executable, Lake project and
         imports is used and retired; search sessions are not touched.
         """
-        from maths_ai.formal.admission import AdmissionRejected, source_seed
-        from maths_ai.formal.source_elaboration import ReplSession, elaborate_source
+        from maths_ai.formal.admission import AdmissionRejected
+        from maths_ai.formal.source_elaboration import elaborate_in_environment
 
-        env = self.runtime.env
-        declaration = payload["declaration"]
         try:
-            return await elaborate_source(
-                lambda: ReplSession(
-                    Path(env.pantograph_repl), Path(env.source_root), list(env.imports),
-                    timeout_s=float(payload["timeout_s"]),
-                ),
-                payload["body"],
-                declaration,
-                lambda goal: source_seed(goal, declaration)[1],
+            return await elaborate_in_environment(
+                self.runtime.env, payload, timeout_s=float(payload["timeout_s"]),
             )
         except AdmissionRejected as exc:
             return {"rejected": {"category": exc.category, "detail": exc.detail}}

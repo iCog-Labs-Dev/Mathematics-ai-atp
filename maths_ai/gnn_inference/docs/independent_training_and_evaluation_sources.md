@@ -109,3 +109,55 @@ Verification used the repository-pinned client from an isolated temporary instal
 - Full live HTTP verification was attempted twice. Both attempts failed before dataset admission because the Lean worker exceeded its startup timeout. API unit/lifecycle tests and direct native admission/certification passed, but the HTTP end-to-end result is not claimed as verified.
 
 The actual Hugging Face validation/test pools and trained GPU checkpoint were not run in this local verification. Their paths and runtime artifacts remain JupyterHub-specific. No image build or new model-quality result is implied.
+
+## Evaluate a Lean checkout directly
+
+Create a selection file such as `putnam-selection.json` containing the exact
+theorem names (including namespaces) and their paths relative to the benchmark
+checkout. For example:
+
+```json
+[
+  {"file_path": "lean4/src/putnam_1962_a1.lean", "theorem": "putnam_1962_a1"},
+  {"file_path": "lean4/src/putnam_1988_b1.lean", "theorem": "putnam_1988_b1"}
+]
+```
+
+In an existing evaluation config, replace `evaluation_data` with:
+
+```json
+{
+  "data_source": "lean_source",
+  "lean_source_root": "/path/to/PutnamBench",
+  "lean_source_revision": "8aaccf8c40e0db1e69a3c808166d9d09b0109703",
+  "lean_source_manifest": "/path/to/putnam-selection.json",
+  "max_pool_size": 2,
+  "max_scan_rows": 2,
+  "admission_time_budget_s": 300
+}
+```
+
+Run either a PUCT or a best-first config through the evaluation entry point:
+
+```bash
+python -m maths_ai.gnn_inference.scripts.rl_train \
+  --config /path/to/eval.json --eval-only \
+  --eval-report /path/to/report.json --eval-output-dir /path/to/evaluation
+```
+
+For periodic evaluation, use the same block alongside an independent training
+source. For API batch jobs, put the block under a named `dataset_profiles`
+entry and select it through `dataset_profile` in the request. When containerized,
+mount both the checkout (including its Git metadata) and the manifest at the
+paths visible to the service. Relative profile paths are relative to the service
+config directory. Relative CLI paths are relative to the working directory.
+
+Use trusted benchmark checkouts. Lean elaborates the source commands preceding
+the selected declaration to recover its context. It replaces the selected
+theorem's proof and excludes the following commands. The runtime Lean/Mathlib
+and retrieval artifacts still come from the evaluation config. The benchmark
+checkout supplies source text. Statements that depend on source-local
+definitions, including Putnam answer placeholders, can fail admission in the
+deployed environment. Source elaboration can take up to 120 seconds per
+selected declaration, within the overall admission budget. Check the
+admission report for exclusions before interpreting the proof rate.

@@ -304,6 +304,33 @@ def source_seed(goal: dict[str, Any], declaration: str):
         raise AdmissionRejected(f"input:{exc.reason.value}", str(exc)) from exc
 
 
+async def elaborate_source_seed(
+    data: bytes, *, declaration: str, imports: list[str], elaborate: SourceElaborator
+):
+    """Elaborate source bytes into a structured seed and closed statement."""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise AdmissionRejected("input:malformed-source", "The source artifact is not UTF-8.") from exc
+    source_imports, body = split_header(text)
+    unsupported = [name for name in source_imports if not _allowed_import(name, imports)]
+    if unsupported:
+        raise AdmissionRejected(
+            "environment:unsupported-import",
+            f"The deployment environment does not provide {unsupported}.",
+        )
+    goal = await elaborate({"body": body, "declaration": declaration})
+    seed, statement = source_seed(goal, declaration)
+    check = goal.get("check") or {}
+    if not check.get("ok"):
+        raise AdmissionRejected(
+            "input:unsupported-context",
+            "The declaration's statement does not elaborate in the deployment environment "
+            f"(it may depend on declarations of the source file): {check.get('error')}",
+        )
+    return seed, statement, goal, source_imports
+
+
 async def admit_source(
     request_input: SourceInput,
     *,
@@ -323,31 +350,14 @@ async def admit_source(
         data = store.get(request_input.artifact_hash)
     except ArtifactError as exc:
         raise AdmissionRejected(f"input:{exc.category}", exc.detail) from exc
-    try:
-        text = data.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise AdmissionRejected("input:malformed-source", "The source artifact is not UTF-8.") from exc
-    source_imports, body = split_header(text)
-    unsupported = [name for name in source_imports if not _allowed_import(name, imports)]
-    if unsupported:
-        raise AdmissionRejected(
-            "environment:unsupported-import",
-            f"The deployment environment does not provide {unsupported}.",
-        )
-    goal = await elaborate({"body": body, "declaration": request_input.declaration})
-    _seed, statement = source_seed(goal, request_input.declaration)
-    check = goal.get("check") or {}
-    if not check.get("ok"):
-        raise AdmissionRejected(
-            "input:unsupported-context",
-            "The declaration's statement does not elaborate in the deployment environment "
-            f"(it may depend on declarations of the source file): {check.get('error')}",
-        )
+    seed, statement, goal, source_imports = await elaborate_source_seed(
+        data, declaration=request_input.declaration, imports=imports, elaborate=elaborate
+    )
     seed_spec = {
         "kind": "structured",
         "target_sexp": goal["target_sexp"],
         "locals": goal["locals"],
-        "source": {"origin": "formal-source", "theorem": request_input.declaration},
+        "source": seed.source_dict,
     }
     manifest = {
         "format": INPUT_MANIFEST_FORMAT,
